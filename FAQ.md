@@ -85,6 +85,14 @@ For authorizing:
 * Comcast/Xfinity: please check if [third party email access](https://www.xfinity.com/support/articles/third-party-email-access) is enabled
 * Mailbox.org: with two factor authentication you'll need to use [an app password](https://kb.mailbox.org/en/private/security-and-privacy/application-passwords-for-external-programs/) ([German](https://kb.mailbox.org/de/privat/sicherheit-und-privatsphaere/applikationspasswoerter-fuer-externe-programme/))
 
+**Important:**
+
+*There is a good reason why the app warns against using a VPN:*
+With a VPN, you share a single network address with many people, and not all of those people will behave properly all the time.
+Most email servers automatically block network addresses when abuse is detected, for example, when someone tries to send spam.
+That is why a VPN is often problematic for email. Someone else's misconduct can affect you.
+So if there are authentication problems while using a VPN, either when configuring or using an account, try turning off the VPN, or create an exception for FairEmail in the VPN app.
+
 Please see [this FAQ](#faq22) for common error messages and solutions,
 and please see [this FAQ](#faq207) in case of '*Authentication failed*' or similar.
 
