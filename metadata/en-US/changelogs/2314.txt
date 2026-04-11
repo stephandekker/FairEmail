@@ -35,6 +35,7 @@ Next version (Work in progress)
 * Fixed all reported bugs
 * Added EXTERNAL authentication method
 * Small improvements and minor bug fixes
+* Updated BouncyCastle
 * Updated translations
 * Updated Public Suffix List
 * Updated Brave's debounce list

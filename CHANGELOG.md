@@ -35,6 +35,7 @@ For support you can use [the contact form](https://contact.faircode.eu/?product=
 * Fixed all reported bugs
 * Added [EXTERNAL](https://datatracker.ietf.org/doc/html/rfc4959) authentication method
 * Small improvements and minor bug fixes
+* Updated [BouncyCastle](https://www.bouncycastle.org/)
 * Updated [translations](https://crowdin.com/project/open-source-email)
 * Updated [Public Suffix List](https://github.com/publicsuffix/list)
 * Updated [Brave's debounce list](https://github.com/brave/brave-browser/wiki/Debouncing)
