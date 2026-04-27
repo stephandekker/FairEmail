@@ -25,9 +25,9 @@ android {
     // https://developer.android.com/studio/releases#api-level-support
     defaultConfig {
         applicationId "eu.faircode.email"
-        compileSdk = 36
+        compileSdk = 37
         minSdkVersion 21
-        targetSdkVersion 36
+        targetSdkVersion 37
         //targetSdkPreview "VanillaIceCream"
         versionCode getVersionCode()
         versionName "1." + getVersionCode()
