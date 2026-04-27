@@ -620,7 +620,7 @@
     <string name="title_advanced_message_text_zoom2">Domyślne powiększenie tekstu wiadomości: %1$s %%</string>
     <string name="title_advanced_editor_text_zoom">Powiększ tekst wiadomości również w edytorze wiadomości</string>
     <string name="title_advanced_overview_mode">Powiększ oryginalne wiadomości, aby dopasować je do ekranu</string>
-    <string name="title_advanced_line_spacing" comment="title_advanced_line_spacing Title with value (a percentage) for line spacing of the message text">Odstęp linii: %1$s %%</string>
+    <string name="title_advanced_line_spacing">Odstęp linii: %1$s %%</string>
     <string name="title_advanced_hyphenation">Użyj automatycznego dzielenia wyrazów</string>
     <string name="title_advanced_contrast">Użyj wysokiego kontrastu dla tekstu wiadomości</string>
     <string name="title_advanced_monospaced">Domyślnie użyj czcionki o stałej szerokości dla tekstu wiadomości</string>
@@ -2151,7 +2151,7 @@
     <string name="title_log_clear">Wyczyść</string>
     <string name="title_rules_search_hint">Szukaj nazwy lub warunku</string>
     <string name="title_rules_export">Eksportuj reguły</string>
-    <string name="title_rules_import" comment="title_rules_import Title of menu item to import rules">Importuj reguły</string>
+    <string name="title_rules_import">Importuj reguły</string>
     <string name="title_rules_delete_all">Usuń wszystkie reguły</string>
     <string name="title_rules_delete_all_confirm">Usunąć wszystkie reguły?</string>
     <string name="title_debug_info">Info debugowania</string>
@@ -2386,6 +2386,7 @@
     </string-array>
     <string-array name="undoNames">
         <item>Wył.</item>
+        <item comment="undoNames Number of seconds to show the undo popup">1,25 s</item>
         <item>2,5 s</item>
         <item>5 s</item>
         <item>7,5 s</item>

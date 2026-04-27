@@ -705,6 +705,7 @@
     <string name="title_rule_notes_missing">Trūkst vietējo piezīmju</string>
     <string name="title_rule_check">@string/title_check</string>
     <string name="title_rule_tts_data">Uzstādīt balss datus</string>
+    <string name="title_rule_tts_from">No</string>
     <string name="title_rule_tts_subject">@string/title_sort_on_subject</string>
     <string name="title_legend_section_folders">Mapes</string>
     <string name="title_legend_section_compose">Sastādīt</string>
@@ -724,6 +725,7 @@
     <string name="title_legend_contacts">Pārvaldīt kontaktpersonas</string>
     <string name="title_legend_hide">Slēpt saturu</string>
     <string name="title_legend_link">@string/title_style_link</string>
+    <string name="title_legend_create_rule">Izveidot kārtulu</string>
     <string name="title_legend_delete">@string/title_delete</string>
     <string name="title_legend_folder_type">Mapes tips</string>
     <string name="title_legend_enter">Atvērt</string>
@@ -767,7 +769,7 @@
     <string name="title_pro_valid">Visas Pro funkcijas aktivizētas</string>
     <string name="title_log">Žurnāls</string>
     <string name="title_rules_export">Izgūt kārtulas</string>
-    <string name="title_rules_import" comment="title_rules_import Title of menu item to import rules">Ievietot kārtulas</string>
+    <string name="title_rules_import">Ievietot kārtulas</string>
     <string name="title_rules_delete_all">Dzēst visas kārtulas</string>
     <string name="title_rules_delete_all_confirm">Vai tiešām vēlaties dzēst visas kārtulas?</string>
     <string name="title_debug_info">Atkļūdošanas informācija</string>
@@ -844,6 +846,7 @@
     </string-array>
     <string-array name="undoNames">
         <item>Off</item>
+        <item comment="undoNames Number of seconds to show the undo popup">1.25 s</item>
         <item>2.5 s</item>
         <item>5 s</item>
         <item>7.5 s</item>
