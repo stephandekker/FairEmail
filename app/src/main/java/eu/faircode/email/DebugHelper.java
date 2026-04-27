@@ -378,9 +378,10 @@ public class DebugHelper {
                     if (info.getTimestamp() > from &&
                             info.getImportance() >= ActivityManager.RunningAppProcessInfo.IMPORTANCE_GONE) {
                         exits = true;
-                        sb.append(String.format("%s: %s\r\n",
+                        sb.append(String.format("%s: %s - %s\r\n",
                                 new Date(info.getTimestamp()),
-                                Helper.getExitReason(info.getReason())));
+                                Helper.getExitReason(info.getReason()),
+                                info.getDescription()));
                     }
                 if (!exits)
                     sb.append("No crashes\r\n");
@@ -1985,11 +1986,11 @@ public class DebugHelper {
                         List<ApplicationExitInfo> infos = am.getHistoricalProcessExitReasons(
                                 context.getPackageName(), 0, 100);
                         for (ApplicationExitInfo info : infos)
-                            size += write(os, String.format("%s: %s %s/%s reason=%s status=%d importance=%d\r\n",
+                            size += write(os, String.format("%s: %s %s/%s reason=%s status=%d importance=%d %s\r\n",
                                     new Date(info.getTimestamp()), info.getDescription(),
                                     Helper.humanReadableByteCount(info.getPss() * 1024L),
                                     Helper.humanReadableByteCount(info.getRss() * 1024L),
-                                    Helper.getExitReason(info.getReason()), info.getStatus(), info.getImportance()));
+                                    Helper.getExitReason(info.getReason()), info.getStatus(), info.getImportance(), info.getDescription()));
                     } catch (Throwable ex) {
                         size += write(os, String.format("%s\r\n", ex));
                     }
