@@ -9218,6 +9218,10 @@ public class FragmentMessages extends FragmentBase
                     if (viewType == AdapterMessage.ViewType.THREAD)
                         return (down && onScroll(context, false, 0.125f));
                     break;
+                case KeyEvent.KEYCODE_FORWARD_DEL:
+                    if (viewType == AdapterMessage.ViewType.UNIFIED || viewType == AdapterMessage.ViewType.FOLDER)
+                        return (up && onTrashSelection(context));
+                    break;
             }
 
             if (!up)
@@ -9302,6 +9306,14 @@ public class FragmentMessages extends FragmentBase
         private boolean onScroll(Context context, boolean up, float percent) {
             int h = context.getResources().getDisplayMetrics().heightPixels;
             rvMessage.scrollBy(0, Math.round((up ? -1 : 1) * h * percent));
+            return true;
+        }
+
+        private boolean onTrashSelection(Context context) {
+            long[] selected = getSelection();
+            if (selected.length == 0)
+                return false;
+            onActionMoveSelection(EntityFolder.TRASH, false);
             return true;
         }
     };
