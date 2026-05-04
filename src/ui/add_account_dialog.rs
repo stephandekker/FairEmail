@@ -2,6 +2,7 @@ use glib::clone;
 use gtk4 as gtk;
 use gtk4::prelude::*;
 use libadwaita as adw;
+use libadwaita::prelude::*;
 
 use crate::core::connection_test::{ConnectionTestRequest, ServerConnectionParams};
 use crate::core::{Account, AuthMethod, EncryptionMode, NewAccountParams, Protocol, SmtpConfig};
@@ -13,7 +14,7 @@ pub(crate) type DialogResult = Option<Account>;
 /// Build and show the "Add Account" dialog. Calls `on_done` with the result.
 pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResult) + 'static) {
     let dialog = adw::Dialog::builder()
-        .title(gettext::gettext("Add Account"))
+        .title(gettextrs::gettext("Add Account"))
         .content_width(460)
         .content_height(680)
         .build();
@@ -41,46 +42,46 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
 
     // -- Display name --
     let name_group = adw::PreferencesGroup::builder()
-        .title(gettext::gettext("Display Name"))
+        .title(gettextrs::gettext("Display Name"))
         .build();
     let name_row = adw::EntryRow::builder()
-        .title(gettext::gettext("Account name"))
+        .title(gettextrs::gettext("Account name"))
         .build();
-    name_row.set_tooltip_text(Some(&gettext::gettext("A friendly name for this account")));
+    name_row.set_tooltip_text(Some(&gettextrs::gettext("A friendly name for this account")));
     name_group.add(&name_row);
     vbox.append(&name_group);
 
     // -- Incoming server settings --
     let server_group = adw::PreferencesGroup::builder()
-        .title(gettext::gettext("Incoming Server"))
+        .title(gettextrs::gettext("Incoming Server"))
         .build();
 
     let protocol_row = adw::ComboRow::builder()
-        .title(gettext::gettext("Protocol"))
+        .title(gettextrs::gettext("Protocol"))
         .model(&gtk::StringList::new(&[
-            &gettext::gettext("IMAP"),
-            &gettext::gettext("POP3"),
+            &gettextrs::gettext("IMAP"),
+            &gettextrs::gettext("POP3"),
         ]))
         .build();
     server_group.add(&protocol_row);
 
     let host_row = adw::EntryRow::builder()
-        .title(gettext::gettext("Host"))
+        .title(gettextrs::gettext("Host"))
         .build();
     server_group.add(&host_row);
 
     let port_row = adw::SpinRow::builder()
-        .title(gettext::gettext("Port"))
+        .title(gettextrs::gettext("Port"))
         .adjustment(&gtk::Adjustment::new(993.0, 1.0, 65535.0, 1.0, 10.0, 0.0))
         .build();
     server_group.add(&port_row);
 
     let encryption_row = adw::ComboRow::builder()
-        .title(gettext::gettext("Encryption"))
+        .title(gettextrs::gettext("Encryption"))
         .model(&gtk::StringList::new(&[
-            &gettext::gettext("SSL/TLS"),
-            &gettext::gettext("STARTTLS"),
-            &gettext::gettext("None"),
+            &gettextrs::gettext("SSL/TLS"),
+            &gettextrs::gettext("STARTTLS"),
+            &gettextrs::gettext("None"),
         ]))
         .build();
     server_group.add(&encryption_row);
@@ -89,26 +90,26 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
 
     // -- Authentication --
     let auth_group = adw::PreferencesGroup::builder()
-        .title(gettext::gettext("Authentication"))
+        .title(gettextrs::gettext("Authentication"))
         .build();
 
     let auth_method_row = adw::ComboRow::builder()
-        .title(gettext::gettext("Method"))
+        .title(gettextrs::gettext("Method"))
         .model(&gtk::StringList::new(&[
-            &gettext::gettext("PLAIN"),
-            &gettext::gettext("LOGIN"),
-            &gettext::gettext("OAuth2"),
+            &gettextrs::gettext("PLAIN"),
+            &gettextrs::gettext("LOGIN"),
+            &gettextrs::gettext("OAuth2"),
         ]))
         .build();
     auth_group.add(&auth_method_row);
 
     let username_row = adw::EntryRow::builder()
-        .title(gettext::gettext("Username"))
+        .title(gettextrs::gettext("Username"))
         .build();
     auth_group.add(&username_row);
 
     let password_row = adw::PasswordEntryRow::builder()
-        .title(gettext::gettext("Password / Token"))
+        .title(gettextrs::gettext("Password / Token"))
         .build();
     auth_group.add(&password_row);
 
@@ -116,48 +117,48 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
 
     // -- Outgoing (SMTP) server settings --
     let smtp_group = adw::PreferencesGroup::builder()
-        .title(gettext::gettext("Outgoing Server (SMTP)"))
+        .title(gettextrs::gettext("Outgoing Server (SMTP)"))
         .build();
 
     let smtp_host_row = adw::EntryRow::builder()
-        .title(gettext::gettext("Host"))
+        .title(gettextrs::gettext("Host"))
         .build();
     smtp_group.add(&smtp_host_row);
 
     let smtp_port_row = adw::SpinRow::builder()
-        .title(gettext::gettext("Port"))
+        .title(gettextrs::gettext("Port"))
         .adjustment(&gtk::Adjustment::new(587.0, 1.0, 65535.0, 1.0, 10.0, 0.0))
         .build();
     smtp_group.add(&smtp_port_row);
 
     let smtp_encryption_row = adw::ComboRow::builder()
-        .title(gettext::gettext("Encryption"))
+        .title(gettextrs::gettext("Encryption"))
         .model(&gtk::StringList::new(&[
-            &gettext::gettext("SSL/TLS"),
-            &gettext::gettext("STARTTLS"),
-            &gettext::gettext("None"),
+            &gettextrs::gettext("SSL/TLS"),
+            &gettextrs::gettext("STARTTLS"),
+            &gettextrs::gettext("None"),
         ]))
         .selected(1) // STARTTLS is common for SMTP port 587
         .build();
     smtp_group.add(&smtp_encryption_row);
 
     let smtp_auth_row = adw::ComboRow::builder()
-        .title(gettext::gettext("Method"))
+        .title(gettextrs::gettext("Method"))
         .model(&gtk::StringList::new(&[
-            &gettext::gettext("PLAIN"),
-            &gettext::gettext("LOGIN"),
-            &gettext::gettext("OAuth2"),
+            &gettextrs::gettext("PLAIN"),
+            &gettextrs::gettext("LOGIN"),
+            &gettextrs::gettext("OAuth2"),
         ]))
         .build();
     smtp_group.add(&smtp_auth_row);
 
     let smtp_username_row = adw::EntryRow::builder()
-        .title(gettext::gettext("Username"))
+        .title(gettextrs::gettext("Username"))
         .build();
     smtp_group.add(&smtp_username_row);
 
     let smtp_password_row = adw::PasswordEntryRow::builder()
-        .title(gettext::gettext("Password / Token"))
+        .title(gettextrs::gettext("Password / Token"))
         .build();
     smtp_group.add(&smtp_password_row);
 
@@ -172,13 +173,13 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
         .build();
 
     let test_btn = gtk::Button::builder()
-        .label(gettext::gettext("Test Connection"))
+        .label(gettextrs::gettext("Test Connection"))
         .css_classes(["pill"])
         .build();
     btn_box.append(&test_btn);
 
     let save_btn = gtk::Button::builder()
-        .label(gettext::gettext("Save"))
+        .label(gettextrs::gettext("Save"))
         .css_classes(["suggested-action", "pill"])
         .build();
     btn_box.append(&save_btn);

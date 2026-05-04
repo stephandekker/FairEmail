@@ -2,6 +2,7 @@ use glib::clone;
 use gtk4 as gtk;
 use gtk4::prelude::*;
 use libadwaita as adw;
+use libadwaita::prelude::*;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -14,7 +15,7 @@ use crate::ui::add_account_dialog;
 pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
     let window = adw::ApplicationWindow::builder()
         .application(app)
-        .title(gettext::gettext("Alarm Clock – Accounts"))
+        .title(gettextrs::gettext("Alarm Clock – Accounts"))
         .default_width(720)
         .default_height(480)
         .build();
@@ -25,7 +26,7 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
     let sidebar_header = adw::HeaderBar::new();
     let add_btn = gtk::Button::builder()
         .icon_name("list-add-symbolic")
-        .tooltip_text(gettext::gettext("Add account"))
+        .tooltip_text(gettextrs::gettext("Add account"))
         .accessible_role(gtk::AccessibleRole::Button)
         .build();
     sidebar_header.pack_start(&add_btn);
@@ -37,7 +38,7 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
         .build();
     account_list.set_placeholder(Some(
         &gtk::Label::builder()
-            .label(gettext::gettext("No accounts yet"))
+            .label(gettextrs::gettext("No accounts yet"))
             .css_classes(["dim-label"])
             .margin_top(24)
             .margin_bottom(24)
@@ -54,14 +55,14 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
     sidebar_toolbar.set_content(Some(&scroll));
 
     let sidebar_page = adw::NavigationPage::builder()
-        .title(gettext::gettext("Accounts"))
+        .title(gettextrs::gettext("Accounts"))
         .child(&sidebar_toolbar)
         .build();
 
     // -- Content pane (placeholder) --
     let content_header = adw::HeaderBar::new();
     let content_label = gtk::Label::builder()
-        .label(gettext::gettext("Select an account"))
+        .label(gettextrs::gettext("Select an account"))
         .css_classes(["dim-label"])
         .vexpand(true)
         .build();
@@ -70,7 +71,7 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
     content_toolbar.set_content(Some(&content_label));
 
     let content_page = adw::NavigationPage::builder()
-        .title(gettext::gettext("Details"))
+        .title(gettextrs::gettext("Details"))
         .child(&content_toolbar)
         .build();
 
