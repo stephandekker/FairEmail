@@ -249,6 +249,61 @@ pub struct SecuritySettings {
     pub auth_realm: Option<String>,
 }
 
+/// Preference for which date source to use when displaying message dates (FR-51).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DateHeaderPreference {
+    /// Use the date/time reported by the server (default).
+    #[default]
+    ServerTime,
+    /// Use the `Date` header from the message itself.
+    DateHeader,
+    /// Use the `Received` header timestamp.
+    ReceivedHeader,
+}
+
+impl std::fmt::Display for DateHeaderPreference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ServerTime => write!(f, "Server time"),
+            Self::DateHeader => write!(f, "Date header"),
+            Self::ReceivedHeader => write!(f, "Received header"),
+        }
+    }
+}
+
+/// Advanced fetch settings per account (FR-51, FR-53).
+/// All fields default to their "off" / unset state so that
+/// accounts created before this feature was added deserialize cleanly.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FetchSettings {
+    /// Enable partial (body structure) fetch mode for large messages (FR-51).
+    #[serde(default)]
+    pub partial_fetch: bool,
+    /// Fetch raw message data instead of parsed MIME (FR-51).
+    #[serde(default)]
+    pub raw_fetch: bool,
+    /// Ignore server-reported size limits when fetching (FR-51).
+    #[serde(default)]
+    pub ignore_size_limits: bool,
+    /// Which date source to prefer when displaying message timestamps (FR-51).
+    #[serde(default)]
+    pub date_header_preference: DateHeaderPreference,
+    /// Enable UTF-8 (IMAP UTF8=ACCEPT) support for this account (FR-51).
+    #[serde(default)]
+    pub utf8_support: bool,
+}
+
+/// Advanced keep-alive settings per account (FR-52, FR-53).
+/// The polling interval itself is stored as a top-level account field
+/// (shared with story 10); this struct holds additional keep-alive tuning.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeepAliveSettings {
+    /// Send NOOP commands instead of using IMAP IDLE for keep-alive (FR-52).
+    /// Useful for servers that do not support or misbehave with IDLE.
+    #[serde(default)]
+    pub use_noop_instead_of_idle: bool,
+}
+
 /// POP3-specific behaviour settings (US-31, US-32, US-33, US-34, FR-9).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pop3Settings {
@@ -361,6 +416,10 @@ pub struct NewAccountParams {
     pub notifications_enabled: bool,
     /// Advanced connection security settings (FR-4, FR-53, US-8, US-9, US-10).
     pub security_settings: Option<SecuritySettings>,
+    /// Advanced fetch settings (FR-51, FR-53).
+    pub fetch_settings: Option<FetchSettings>,
+    /// Advanced keep-alive settings (FR-52, FR-53).
+    pub keep_alive_settings: Option<KeepAliveSettings>,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -405,6 +464,10 @@ pub struct UpdateAccountParams {
     pub notifications_enabled: bool,
     /// Advanced connection security settings (FR-4, FR-53, US-8, US-9, US-10).
     pub security_settings: Option<SecuritySettings>,
+    /// Advanced fetch settings (FR-51, FR-53).
+    pub fetch_settings: Option<FetchSettings>,
+    /// Advanced keep-alive settings (FR-52, FR-53).
+    pub keep_alive_settings: Option<KeepAliveSettings>,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -478,6 +541,12 @@ pub struct Account {
     /// Advanced connection security settings (FR-4, FR-53, US-8, US-9, US-10).
     #[serde(default)]
     security_settings: Option<SecuritySettings>,
+    /// Advanced fetch settings (FR-51, FR-53).
+    #[serde(default)]
+    fetch_settings: Option<FetchSettings>,
+    /// Advanced keep-alive settings (FR-52, FR-53).
+    #[serde(default)]
+    keep_alive_settings: Option<KeepAliveSettings>,
 }
 
 /// A local folder associated with an account.
@@ -617,6 +686,8 @@ impl Account {
             notifications_enabled: params.notifications_enabled,
             quota: None,
             security_settings: params.security_settings,
+            fetch_settings: params.fetch_settings,
+            keep_alive_settings: params.keep_alive_settings,
         })
     }
 
@@ -810,6 +881,26 @@ impl Account {
         self.security_settings = settings;
     }
 
+    /// Advanced fetch settings (FR-51, FR-53).
+    pub fn fetch_settings(&self) -> Option<&FetchSettings> {
+        self.fetch_settings.as_ref()
+    }
+
+    /// Set or clear the advanced fetch settings (FR-51, FR-53).
+    pub fn set_fetch_settings(&mut self, settings: Option<FetchSettings>) {
+        self.fetch_settings = settings;
+    }
+
+    /// Advanced keep-alive settings (FR-52, FR-53).
+    pub fn keep_alive_settings(&self) -> Option<&KeepAliveSettings> {
+        self.keep_alive_settings.as_ref()
+    }
+
+    /// Set or clear the advanced keep-alive settings (FR-52, FR-53).
+    pub fn set_keep_alive_settings(&mut self, settings: Option<KeepAliveSettings>) {
+        self.keep_alive_settings = settings;
+    }
+
     /// Extract the configuration of this account into `NewAccountParams` suitable for
     /// creating a duplicate. The duplicate will NOT inherit:
     /// - The source's unique identifier (a new UUID is assigned on creation)
@@ -840,6 +931,8 @@ impl Account {
             swipe_defaults: self.swipe_defaults.clone(),
             notifications_enabled: self.notifications_enabled,
             security_settings: self.security_settings.clone(),
+            fetch_settings: self.fetch_settings.clone(),
+            keep_alive_settings: self.keep_alive_settings.clone(),
         }
     }
 
@@ -882,6 +975,8 @@ impl Account {
         self.swipe_defaults = params.swipe_defaults;
         self.notifications_enabled = params.notifications_enabled;
         self.security_settings = params.security_settings;
+        self.fetch_settings = params.fetch_settings;
+        self.keep_alive_settings = params.keep_alive_settings;
         Ok(())
     }
 }
@@ -950,6 +1045,8 @@ mod tests {
             swipe_defaults: None,
             notifications_enabled: true,
             security_settings: None,
+            fetch_settings: None,
+            keep_alive_settings: None,
         }
     }
 
@@ -1051,6 +1148,8 @@ mod tests {
             swipe_defaults: None,
             notifications_enabled: true,
             security_settings: None,
+            fetch_settings: None,
+            keep_alive_settings: None,
         }
     }
 
@@ -1280,6 +1379,8 @@ mod tests {
             swipe_defaults: None,
             notifications_enabled: true,
             security_settings: None,
+            fetch_settings: None,
+            keep_alive_settings: None,
         };
         acct.update(up).unwrap();
         assert_eq!(acct.id(), original_id);
@@ -2634,5 +2735,248 @@ mod tests {
         assert!(s.certificate_fingerprint.is_none());
         assert!(s.client_certificate.is_none());
         assert!(s.auth_realm.is_none());
+    }
+
+    // -- FetchSettings tests (FR-51) --
+
+    #[test]
+    fn fetch_settings_default_none() {
+        let acct = valid_account();
+        assert!(acct.fetch_settings().is_none());
+    }
+
+    #[test]
+    fn fetch_settings_default_struct_all_off() {
+        let s = FetchSettings::default();
+        assert!(!s.partial_fetch);
+        assert!(!s.raw_fetch);
+        assert!(!s.ignore_size_limits);
+        assert_eq!(s.date_header_preference, DateHeaderPreference::ServerTime);
+        assert!(!s.utf8_support);
+    }
+
+    #[test]
+    fn fetch_settings_creation() {
+        let mut p = valid_params();
+        p.fetch_settings = Some(FetchSettings {
+            partial_fetch: true,
+            raw_fetch: false,
+            ignore_size_limits: true,
+            date_header_preference: DateHeaderPreference::ReceivedHeader,
+            utf8_support: true,
+        });
+        let acct = Account::new(p).unwrap();
+        let fs = acct.fetch_settings().unwrap();
+        assert!(fs.partial_fetch);
+        assert!(!fs.raw_fetch);
+        assert!(fs.ignore_size_limits);
+        assert_eq!(
+            fs.date_header_preference,
+            DateHeaderPreference::ReceivedHeader
+        );
+        assert!(fs.utf8_support);
+    }
+
+    #[test]
+    fn fetch_settings_setter() {
+        let mut acct = valid_account();
+        acct.set_fetch_settings(Some(FetchSettings {
+            raw_fetch: true,
+            ..Default::default()
+        }));
+        assert!(acct.fetch_settings().unwrap().raw_fetch);
+        acct.set_fetch_settings(None);
+        assert!(acct.fetch_settings().is_none());
+    }
+
+    #[test]
+    fn fetch_settings_update() {
+        let mut acct = valid_account();
+        let mut up = valid_update_params();
+        up.fetch_settings = Some(FetchSettings {
+            partial_fetch: true,
+            date_header_preference: DateHeaderPreference::DateHeader,
+            ..Default::default()
+        });
+        acct.update(up).unwrap();
+        let fs = acct.fetch_settings().unwrap();
+        assert!(fs.partial_fetch);
+        assert_eq!(fs.date_header_preference, DateHeaderPreference::DateHeader);
+    }
+
+    #[test]
+    fn fetch_settings_can_be_cleared_via_update() {
+        let mut p = valid_params();
+        p.fetch_settings = Some(FetchSettings {
+            partial_fetch: true,
+            ..Default::default()
+        });
+        let mut acct = Account::new(p).unwrap();
+        assert!(acct.fetch_settings().is_some());
+        let mut up = valid_update_params();
+        up.fetch_settings = None;
+        acct.update(up).unwrap();
+        assert!(acct.fetch_settings().is_none());
+    }
+
+    #[test]
+    fn fetch_settings_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.fetch_settings = Some(FetchSettings {
+            partial_fetch: true,
+            raw_fetch: true,
+            ignore_size_limits: true,
+            date_header_preference: DateHeaderPreference::ReceivedHeader,
+            utf8_support: true,
+        });
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(acct.fetch_settings(), restored.fetch_settings());
+    }
+
+    #[test]
+    fn deserialize_account_without_fetch_settings_defaults_to_none() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("fetch_settings");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.fetch_settings().is_none());
+    }
+
+    #[test]
+    fn fetch_settings_per_account_isolation() {
+        let mut p1 = valid_params();
+        p1.fetch_settings = Some(FetchSettings {
+            partial_fetch: true,
+            ..Default::default()
+        });
+        let a1 = Account::new(p1).unwrap();
+        let a2 = valid_account();
+        assert!(a1.fetch_settings().unwrap().partial_fetch);
+        assert!(a2.fetch_settings().is_none());
+    }
+
+    // -- KeepAliveSettings tests (FR-52) --
+
+    #[test]
+    fn keep_alive_settings_default_none() {
+        let acct = valid_account();
+        assert!(acct.keep_alive_settings().is_none());
+    }
+
+    #[test]
+    fn keep_alive_settings_default_struct_all_off() {
+        let s = KeepAliveSettings::default();
+        assert!(!s.use_noop_instead_of_idle);
+    }
+
+    #[test]
+    fn keep_alive_settings_creation() {
+        let mut p = valid_params();
+        p.keep_alive_settings = Some(KeepAliveSettings {
+            use_noop_instead_of_idle: true,
+        });
+        let acct = Account::new(p).unwrap();
+        assert!(acct.keep_alive_settings().unwrap().use_noop_instead_of_idle);
+    }
+
+    #[test]
+    fn keep_alive_settings_setter() {
+        let mut acct = valid_account();
+        acct.set_keep_alive_settings(Some(KeepAliveSettings {
+            use_noop_instead_of_idle: true,
+        }));
+        assert!(acct.keep_alive_settings().unwrap().use_noop_instead_of_idle);
+        acct.set_keep_alive_settings(None);
+        assert!(acct.keep_alive_settings().is_none());
+    }
+
+    #[test]
+    fn keep_alive_settings_update() {
+        let mut acct = valid_account();
+        let mut up = valid_update_params();
+        up.keep_alive_settings = Some(KeepAliveSettings {
+            use_noop_instead_of_idle: true,
+        });
+        acct.update(up).unwrap();
+        assert!(acct.keep_alive_settings().unwrap().use_noop_instead_of_idle);
+    }
+
+    #[test]
+    fn keep_alive_settings_can_be_cleared_via_update() {
+        let mut p = valid_params();
+        p.keep_alive_settings = Some(KeepAliveSettings {
+            use_noop_instead_of_idle: true,
+        });
+        let mut acct = Account::new(p).unwrap();
+        assert!(acct.keep_alive_settings().is_some());
+        let mut up = valid_update_params();
+        up.keep_alive_settings = None;
+        acct.update(up).unwrap();
+        assert!(acct.keep_alive_settings().is_none());
+    }
+
+    #[test]
+    fn keep_alive_settings_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.keep_alive_settings = Some(KeepAliveSettings {
+            use_noop_instead_of_idle: true,
+        });
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(acct.keep_alive_settings(), restored.keep_alive_settings());
+    }
+
+    #[test]
+    fn deserialize_account_without_keep_alive_settings_defaults_to_none() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("keep_alive_settings");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.keep_alive_settings().is_none());
+    }
+
+    #[test]
+    fn keep_alive_settings_per_account_isolation() {
+        let mut p1 = valid_params();
+        p1.keep_alive_settings = Some(KeepAliveSettings {
+            use_noop_instead_of_idle: true,
+        });
+        let a1 = Account::new(p1).unwrap();
+        let a2 = valid_account();
+        assert!(a1.keep_alive_settings().unwrap().use_noop_instead_of_idle);
+        assert!(a2.keep_alive_settings().is_none());
+    }
+
+    #[test]
+    fn date_header_preference_display() {
+        assert_eq!(DateHeaderPreference::ServerTime.to_string(), "Server time");
+        assert_eq!(DateHeaderPreference::DateHeader.to_string(), "Date header");
+        assert_eq!(
+            DateHeaderPreference::ReceivedHeader.to_string(),
+            "Received header"
+        );
+    }
+
+    #[test]
+    fn duplicate_preserves_fetch_and_keep_alive_settings() {
+        let mut p = valid_params();
+        p.fetch_settings = Some(FetchSettings {
+            partial_fetch: true,
+            utf8_support: true,
+            ..Default::default()
+        });
+        p.keep_alive_settings = Some(KeepAliveSettings {
+            use_noop_instead_of_idle: true,
+        });
+        let acct = Account::new(p).unwrap();
+        let dup_params = acct.to_new_account_params();
+        assert_eq!(dup_params.fetch_settings, acct.fetch_settings().cloned());
+        assert_eq!(
+            dup_params.keep_alive_settings,
+            acct.keep_alive_settings().cloned()
+        );
     }
 }

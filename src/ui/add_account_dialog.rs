@@ -863,6 +863,8 @@ pub(crate) fn show(
                 swipe_defaults,
                 notifications_enabled: true,
                 security_settings: None,
+                fetch_settings: None,
+                keep_alive_settings: None,
             }) {
                 Ok(account) => {
                     on_done(Some(account));

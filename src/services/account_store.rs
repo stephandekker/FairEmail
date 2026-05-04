@@ -126,6 +126,8 @@ mod tests {
             swipe_defaults: None,
             notifications_enabled: true,
             security_settings: None,
+            fetch_settings: None,
+            keep_alive_settings: None,
         })
         .unwrap()
     }
@@ -207,6 +209,8 @@ mod tests {
                 swipe_defaults: None,
                 notifications_enabled: true,
                 security_settings: None,
+                fetch_settings: None,
+                keep_alive_settings: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();
@@ -266,6 +270,8 @@ mod tests {
                 swipe_defaults: None,
                 notifications_enabled: true,
                 security_settings: None,
+                fetch_settings: None,
+                keep_alive_settings: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();

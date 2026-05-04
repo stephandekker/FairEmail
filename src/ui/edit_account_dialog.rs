@@ -9,9 +9,9 @@ use libadwaita::prelude::*;
 
 use crate::core::connection_test::{ConnectionTestRequest, ServerConnectionParams};
 use crate::core::{
-    Account, AccountColor, AuthMethod, ConnectionLogEntry, ConnectionState, EncryptionMode,
-    Pop3Settings, Protocol, QuotaInfo, SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
-    UpdateAccountParams,
+    Account, AccountColor, AuthMethod, ConnectionLogEntry, ConnectionState, DateHeaderPreference,
+    EncryptionMode, FetchSettings, KeepAliveSettings, Pop3Settings, Protocol, QuotaInfo,
+    SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders, UpdateAccountParams,
 };
 use crate::services::connection_tester::{ConnectionTester, MockConnectionTester};
 use crate::ui::connection_log_dialog;
@@ -936,6 +936,84 @@ pub(crate) fn show(
     security_group.add(&security_expander);
     vbox.append(&security_group);
 
+    // -- Advanced Fetch & Keep-Alive Settings (FR-51, FR-52, FR-53) --
+    let existing_fetch = account.fetch_settings();
+    let existing_ka = account.keep_alive_settings();
+
+    let fetch_expander = adw::ExpanderRow::builder()
+        .title(gettextrs::gettext("Advanced"))
+        .show_enable_switch(false)
+        .build();
+
+    let partial_fetch_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Partial fetch"))
+        .subtitle(gettextrs::gettext(
+            "Use body structure fetch for large messages",
+        ))
+        .active(existing_fetch.is_some_and(|s| s.partial_fetch))
+        .build();
+    fetch_expander.add_row(&partial_fetch_row);
+
+    let raw_fetch_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Raw fetch"))
+        .subtitle(gettextrs::gettext(
+            "Fetch raw message data instead of parsed MIME",
+        ))
+        .active(existing_fetch.is_some_and(|s| s.raw_fetch))
+        .build();
+    fetch_expander.add_row(&raw_fetch_row);
+
+    let ignore_size_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Ignore size limits"))
+        .subtitle(gettextrs::gettext(
+            "Ignore server-reported size limits when fetching",
+        ))
+        .active(existing_fetch.is_some_and(|s| s.ignore_size_limits))
+        .build();
+    fetch_expander.add_row(&ignore_size_row);
+
+    let date_pref_row = adw::ComboRow::builder()
+        .title(gettextrs::gettext("Date source"))
+        .subtitle(gettextrs::gettext(
+            "Which timestamp to display for messages",
+        ))
+        .model(&gtk::StringList::new(&[
+            &gettextrs::gettext("Server time"),
+            &gettextrs::gettext("Date header"),
+            &gettextrs::gettext("Received header"),
+        ]))
+        .selected(match existing_fetch.map(|s| s.date_header_preference) {
+            Some(DateHeaderPreference::DateHeader) => 1,
+            Some(DateHeaderPreference::ReceivedHeader) => 2,
+            _ => 0,
+        })
+        .build();
+    fetch_expander.add_row(&date_pref_row);
+
+    let utf8_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("UTF-8 support"))
+        .subtitle(gettextrs::gettext(
+            "Enable IMAP UTF8=ACCEPT for this account",
+        ))
+        .active(existing_fetch.is_some_and(|s| s.utf8_support))
+        .build();
+    fetch_expander.add_row(&utf8_row);
+
+    let noop_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Use NOOP instead of IDLE"))
+        .subtitle(gettextrs::gettext(
+            "Send NOOP commands for keep-alive instead of IMAP IDLE",
+        ))
+        .active(existing_ka.is_some_and(|s| s.use_noop_instead_of_idle))
+        .build();
+    fetch_expander.add_row(&noop_row);
+
+    let fetch_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Fetch & Keep-Alive"))
+        .build();
+    fetch_group.add(&fetch_expander);
+    vbox.append(&fetch_group);
+
     // -- Action buttons --
     let btn_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -1152,6 +1230,18 @@ pub(crate) fn show(
         client_cert_row,
         #[weak]
         auth_realm_row,
+        #[weak]
+        partial_fetch_row,
+        #[weak]
+        raw_fetch_row,
+        #[weak]
+        ignore_size_row,
+        #[weak]
+        date_pref_row,
+        #[weak]
+        utf8_row,
+        #[weak]
+        noop_row,
         #[strong]
         color_active,
         #[strong]
@@ -1309,6 +1399,43 @@ pub(crate) fn show(
                             certificate_fingerprint: fingerprint,
                             client_certificate: client_cert,
                             auth_realm: realm,
+                        })
+                    } else {
+                        None
+                    }
+                },
+                fetch_settings: {
+                    let partial = partial_fetch_row.is_active();
+                    let raw = raw_fetch_row.is_active();
+                    let ignore_size = ignore_size_row.is_active();
+                    let date_pref = match date_pref_row.selected() {
+                        1 => DateHeaderPreference::DateHeader,
+                        2 => DateHeaderPreference::ReceivedHeader,
+                        _ => DateHeaderPreference::ServerTime,
+                    };
+                    let utf8 = utf8_row.is_active();
+                    if partial
+                        || raw
+                        || ignore_size
+                        || date_pref != DateHeaderPreference::ServerTime
+                        || utf8
+                    {
+                        Some(FetchSettings {
+                            partial_fetch: partial,
+                            raw_fetch: raw,
+                            ignore_size_limits: ignore_size,
+                            date_header_preference: date_pref,
+                            utf8_support: utf8,
+                        })
+                    } else {
+                        None
+                    }
+                },
+                keep_alive_settings: {
+                    let noop = noop_row.is_active();
+                    if noop {
+                        Some(KeepAliveSettings {
+                            use_noop_instead_of_idle: true,
                         })
                     } else {
                         None

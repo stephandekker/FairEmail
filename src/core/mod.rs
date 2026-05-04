@@ -10,9 +10,10 @@ pub mod sync_conditions;
 
 pub use account::{
     collect_categories, detect_system_folders, notification_channel_id, resolve_color, Account,
-    AccountColor, AccountValidationError, AuthMethod, EncryptionMode, Folder, FolderRole,
-    NewAccountParams, Pop3Settings, Protocol, QuotaInfo, SecuritySettings, SmtpConfig, SwipeAction,
-    SwipeDefaults, SystemFolders, UpdateAccountParams, QUOTA_HIGH_THRESHOLD_PERCENT,
+    AccountColor, AccountValidationError, AuthMethod, DateHeaderPreference, EncryptionMode,
+    FetchSettings, Folder, FolderRole, KeepAliveSettings, NewAccountParams, Pop3Settings, Protocol,
+    QuotaInfo, SecuritySettings, SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
+    UpdateAccountParams, QUOTA_HIGH_THRESHOLD_PERCENT,
 };
 pub use account_order::{apply_custom_order, default_order, move_account, order_from_accounts};
 pub use connection_state::{

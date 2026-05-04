@@ -69,6 +69,8 @@ mod tests {
                 client_certificate: Some("/etc/pki/client.pem".into()),
                 auth_realm: Some("example.com".into()),
             }),
+            fetch_settings: None,
+            keep_alive_settings: None,
         };
         let mut acct = Account::new(params).unwrap();
         // Simulate the source being primary and having state.

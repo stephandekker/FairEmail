@@ -131,6 +131,8 @@ mod tests {
             swipe_defaults: None,
             notifications_enabled: true,
             security_settings: None,
+            fetch_settings: None,
+            keep_alive_settings: None,
         })
         .unwrap();
         if primary {
