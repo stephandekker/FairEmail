@@ -16,8 +16,8 @@ pub fn duplicate(source: &Account) -> Result<Account, AccountValidationError> {
 mod tests {
     use super::*;
     use crate::core::{
-        AccountColor, AuthMethod, EncryptionMode, NewAccountParams, Protocol, SmtpConfig,
-        SwipeAction, SwipeDefaults, SystemFolders,
+        AccountColor, AuthMethod, EncryptionMode, NewAccountParams, Protocol, SecuritySettings,
+        SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
     };
 
     fn source_account() -> Account {
@@ -61,6 +61,14 @@ mod tests {
                 default_move_to: Some("Archive".into()),
             }),
             notifications_enabled: true,
+            security_settings: Some(SecuritySettings {
+                dnssec: true,
+                dane: true,
+                insecure: false,
+                certificate_fingerprint: Some("ab:cd:ef:01".into()),
+                client_certificate: Some("/etc/pki/client.pem".into()),
+                auth_realm: Some("example.com".into()),
+            }),
         };
         let mut acct = Account::new(params).unwrap();
         // Simulate the source being primary and having state.

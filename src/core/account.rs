@@ -221,6 +221,34 @@ impl QuotaInfo {
     }
 }
 
+/// Advanced connection security settings per account (FR-4, FR-53, US-8, US-9, US-10).
+/// All fields are optional and default to their "off" / unset state so that
+/// accounts created before this feature was added deserialize cleanly.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SecuritySettings {
+    /// Require DNSSEC validation for DNS lookups to this account's servers (US-8).
+    #[serde(default)]
+    pub dnssec: bool,
+    /// Require DANE (TLSA) verification for TLS connections (US-8).
+    #[serde(default)]
+    pub dane: bool,
+    /// Allow insecure (unverified-certificate) connections for this account (US-9).
+    #[serde(default)]
+    pub insecure: bool,
+    /// SHA-256 fingerprint of the server certificate to pin (US-9).
+    /// When set, the client must reject any certificate whose fingerprint
+    /// does not match, regardless of CA trust.
+    #[serde(default)]
+    pub certificate_fingerprint: Option<String>,
+    /// Path or alias referencing a client certificate for mutual TLS (US-10).
+    /// On Linux this typically points into an NSS or PKCS#11 store.
+    #[serde(default)]
+    pub client_certificate: Option<String>,
+    /// Authentication realm override (FR-4).
+    #[serde(default)]
+    pub auth_realm: Option<String>,
+}
+
 /// POP3-specific behaviour settings (US-31, US-32, US-33, US-34, FR-9).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pop3Settings {
@@ -331,6 +359,8 @@ pub struct NewAccountParams {
     pub swipe_defaults: Option<SwipeDefaults>,
     /// Whether notifications are enabled for this account (FR-39, AC-19).
     pub notifications_enabled: bool,
+    /// Advanced connection security settings (FR-4, FR-53, US-8, US-9, US-10).
+    pub security_settings: Option<SecuritySettings>,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -373,6 +403,8 @@ pub struct UpdateAccountParams {
     pub swipe_defaults: Option<SwipeDefaults>,
     /// Whether notifications are enabled for this account (FR-39, AC-19).
     pub notifications_enabled: bool,
+    /// Advanced connection security settings (FR-4, FR-53, US-8, US-9, US-10).
+    pub security_settings: Option<SecuritySettings>,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -443,6 +475,9 @@ pub struct Account {
     /// `None` when the server does not report quota information.
     #[serde(default)]
     quota: Option<QuotaInfo>,
+    /// Advanced connection security settings (FR-4, FR-53, US-8, US-9, US-10).
+    #[serde(default)]
+    security_settings: Option<SecuritySettings>,
 }
 
 /// A local folder associated with an account.
@@ -581,6 +616,7 @@ impl Account {
             swipe_defaults: params.swipe_defaults,
             notifications_enabled: params.notifications_enabled,
             quota: None,
+            security_settings: params.security_settings,
         })
     }
 
@@ -764,6 +800,16 @@ impl Account {
         self.quota = quota;
     }
 
+    /// Advanced connection security settings (FR-4, FR-53, US-8, US-9, US-10).
+    pub fn security_settings(&self) -> Option<&SecuritySettings> {
+        self.security_settings.as_ref()
+    }
+
+    /// Set or clear the advanced security settings (FR-4, FR-53, US-8, US-9, US-10).
+    pub fn set_security_settings(&mut self, settings: Option<SecuritySettings>) {
+        self.security_settings = settings;
+    }
+
     /// Extract the configuration of this account into `NewAccountParams` suitable for
     /// creating a duplicate. The duplicate will NOT inherit:
     /// - The source's unique identifier (a new UUID is assigned on creation)
@@ -793,6 +839,7 @@ impl Account {
             system_folders: self.system_folders.clone(),
             swipe_defaults: self.swipe_defaults.clone(),
             notifications_enabled: self.notifications_enabled,
+            security_settings: self.security_settings.clone(),
         }
     }
 
@@ -834,6 +881,7 @@ impl Account {
         self.system_folders = params.system_folders;
         self.swipe_defaults = params.swipe_defaults;
         self.notifications_enabled = params.notifications_enabled;
+        self.security_settings = params.security_settings;
         Ok(())
     }
 }
@@ -901,6 +949,7 @@ mod tests {
             system_folders: None,
             swipe_defaults: None,
             notifications_enabled: true,
+            security_settings: None,
         }
     }
 
@@ -1001,6 +1050,7 @@ mod tests {
             system_folders: None,
             swipe_defaults: None,
             notifications_enabled: true,
+            security_settings: None,
         }
     }
 
@@ -1229,6 +1279,7 @@ mod tests {
             system_folders: None,
             swipe_defaults: None,
             notifications_enabled: true,
+            security_settings: None,
         };
         acct.update(up).unwrap();
         assert_eq!(acct.id(), original_id);
@@ -2455,5 +2506,133 @@ mod tests {
     #[test]
     fn quota_format_bytes_gb() {
         assert_eq!(QuotaInfo::format_bytes(1_073_741_824), "1.00 GB");
+    }
+
+    // -- Advanced connection security settings tests (FR-4, FR-53, US-8, US-9, US-10) --
+
+    #[test]
+    fn security_settings_defaults_to_none() {
+        let acct = valid_account();
+        assert!(acct.security_settings().is_none());
+    }
+
+    #[test]
+    fn security_settings_can_be_set_on_creation() {
+        let mut p = valid_params();
+        p.security_settings = Some(SecuritySettings {
+            dnssec: true,
+            dane: true,
+            insecure: false,
+            certificate_fingerprint: Some("aa:bb:cc".into()),
+            client_certificate: Some("/path/to/cert".into()),
+            auth_realm: Some("realm.example.com".into()),
+        });
+        let acct = Account::new(p).unwrap();
+        let sec = acct.security_settings().unwrap();
+        assert!(sec.dnssec);
+        assert!(sec.dane);
+        assert!(!sec.insecure);
+        assert_eq!(sec.certificate_fingerprint.as_deref(), Some("aa:bb:cc"));
+        assert_eq!(sec.client_certificate.as_deref(), Some("/path/to/cert"));
+        assert_eq!(sec.auth_realm.as_deref(), Some("realm.example.com"));
+    }
+
+    #[test]
+    fn security_settings_can_be_changed_via_update() {
+        let mut acct = valid_account();
+        assert!(acct.security_settings().is_none());
+        let mut up = valid_update_params();
+        up.security_settings = Some(SecuritySettings {
+            dnssec: false,
+            dane: false,
+            insecure: true,
+            certificate_fingerprint: None,
+            client_certificate: None,
+            auth_realm: None,
+        });
+        acct.update(up).unwrap();
+        let sec = acct.security_settings().unwrap();
+        assert!(sec.insecure);
+        assert!(!sec.dnssec);
+    }
+
+    #[test]
+    fn security_settings_can_be_cleared_via_update() {
+        let mut p = valid_params();
+        p.security_settings = Some(SecuritySettings {
+            dnssec: true,
+            ..Default::default()
+        });
+        let mut acct = Account::new(p).unwrap();
+        assert!(acct.security_settings().is_some());
+        let mut up = valid_update_params();
+        up.security_settings = None;
+        acct.update(up).unwrap();
+        assert!(acct.security_settings().is_none());
+    }
+
+    #[test]
+    fn security_settings_set_via_setter() {
+        let mut acct = valid_account();
+        acct.set_security_settings(Some(SecuritySettings {
+            dane: true,
+            ..Default::default()
+        }));
+        assert!(acct.security_settings().unwrap().dane);
+        acct.set_security_settings(None);
+        assert!(acct.security_settings().is_none());
+    }
+
+    #[test]
+    fn security_settings_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.security_settings = Some(SecuritySettings {
+            dnssec: true,
+            dane: true,
+            insecure: false,
+            certificate_fingerprint: Some("de:ad:be:ef".into()),
+            client_certificate: Some("/etc/ssl/client.pem".into()),
+            auth_realm: Some("mail.example.com".into()),
+        });
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(acct.security_settings(), restored.security_settings());
+    }
+
+    #[test]
+    fn deserialize_account_without_security_settings_defaults_to_none() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("security_settings");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.security_settings().is_none());
+    }
+
+    #[test]
+    fn security_settings_per_account_isolation() {
+        let mut p1 = valid_params();
+        p1.security_settings = Some(SecuritySettings {
+            insecure: true,
+            ..Default::default()
+        });
+        let a1 = Account::new(p1).unwrap();
+
+        let a2 = valid_account();
+
+        // Insecure flag on a1 does not affect a2.
+        assert!(a1.security_settings().unwrap().insecure);
+        assert!(a2.security_settings().is_none());
+    }
+
+    #[test]
+    fn security_settings_default_struct_all_disabled() {
+        let s = SecuritySettings::default();
+        assert!(!s.dnssec);
+        assert!(!s.dane);
+        assert!(!s.insecure);
+        assert!(s.certificate_fingerprint.is_none());
+        assert!(s.client_certificate.is_none());
+        assert!(s.auth_realm.is_none());
     }
 }

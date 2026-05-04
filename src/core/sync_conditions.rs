@@ -106,6 +106,7 @@ mod tests {
             system_folders: None,
             swipe_defaults: None,
             notifications_enabled: true,
+            security_settings: None,
         })
         .unwrap()
     }

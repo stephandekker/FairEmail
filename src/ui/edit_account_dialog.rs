@@ -872,6 +872,70 @@ pub(crate) fn show(
 
     vbox.append(&smtp_group);
 
+    // -- Advanced Security Settings (FR-4, FR-53, US-8, US-9, US-10) --
+    let existing_sec = account.security_settings();
+    let security_expander = adw::ExpanderRow::builder()
+        .title(gettextrs::gettext("Advanced"))
+        .show_enable_switch(false)
+        .build();
+
+    let dnssec_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("DNSSEC"))
+        .subtitle(gettextrs::gettext(
+            "Require DNSSEC validation for DNS lookups",
+        ))
+        .active(existing_sec.is_some_and(|s| s.dnssec))
+        .build();
+    security_expander.add_row(&dnssec_row);
+
+    let dane_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("DANE"))
+        .subtitle(gettextrs::gettext(
+            "Require DANE (TLSA) verification for TLS",
+        ))
+        .active(existing_sec.is_some_and(|s| s.dane))
+        .build();
+    security_expander.add_row(&dane_row);
+
+    let insecure_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Allow insecure connections"))
+        .subtitle(gettextrs::gettext(
+            "Skip certificate verification for this account",
+        ))
+        .active(existing_sec.is_some_and(|s| s.insecure))
+        .build();
+    security_expander.add_row(&insecure_row);
+
+    let cert_fingerprint_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Certificate fingerprint (SHA-256)"))
+        .build();
+    if let Some(fp) = existing_sec.and_then(|s| s.certificate_fingerprint.as_deref()) {
+        cert_fingerprint_row.set_text(fp);
+    }
+    security_expander.add_row(&cert_fingerprint_row);
+
+    let client_cert_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Client certificate"))
+        .build();
+    if let Some(cc) = existing_sec.and_then(|s| s.client_certificate.as_deref()) {
+        client_cert_row.set_text(cc);
+    }
+    security_expander.add_row(&client_cert_row);
+
+    let auth_realm_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Authentication realm"))
+        .build();
+    if let Some(realm) = existing_sec.and_then(|s| s.auth_realm.as_deref()) {
+        auth_realm_row.set_text(realm);
+    }
+    security_expander.add_row(&auth_realm_row);
+
+    let security_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Security"))
+        .build();
+    security_group.add(&security_expander);
+    vbox.append(&security_group);
+
     // -- Action buttons --
     let btn_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -1076,6 +1140,18 @@ pub(crate) fn show(
         swipe_right_folder_row,
         #[weak]
         default_move_to_row,
+        #[weak]
+        dnssec_row,
+        #[weak]
+        dane_row,
+        #[weak]
+        insecure_row,
+        #[weak]
+        cert_fingerprint_row,
+        #[weak]
+        client_cert_row,
+        #[weak]
+        auth_realm_row,
         #[strong]
         color_active,
         #[strong]
@@ -1197,6 +1273,47 @@ pub(crate) fn show(
                 system_folders,
                 swipe_defaults,
                 notifications_enabled: notif_row.is_active(),
+                security_settings: {
+                    let dnssec = dnssec_row.is_active();
+                    let dane = dane_row.is_active();
+                    let insecure_val = insecure_row.is_active();
+                    let fp_text = cert_fingerprint_row.text().trim().to_string();
+                    let fingerprint = if fp_text.is_empty() {
+                        None
+                    } else {
+                        Some(fp_text)
+                    };
+                    let cc_text = client_cert_row.text().trim().to_string();
+                    let client_cert = if cc_text.is_empty() {
+                        None
+                    } else {
+                        Some(cc_text)
+                    };
+                    let realm_text = auth_realm_row.text().trim().to_string();
+                    let realm = if realm_text.is_empty() {
+                        None
+                    } else {
+                        Some(realm_text)
+                    };
+                    if dnssec
+                        || dane
+                        || insecure_val
+                        || fingerprint.is_some()
+                        || client_cert.is_some()
+                        || realm.is_some()
+                    {
+                        Some(crate::core::SecuritySettings {
+                            dnssec,
+                            dane,
+                            insecure: insecure_val,
+                            certificate_fingerprint: fingerprint,
+                            client_certificate: client_cert,
+                            auth_realm: realm,
+                        })
+                    } else {
+                        None
+                    }
+                },
             };
 
             let mut acct = account.borrow_mut();
