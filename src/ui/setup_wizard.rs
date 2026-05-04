@@ -5,6 +5,7 @@ use libadwaita::prelude::*;
 
 use glib::clone;
 
+use crate::core::detection_progress::{detection_sequence, DetectionStep};
 use crate::core::privacy;
 use crate::core::proprietary_provider::check_proprietary_provider;
 use crate::core::wizard_validation::{
@@ -233,6 +234,30 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
 
     vbox.append(&btn_box);
 
+    // -- Detection progress indicator (FR-14, AC-16, NFR-8) --
+    let progress_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(gtk::Align::Center)
+        .margin_top(12)
+        .visible(false)
+        .build();
+
+    let progress_spinner = gtk::Spinner::builder().spinning(true).build();
+    progress_box.append(&progress_spinner);
+
+    let progress_label = gtk::Label::builder()
+        .css_classes(["caption"])
+        .halign(gtk::Align::Start)
+        .build();
+    // Mark the label as a live region for screen readers (NFR-8).
+    progress_label.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Detection progress status",
+    ))]);
+    progress_box.append(&progress_label);
+
+    vbox.append(&progress_box);
+
     clamp.set_child(Some(&vbox));
     scrolled.set_child(Some(&clamp));
     toast_overlay.set_child(Some(&scrolled));
@@ -262,6 +287,14 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         toast_overlay,
         #[weak]
         dialog,
+        #[weak]
+        progress_box,
+        #[weak]
+        progress_label,
+        #[weak]
+        check_btn,
+        #[weak]
+        manual_btn,
         #[strong]
         on_done,
         move |_| {
@@ -317,14 +350,35 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             }
 
             // Validation passed and network is available.
-            // This slice does NOT proceed further (no provider detection / account creation).
-            // For now, return the validated data so the caller can use it in a future slice.
-            on_done(Some(WizardAction::Check(WizardData {
-                display_name: display_name.trim().to_string(),
-                email: email.trim().to_string(),
-                password,
-            })));
-            dialog.close();
+            // Show detection progress (FR-14, AC-16) and disable buttons.
+            check_btn.set_sensitive(false);
+            manual_btn.set_sensitive(false);
+            progress_box.set_visible(true);
+
+            // Extract domain for progress messages.
+            let domain = email
+                .trim()
+                .rsplit('@')
+                .next()
+                .unwrap_or("server")
+                .to_string();
+
+            // Run detection progress on the main loop so UI stays responsive (AC-16).
+            let steps = detection_sequence(&domain);
+            run_detection_progress(
+                steps,
+                progress_label.clone(),
+                progress_box.clone(),
+                check_btn.clone(),
+                manual_btn.clone(),
+                dialog.clone(),
+                on_done.clone(),
+                WizardData {
+                    display_name: display_name.trim().to_string(),
+                    email: email.trim().to_string(),
+                    password,
+                },
+            );
         }
     ));
 
@@ -360,6 +414,45 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
     });
 
     dialog.present(Some(parent));
+}
+
+/// Run detection progress animation on the main loop (FR-14, AC-16).
+///
+/// Steps through each detection phase with a short delay so the user can
+/// see real-time updates. The UI thread is never blocked because we use
+/// `glib::timeout_future` which yields back to the main loop.
+#[allow(clippy::too_many_arguments)]
+fn run_detection_progress(
+    steps: Vec<DetectionStep>,
+    progress_label: gtk::Label,
+    progress_box: gtk::Box,
+    check_btn: gtk::Button,
+    manual_btn: gtk::Button,
+    dialog: adw::Dialog,
+    on_done: std::rc::Rc<dyn Fn(WizardResult)>,
+    data: WizardData,
+) {
+    glib::MainContext::default().spawn_local(async move {
+        for step in &steps {
+            let msg = step.message();
+            progress_label.set_label(&msg);
+            // Update accessible description for screen readers (NFR-8).
+            progress_label.update_property(&[gtk::accessible::Property::Description(
+                &step.accessible_description(),
+            )]);
+            // Yield to the main loop with a short delay so the UI stays responsive
+            // and the user can observe each step (AC-16).
+            glib::timeout_future(std::time::Duration::from_millis(400)).await;
+        }
+
+        // Detection complete — hide progress and return result.
+        progress_box.set_visible(false);
+        check_btn.set_sensitive(true);
+        manual_btn.set_sensitive(true);
+
+        on_done(Some(WizardAction::Check(data)));
+        dialog.close();
+    });
 }
 
 /// Map validation errors to field-specific error labels.
