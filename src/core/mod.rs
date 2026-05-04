@@ -1,4 +1,5 @@
 pub mod account;
+pub mod account_order;
 pub mod connection_test;
 pub mod navigation;
 pub mod primary;
@@ -9,6 +10,7 @@ pub use account::{
     EncryptionMode, Folder, NewAccountParams, Pop3Settings, Protocol, SmtpConfig,
     UpdateAccountParams,
 };
+pub use account_order::{apply_custom_order, default_order, move_account, order_from_accounts};
 pub use connection_test::{
     ConnectionTestError, ConnectionTestRequest, ConnectionTestResult, ServerTestOutcome,
 };

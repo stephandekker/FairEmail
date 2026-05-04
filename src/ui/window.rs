@@ -7,8 +7,12 @@ use libadwaita::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::core::{self, collect_categories, group_by_category, sort_accounts_flat, Account};
-use crate::services::{AccountStore, AppSettings, SettingsStore};
+use uuid::Uuid;
+
+use crate::core::{
+    self, apply_custom_order, collect_categories, group_by_category, move_account, Account,
+};
+use crate::services::{AccountStore, AppSettings, OrderStore, SettingsStore};
 use crate::ui::add_account_dialog;
 use crate::ui::edit_account_dialog;
 
@@ -17,6 +21,7 @@ pub(crate) fn build(
     app: &adw::Application,
     store: Rc<AccountStore>,
     settings_store: Rc<SettingsStore>,
+    order_store: Rc<OrderStore>,
 ) {
     let window = adw::ApplicationWindow::builder()
         .application(app)
@@ -43,6 +48,14 @@ pub(crate) fn build(
         .accessible_role(gtk::AccessibleRole::ToggleButton)
         .build();
     sidebar_header.pack_end(&category_toggle);
+
+    // FR-21, US-20: Reset order button restores default sort.
+    let reset_order_btn = gtk::Button::builder()
+        .icon_name("view-sort-ascending-symbolic")
+        .tooltip_text(gettextrs::gettext("Reset order"))
+        .accessible_role(gtk::AccessibleRole::Button)
+        .build();
+    sidebar_header.pack_end(&reset_order_btn);
 
     let account_list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::Single)
@@ -96,6 +109,9 @@ pub(crate) fn build(
     // Shared mutable list of accounts for the sidebar model.
     let accounts: Rc<RefCell<Vec<Account>>> = Rc::new(RefCell::new(Vec::new()));
 
+    // Shared mutable custom order (FR-20, AC-8).
+    let custom_order: Rc<RefCell<Option<Vec<Uuid>>>> = Rc::new(RefCell::new(None));
+
     // Load settings and initialise toggle state.
     let settings: Rc<RefCell<AppSettings>> =
         Rc::new(RefCell::new(settings_store.load().unwrap_or_default()));
@@ -105,10 +121,13 @@ pub(crate) fn build(
     {
         let loaded = store.load_all().unwrap_or_default();
         *accounts.borrow_mut() = loaded;
+        // Load persisted order (AC-8).
+        *custom_order.borrow_mut() = order_store.load().unwrap_or(None);
         rebuild_account_list(
             &account_list,
             &accounts.borrow(),
             settings.borrow().category_display_enabled,
+            custom_order.borrow().as_deref(),
         );
     }
 
@@ -120,6 +139,8 @@ pub(crate) fn build(
         settings,
         #[strong]
         accounts,
+        #[strong]
+        custom_order,
         #[weak]
         account_list,
         move |btn| {
@@ -129,7 +150,36 @@ pub(crate) fn build(
                 s.category_display_enabled = enabled;
                 let _ = settings_store.save(&s);
             }
-            rebuild_account_list(&account_list, &accounts.borrow(), enabled);
+            rebuild_account_list(
+                &account_list,
+                &accounts.borrow(),
+                enabled,
+                custom_order.borrow().as_deref(),
+            );
+        }
+    ));
+
+    // FR-21, US-20: Reset order to default (primary first, then alphabetical).
+    reset_order_btn.connect_clicked(clone!(
+        #[strong]
+        order_store,
+        #[strong]
+        accounts,
+        #[strong]
+        custom_order,
+        #[strong]
+        settings,
+        #[weak]
+        account_list,
+        move |_| {
+            let _ = order_store.clear();
+            *custom_order.borrow_mut() = None;
+            rebuild_account_list(
+                &account_list,
+                &accounts.borrow(),
+                settings.borrow().category_display_enabled,
+                None,
+            );
         }
     ));
 
@@ -144,6 +194,8 @@ pub(crate) fn build(
         accounts,
         #[strong]
         settings,
+        #[strong]
+        custom_order,
         #[weak]
         account_list,
         move |gesture, _, x, y| {
@@ -166,6 +218,7 @@ pub(crate) fn build(
                         &account_list,
                         &accounts.borrow(),
                         settings.borrow().category_display_enabled,
+                        custom_order.borrow().as_deref(),
                     );
                 }
             }
@@ -173,6 +226,211 @@ pub(crate) fn build(
         }
     ));
     account_list.add_controller(gesture);
+
+    // -- Drag-and-drop reordering (FR-20, US-19) --
+    // GTK4 DnD: we use DragSource and DropTarget on each row.
+    // Since ListBox rows are rebuilt dynamically, we attach DnD in make_account_row.
+    // Instead, we use a simpler approach: enable keyboard reorder and track drag via
+    // ListBox's built-in row reorder is not directly supported, so we use DragSource
+    // on the ListBox and a DropTarget to handle reorder.
+
+    // We set up DnD on the ListBox level using a custom content type.
+    let drag_source = gtk::DragSource::builder()
+        .actions(gtk4::gdk::DragAction::MOVE)
+        .build();
+
+    let dragged_index: Rc<RefCell<Option<usize>>> = Rc::new(RefCell::new(None));
+
+    drag_source.connect_prepare(clone!(
+        #[strong]
+        dragged_index,
+        #[weak]
+        account_list,
+        #[upgrade_or_panic]
+        move |_source, x, y| {
+            if let Some(row) = account_list.row_at_y(y as i32) {
+                let idx = row.index();
+                if idx >= 0 && row_account_id(&row).is_some() {
+                    *dragged_index.borrow_mut() = Some(idx as usize);
+                    let paintable = gtk::WidgetPaintable::new(Some(&row));
+                    _source.set_icon(Some(&paintable), x as i32, y as i32);
+                    let content = gtk4::gdk::ContentProvider::for_value(&idx.to_value());
+                    return Some(content);
+                }
+            }
+            *dragged_index.borrow_mut() = None;
+            None
+        }
+    ));
+
+    account_list.add_controller(drag_source);
+
+    let drop_target = gtk::DropTarget::builder()
+        .actions(gtk4::gdk::DragAction::MOVE)
+        .build();
+    drop_target.set_types(&[glib::Type::I32]);
+
+    drop_target.connect_drop(clone!(
+        #[strong]
+        dragged_index,
+        #[strong]
+        accounts,
+        #[strong]
+        custom_order,
+        #[strong]
+        order_store,
+        #[strong]
+        settings,
+        #[weak]
+        account_list,
+        #[upgrade_or]
+        false,
+        move |_target, _value, _x, y| {
+            let from = match *dragged_index.borrow() {
+                Some(i) => i,
+                None => return false,
+            };
+
+            let to = match account_list.row_at_y(y as i32) {
+                Some(row) => {
+                    let idx = row.index();
+                    if idx < 0 {
+                        return false;
+                    }
+                    idx as usize
+                }
+                None => return false,
+            };
+
+            if from == to {
+                return false;
+            }
+
+            // Build current display order as UUIDs.
+            let accts = accounts.borrow();
+            let current_order = match custom_order.borrow().as_ref() {
+                Some(o) => apply_custom_order(&accts, o)
+                    .iter()
+                    .map(|&i| accts[i].id())
+                    .collect::<Vec<_>>(),
+                None => {
+                    let sorted = crate::core::sort_accounts_flat(&accts);
+                    sorted.iter().map(|&i| accts[i].id()).collect::<Vec<_>>()
+                }
+            };
+            drop(accts);
+
+            let new_order = move_account(&current_order, from, to);
+            let _ = order_store.save(&new_order);
+            *custom_order.borrow_mut() = Some(new_order);
+
+            rebuild_account_list(
+                &account_list,
+                &accounts.borrow(),
+                settings.borrow().category_display_enabled,
+                custom_order.borrow().as_deref(),
+            );
+
+            true
+        }
+    ));
+
+    account_list.add_controller(drop_target);
+
+    // -- Keyboard-accessible reordering (NFR-7): Ctrl+Up / Ctrl+Down --
+    let key_controller = gtk::EventControllerKey::new();
+    key_controller.connect_key_pressed(clone!(
+        #[strong]
+        accounts,
+        #[strong]
+        custom_order,
+        #[strong]
+        order_store,
+        #[strong]
+        settings,
+        #[weak]
+        account_list,
+        #[upgrade_or]
+        glib::Propagation::Proceed,
+        move |_, keyval, _keycode, modifiers| {
+            let ctrl = modifiers.contains(gtk4::gdk::ModifierType::CONTROL_MASK);
+            if !ctrl {
+                return glib::Propagation::Proceed;
+            }
+
+            let is_up = keyval == gtk4::gdk::Key::Up;
+            let is_down = keyval == gtk4::gdk::Key::Down;
+            if !is_up && !is_down {
+                return glib::Propagation::Proceed;
+            }
+
+            let selected_row = match account_list.selected_row() {
+                Some(r) => r,
+                None => return glib::Propagation::Proceed,
+            };
+
+            if row_account_id(&selected_row).is_none() {
+                return glib::Propagation::Proceed;
+            }
+
+            let from = selected_row.index() as usize;
+
+            // Build current display order.
+            let accts = accounts.borrow();
+            let total_rows = {
+                let mut count = 0usize;
+                let mut child = account_list.first_child();
+                while child.is_some() {
+                    count += 1;
+                    child = child.unwrap().next_sibling();
+                }
+                count
+            };
+
+            let to = if is_up {
+                if from == 0 {
+                    return glib::Propagation::Proceed;
+                }
+                from - 1
+            } else {
+                if from + 1 >= total_rows {
+                    return glib::Propagation::Proceed;
+                }
+                from + 1
+            };
+
+            let current_order = match custom_order.borrow().as_ref() {
+                Some(o) => apply_custom_order(&accts, o)
+                    .iter()
+                    .map(|&i| accts[i].id())
+                    .collect::<Vec<_>>(),
+                None => {
+                    let sorted = crate::core::sort_accounts_flat(&accts);
+                    sorted.iter().map(|&i| accts[i].id()).collect::<Vec<_>>()
+                }
+            };
+            drop(accts);
+
+            let new_order = move_account(&current_order, from, to);
+            let _ = order_store.save(&new_order);
+            *custom_order.borrow_mut() = Some(new_order);
+
+            rebuild_account_list(
+                &account_list,
+                &accounts.borrow(),
+                settings.borrow().category_display_enabled,
+                custom_order.borrow().as_deref(),
+            );
+
+            // Re-select the moved row.
+            if let Some(new_row) = account_list.row_at_index(to as i32) {
+                account_list.select_row(Some(&new_row));
+            }
+
+            glib::Propagation::Stop
+        }
+    ));
+    account_list.add_controller(key_controller);
 
     // "Add account" button handler.
     add_btn.connect_clicked(clone!(
@@ -184,12 +442,18 @@ pub(crate) fn build(
         accounts,
         #[strong]
         settings,
+        #[strong]
+        custom_order,
+        #[strong]
+        order_store,
         #[weak]
         account_list,
         move |_| {
             let store = store.clone();
             let accounts = accounts.clone();
             let settings = settings.clone();
+            let custom_order = custom_order.clone();
+            let order_store = order_store.clone();
             let account_list = account_list.clone();
             let categories = collect_categories(&accounts.borrow());
             add_account_dialog::show(&window, categories, move |result| {
@@ -213,10 +477,19 @@ pub(crate) fn build(
                             let _ = store.update(a.clone());
                         }
                     }
+                    // Add new account to custom order if one exists.
+                    {
+                        let mut order = custom_order.borrow_mut();
+                        if let Some(ref mut o) = *order {
+                            o.push(new_id);
+                            let _ = order_store.save(o);
+                        }
+                    }
                     rebuild_account_list(
                         &account_list,
                         &accounts.borrow(),
                         settings.borrow().category_display_enabled,
+                        custom_order.borrow().as_deref(),
                     );
                 }
             });
@@ -233,6 +506,8 @@ pub(crate) fn build(
         accounts,
         #[strong]
         settings,
+        #[strong]
+        custom_order,
         #[weak]
         account_list,
         move |_, row| {
@@ -247,6 +522,7 @@ pub(crate) fn build(
             let store = store.clone();
             let accounts = accounts.clone();
             let settings = settings.clone();
+            let custom_order = custom_order.clone();
             let account_list = account_list.clone();
             let categories = collect_categories(&accounts.borrow());
             edit_account_dialog::show(&window, account, categories, move |result| {
@@ -271,6 +547,7 @@ pub(crate) fn build(
                         &account_list,
                         &accounts.borrow(),
                         settings.borrow().category_display_enabled,
+                        custom_order.borrow().as_deref(),
                     );
                 }
             });
@@ -289,8 +566,14 @@ fn row_account_id(row: &gtk::ListBoxRow) -> Option<uuid::Uuid> {
 
 /// Remove all rows from the list box and rebuild from the accounts slice.
 /// When `category_display` is true, accounts are grouped under category headers (FR-18).
-/// When false, accounts are sorted flat: primary first, then alphabetically (FR-19).
-fn rebuild_account_list(list_box: &gtk::ListBox, accounts: &[Account], category_display: bool) {
+/// When false, accounts are sorted using custom order if available, otherwise
+/// default: primary first, then alphabetically (FR-19, FR-20).
+fn rebuild_account_list(
+    list_box: &gtk::ListBox,
+    accounts: &[Account],
+    category_display: bool,
+    custom_order: Option<&[Uuid]>,
+) {
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
     }
@@ -325,7 +608,10 @@ fn rebuild_account_list(list_box: &gtk::ListBox, accounts: &[Account], category_
             }
         }
     } else {
-        let sorted = sort_accounts_flat(accounts);
+        let sorted = match custom_order {
+            Some(order) => apply_custom_order(accounts, order),
+            None => crate::core::sort_accounts_flat(accounts),
+        };
         for idx in sorted {
             let row = make_account_row(&accounts[idx]);
             list_box.append(&row);

@@ -10,7 +10,7 @@ fn main() {
     use libadwaita as adw;
     use std::rc::Rc;
 
-    use crate::services::{AccountStore, SettingsStore};
+    use crate::services::{AccountStore, OrderStore, SettingsStore};
 
     fn data_dir() -> std::path::PathBuf {
         let base = glib::user_data_dir().join("alarm-clock");
@@ -26,7 +26,8 @@ fn main() {
         let dir = data_dir();
         let store = Rc::new(AccountStore::new(dir.join("accounts.json")));
         let settings_store = Rc::new(SettingsStore::new(dir.join("settings.json")));
-        ui::window::build(app, store, settings_store);
+        let order_store = Rc::new(OrderStore::new(dir.join("order.json")));
+        ui::window::build(app, store, settings_store, order_store);
     }));
 
     app.run();
