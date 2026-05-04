@@ -1,1 +1,9 @@
-You've hit your limit · resets 3:10am (Europe/Amsterdam)
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/8.1-desktop-notifications.md`. It covers:
+
+- **6 notification categories** (service, new mail, send status, warning, error, alerts)
+- **35 user stories** across new mail, sync errors, send status, configuration, content/display, badge counts, and lifecycle
+- **46 functional requirements** covering grouping, rate limiting, per-account/folder/sender config, privacy, dismissal, badge, suppression, and independence from other features
+- **8 non-functional requirements** (timeliness, reliability, responsiveness, scale, privacy, accessibility, efficiency, desktop integration)
+- **20 acceptance criteria**
+- **8 open questions** flagging desktop-specific ambiguities (daemon capabilities, inline reply support, badge mechanisms, sound formats)
+- **7 design notes** documenting rationale from the source application

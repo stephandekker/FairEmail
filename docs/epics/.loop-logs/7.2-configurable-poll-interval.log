@@ -1,1 +1,11 @@
-You've hit your limit · resets 3:10am (Europe/Amsterdam)
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/7.2-configurable-poll-interval.md`. 
+
+The document covers:
+
+- **Account-level poll interval**: Default 15 minutes, range 0–1440 minutes, dual role as keep-alive (IMAP IDLE) or polling cadence (POP3/non-IDLE)
+- **Folder-level control**: Per-folder push vs. polling toggle, poll factor multiplier, defaults (Inbox→push, system folders→polling)
+- **Global poll interval**: Application-wide override with battery warnings for intervals < 15 minutes
+- **Network-aware polling**: Metered/unmetered toggles with per-account exemptions
+- **Auto-tuning**: Automatic keep-alive reduction on server disconnects (2-min steps, 9-min floor)
+- **Bulk apply**: One-action configuration of all system or user folders, with automatic interval capping
+- **8 open questions** covering threshold values, auto-tune algorithms, NOOP vs IDLE, and more

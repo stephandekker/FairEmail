@@ -1,0 +1,10 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/12.1-local-contact-store.md`. The document covers:
+
+- **34 user stories** across 9 categories (automatic learning, autocomplete, contact management, favorites/ignore, groups, junk/blocked, auto-cleanup, privacy, import/export)
+- **36 functional requirements** covering the contact record model, learning triggers, autocomplete ranking, management UI, groups, purge logic, import/export, and cascading deletion
+- **7 non-functional requirements** (performance, scale, storage, privacy, integrity, graceful degradation, accessibility)
+- **19 acceptance criteria** with testable conditions
+- **8 open questions** documenting genuine ambiguities found in the source (group cardinality, cross-account merging, identity inference, folder reference purpose, archive exclusion, purge defaults, vCard extension, suggest-received default)
+- **7 design notes** capturing the rationale behind key source-application decisions
+
+No other files were modified.

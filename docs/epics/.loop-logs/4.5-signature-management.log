@@ -1,1 +1,10 @@
-You've hit your limit · resets 3:10am (Europe/Amsterdam)
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/4.5-signature-management.md`. It covers:
+
+- **11 sections** matching the reference structure (Background & Purpose, Goals, Non-Goals, Glossary, Personas, User Stories, Functional Requirements, Non-Functional Requirements, Acceptance Criteria, Open Questions, Design Notes & Rationale)
+- **23 user stories** across 8 sub-categories (editing, insertion triggers, placement, separator, variables, per-message override, signature removal, font)
+- **39 functional requirements** covering signature association, editor, insertion triggers, reply-once, placement, Usenet separator, variable placeholders, per-message override, identity switching, signature removal, and font inheritance
+- **15 acceptance criteria**
+- **6 open questions**, including a notable finding that variable expansion (`$name$`, `$date$`, etc.) appears to be implemented only for reply templates, not for signatures — flagged as OQ-1
+- **6 design notes** explaining the rationale behind key decisions
+
+No other files were modified.

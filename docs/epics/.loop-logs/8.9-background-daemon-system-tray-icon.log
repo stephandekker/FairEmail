@@ -1,1 +1,12 @@
-You've hit your limit · resets 3:10am (Europe/Amsterdam)
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/8.9-background-daemon-system-tray-icon.md`. It covers:
+
+- **Background & Purpose**: Why a persistent daemon with tray icon is the desktop equivalent of Android's foreground service
+- **7 Goals** and **5 Non-Goals** scoping the daemon lifecycle, tray icon, and their boundaries with other epics
+- **9 Glossary terms** defining daemon, monitoring, poll mode, network suitability, etc.
+- **5 Personas** from always-on user to newcomer
+- **22 User Stories** across daemon lifecycle, tray icon status display, tray icon interactions, global sync toggle, poll/continuous modes, schedule awareness, notifications, and quit-vs-close semantics
+- **36 Functional Requirements** covering daemon lifecycle, tray icon presence/status/interactions, global toggle, account-level conditions, network awareness, error handling, poll mode, schedule integration, and quit-vs-close
+- **8 Non-Functional Requirements** on resource efficiency, resilience, DE compatibility, accessibility, and privacy
+- **16 Acceptance Criteria**
+- **7 Open Questions** including unread count on tray, context menu richness, single-instance enforcement, and headless operation
+- **8 Design Notes** documenting rationale from the source application

@@ -1,1 +1,12 @@
-You've hit your limit · resets 3:10am (Europe/Amsterdam)
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/7.5-offline-storage-and-operations.md`. It covers:
+
+- **Background & Purpose** — why offline operation queuing is foundational
+- **Goals / Non-Goals** — scoped to queuing and replay, excluding sync scheduling and full-text search
+- **Glossary** — key terms (operation, replay, optimistic UI, transient/permanent failure)
+- **Personas** — commuter, traveler, triage-heavy user, power user
+- **User Stories** — 20 stories across local acceptance, replay, offline reading, error handling, queue management, and conflict resolution
+- **Functional Requirements** — 40 requirements covering operation creation, supported types, priority ordering, replay/batching, retry logic, conflict resolution, duplicate suppression, queue management UI, and local content storage
+- **Non-Functional Requirements** — responsiveness, durability, scalability, convergence, idempotency, transparency, data integrity, storage efficiency
+- **Acceptance Criteria** — 18 testable criteria
+- **Open Questions** — 8 genuine ambiguities discovered during analysis
+- **Design Notes & Rationale** — 7 architectural decisions implicit in the source

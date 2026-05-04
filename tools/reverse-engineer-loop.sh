@@ -11,6 +11,12 @@
 #   3. Move on to the next feature, until --max iterations have been reached
 #      or there are no more pending features.
 #
+# Priority handling (MoSCoW for v1 of the Linux Desktop application):
+#   Pending features are processed in priority order, all [MUST] items first,
+#   then all [SHOULD] items, then all [COULD] items. [WONT] items are skipped
+#   entirely — they are out of scope for v1 and no epic is generated.
+#   Within each priority bucket, the original document order is preserved.
+#
 # This loop NEVER implements code. The prompt explicitly forbids code changes
 # and confines writes to the per-feature epic file.
 #
@@ -24,6 +30,7 @@
 #   --max N         (required) Process at most N features this run.
 #   --dry-run       Show what would be processed; do not invoke claude.
 #   --feature X.Y   Restrict to a single feature ID (still bounded by --max).
+#                   Note: a [WONT] feature is still skipped under --feature.
 #   --max-turns N   Cap claude turns per feature. Default: 40.
 #   --list          List all features and their done/pending status, then exit.
 #   --help, -h      Show this help.
@@ -65,7 +72,13 @@ LOG_DIR="$EPICS_DIR/.loop-logs"
 mkdir -p "$EPICS_DIR" "$LOG_DIR"
 
 # ---------------------------------------------------------------------------
-# Parse the high-level feature list into "ID|NAME|DESCRIPTION" lines.
+# Parse the high-level feature list into "ID|NAME|DESCRIPTION|PRIORITY" lines.
+#
+# Priority is one of MUST / SHOULD / COULD / WONT, extracted from an inline
+# tag of the form `[MUST]` (in backticks) that appears at the start of the
+# description, optionally separated from the description prose by whitespace.
+# A feature that has no priority tag is reported with PRIORITY="" — the loop
+# treats untagged entries as the lowest non-skipped tier ([COULD]).
 # ---------------------------------------------------------------------------
 parse_features() {
   python3 - "$FEATURES_FILE" <<'PY'
@@ -74,15 +87,33 @@ text = open(sys.argv[1]).read()
 # Tolerate items with or without a trailing description on the same line.
 # Use [^\S\n] for "horizontal whitespace" so we never cross a newline.
 pat = re.compile(r'^- \*\*(\d+\.\d+)[^\S\n]+(.+?)\*\*[^\S\n]*(.*)$', re.MULTILINE)
+prio_pat = re.compile(r'^`\[(MUST|SHOULD|COULD|WONT)\]`\s*(.*)$', re.DOTALL)
 for m in pat.finditer(text):
     fid = m.group(1)
     name = m.group(2).strip().rstrip('.').rstrip(':').strip()
     desc = m.group(3).strip()
+    priority = ""
+    pm = prio_pat.match(desc)
+    if pm:
+        priority = pm.group(1)
+        desc = pm.group(2).strip()
     # Pipe is the field separator; sanitize defensively.
     name = name.replace('|', '/')
     desc = desc.replace('|', '/')
-    print(f"{fid}|{name}|{desc}")
+    print(f"{fid}|{name}|{desc}|{priority}")
 PY
+}
+
+# Numeric rank for a priority tag. Lower rank runs first.
+# WONT returns 99 and is filtered out by the caller, never enqueued.
+priority_rank() {
+  case "$1" in
+    MUST)   echo 0 ;;
+    SHOULD) echo 1 ;;
+    COULD)  echo 2 ;;
+    WONT)   echo 99 ;;
+    *)      echo 2 ;;  # untagged → treat as [COULD]
+  esac
 }
 
 slugify() {
@@ -128,40 +159,79 @@ PY
 
 # ---------------------------------------------------------------------------
 # Mode: --list. Print done/pending status and exit.
+# Status column shows: [done], [pending], or [skipped] (for [WONT]).
+# Priority column shows the MoSCoW tag ([MUST] / [SHOULD] / [COULD] / [WONT])
+# or [-] for untagged entries.
 # ---------------------------------------------------------------------------
 if [[ "$LIST_ONLY" -eq 1 ]]; then
   done_count=0
   pending_count=0
-  while IFS='|' read -r id name desc; do
+  skipped_count=0
+  pending_must=0; pending_should=0; pending_could=0
+  while IFS='|' read -r id name desc priority; do
     slug="$(slugify "$name")"
-    if already_done "$id" "$slug"; then
-      printf '  [done]    %-7s %s\n' "$id" "$name"
-      done_count=$((done_count+1))
+    if [[ -n "$priority" ]]; then
+      prio_label="[$priority]"
     else
-      printf '  [pending] %-7s %s\n' "$id" "$name"
+      prio_label="[-]"
+    fi
+    if already_done "$id" "$slug"; then
+      printf '  [done]    %-9s %-7s %s\n' "$prio_label" "$id" "$name"
+      done_count=$((done_count+1))
+    elif [[ "$priority" == "WONT" ]]; then
+      printf '  [skipped] %-9s %-7s %s\n' "$prio_label" "$id" "$name"
+      skipped_count=$((skipped_count+1))
+    else
+      printf '  [pending] %-9s %-7s %s\n' "$prio_label" "$id" "$name"
       pending_count=$((pending_count+1))
+      case "$priority" in
+        MUST)   pending_must=$((pending_must+1)) ;;
+        SHOULD) pending_should=$((pending_should+1)) ;;
+        *)      pending_could=$((pending_could+1)) ;;
+      esac
     fi
   done < <(parse_features)
   echo ""
-  echo "Total: $((done_count+pending_count))   Done: $done_count   Pending: $pending_count"
+  echo "Total: $((done_count+pending_count+skipped_count))   Done: $done_count   Pending: $pending_count   Skipped (WONT): $skipped_count"
+  echo "Pending breakdown — MUST: $pending_must   SHOULD: $pending_should   COULD: $pending_could"
   exit 0
 fi
 
 # ---------------------------------------------------------------------------
-# Pre-scan: collect pending features.
+# Pre-scan: collect pending features, bucket by priority, then concatenate
+# in MUST → SHOULD → COULD order. WONT entries (and any equivalent rank>=99)
+# are dropped entirely. Untagged entries fall through to the COULD bucket.
 # ---------------------------------------------------------------------------
-pending=()
-while IFS='|' read -r id name desc; do
+must_bucket=()
+should_bucket=()
+could_bucket=()
+skipped_wont=0
+
+while IFS='|' read -r id name desc priority; do
   if [[ -n "$FEATURE_FILTER" && "$id" != "$FEATURE_FILTER" ]]; then continue; fi
   slug="$(slugify "$name")"
   if already_done "$id" "$slug"; then continue; fi
-  pending+=("$id|$name|$desc")
+  if [[ "$priority" == "WONT" ]]; then
+    skipped_wont=$((skipped_wont+1))
+    continue
+  fi
+  case "$priority" in
+    MUST)   must_bucket+=("$id|$name|$desc|$priority") ;;
+    SHOULD) should_bucket+=("$id|$name|$desc|$priority") ;;
+    *)      could_bucket+=("$id|$name|$desc|${priority:-COULD}") ;;
+  esac
 done < <(parse_features)
+
+pending=()
+[[ ${#must_bucket[@]}   -gt 0 ]] && pending+=("${must_bucket[@]}")
+[[ ${#should_bucket[@]} -gt 0 ]] && pending+=("${should_bucket[@]}")
+[[ ${#could_bucket[@]}  -gt 0 ]] && pending+=("${could_bucket[@]}")
 
 total_pending=${#pending[@]}
 run_start_ts=$(date +%s)
-echo "Pending features: $total_pending"
+echo "Pending features: $total_pending  (MUST: ${#must_bucket[@]}  SHOULD: ${#should_bucket[@]}  COULD: ${#could_bucket[@]}, WONT skipped: $skipped_wont)"
 echo "Will process up to: $MAX  (--max-turns per feature: $MAX_TURNS, dry-run: $DRY_RUN)"
+echo "Processing order: all [MUST] first, then [SHOULD], then [COULD]."
 echo "Run started     : $(ts)"
 echo ""
 
@@ -189,12 +259,13 @@ for entry in "${pending[@]}"; do
   if [[ $processed -ge $MAX ]]; then break; fi
   processed=$((processed+1))
 
-  IFS='|' read -r id name desc <<< "$entry"
+  IFS='|' read -r id name desc priority <<< "$entry"
   slug="$(slugify "$name")"
   out="$EPICS_DIR/$id-$slug.md"
   log="$LOG_DIR/$id-$slug.log"
+  prio_label="[${priority:-?}]"
 
-  echo "[$processed/$MAX]  $id  —  $name"
+  echo "[$processed/$MAX]  $id  $prio_label  —  $name"
   echo "         output : $out"
   echo "         log    : $log"
   echo "         started: $(ts)"

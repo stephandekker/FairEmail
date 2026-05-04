@@ -1,1 +1,13 @@
-You've hit your limit · resets 3:10am (Europe/Amsterdam)
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/4.11-recipient-autocomplete.md`. 
+
+The document covers:
+- **Background & Purpose**: Why autocomplete matters for addressing efficiency
+- **7 Goals** and **5 Non-Goals** scoping the feature
+- **11 Glossary terms** defining the domain vocabulary
+- **5 Personas** from frequent correspondents to privacy-conscious users
+- **31 User Stories** across 10 categories (basic autocomplete, data sources, ranking, display, selection, chips, auto-identity, account scoping, contact store management, configuration)
+- **40 Functional Requirements** covering trigger behavior, matching, data sources, local store, ranking, display, chips, auto-identity, account scoping, system address-book integration, and configuration
+- **7 Non-Functional Requirements** (responsiveness, scale, offline, privacy, graceful degradation, accessibility, i18n)
+- **24 Acceptance Criteria** with verifiable conditions
+- **8 Open Questions** flagging genuine ambiguities (accent matching scope, suggestion limits, threshold configurability, purge defaults, auto-identity with multiple recipients, Linux contact picker integration, received-contacts default)
+- **8 Design Notes** capturing implicit decisions from the source (two-char threshold rationale, received-off-by-default rationale, dedup-prefers-avatars, frequency vs. source-priority ranking philosophy, etc.)

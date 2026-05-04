@@ -1,0 +1,11 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/10.2-no-third-party-servers.md`. It covers:
+
+- **Background**: Why the "no third-party servers" principle is the foundational privacy contract
+- **6 goals** and **5 non-goals** establishing the scope
+- **5 personas** including privacy-conscious users, default users, power users, and compliance officers
+- **25 user stories** across 10 categories (default posture, remote content, links, setup, opt-in gating, OAuth, safe browsing, error reporting, distribution channels, transparency)
+- **44 functional requirements** covering default network posture, remote content blocking, link handling, provider discovery, opt-in gating for 13 categories of optional services, OAuth, distribution channel invariants, data locality, and incidental disclosure minimization
+- **7 non-functional requirements** (auditability, verifiability, structural enforcement, regulatory compliance, performance, resilience, transparency)
+- **15 acceptance criteria** with concrete verification scenarios
+- **6 open questions** on autoconfiguration consent, blocklist freshness, DNS blocklists, platform telemetry, OAuth client IDs, and favicon/BIMI domain disclosure
+- **8 design notes** explaining the rationale behind key architectural decisions found in the source

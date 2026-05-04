@@ -1,1 +1,10 @@
-You've hit your limit · resets 3:10am (Europe/Amsterdam)
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/4.14-attachments.md`. It covers all aspects of the attachments feature:
+
+- **11 sections** matching the reference document structure
+- **41 user stories** across compose-side and reading-side workflows
+- **49 functional requirements** covering attachment sources, image processing, the collapsible list, warnings/validation, encryption interaction, and reading-side behavior
+- **22 acceptance criteria** with testable assertions
+- **8 open questions** documenting genuine ambiguities found during reverse-engineering
+- **8 design notes** explaining the rationale behind key decisions in the source application
+
+No other files were modified.

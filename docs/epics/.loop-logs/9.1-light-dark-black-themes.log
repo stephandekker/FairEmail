@@ -1,1 +1,9 @@
-You've hit your limit · resets 3:10am (Europe/Amsterdam)
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/9.1-light-dark-black-themes.md`. It covers:
+
+- **6 color schemes** with light/dark/black variants and auto-switching via freedesktop/GNOME/KDE color-scheme detection
+- **21 user stories** spanning theme selection, auto-switching, OLED/true-black, message content overrides, beige mode, persistence, and accessibility
+- **30 functional requirements** covering schemes, brightness variants, auto mode, content overrides, visual consistency, the selection interface, persistence, and scope
+- **7 non-functional requirements** for performance, contrast compliance, completeness, stability, graceful degradation, and accessibility
+- **16 acceptance criteria** and **7 open questions**
+
+All content is solution-agnostic with no implementation details, consistent with the unified-inbox reference example's structure and tone.

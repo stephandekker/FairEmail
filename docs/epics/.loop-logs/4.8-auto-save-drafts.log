@@ -1,1 +1,9 @@
-You've hit your limit · resets 3:10am (Europe/Amsterdam)
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/4.8-auto-save-drafts.md`. 
+
+Key findings from the reverse engineering:
+
+- **Three save triggers found in code**: paragraph break (default on), punctuation/end-character (default off), and loss-of-focus (always on). No timer-based auto-save exists despite the high-level description mentioning "on a timer" — this is noted in Open Questions.
+- **Revision history**: Linear, append-only numbered snapshots stored locally. Undo/redo navigates between revisions. Enabled by default. Captures body only (not quoted text or signatures).
+- **Server sync**: Drafts optionally pushed to IMAP Drafts folder, togglable per session.
+- **End characters**: `.`, `。`, `:`, `;`, `?`, `!`, `,` — with deduplication to avoid rapid-fire saves on sequences like `...` or `?!`.
+- **Seven open questions** documented, including the timer gap, revision branching semantics, storage limits, and character-level vs revision-level undo interaction.

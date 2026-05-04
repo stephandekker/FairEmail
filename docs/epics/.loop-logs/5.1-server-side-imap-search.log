@@ -1,1 +1,12 @@
-You've hit your limit · resets 3:10am (Europe/Amsterdam)
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/5.1-server-side-imap-search.md`. 
+
+The document covers:
+- **Background**: why server-side search is needed alongside local search
+- **6 goals** and **6 non-goals** scoping the feature precisely
+- **4 personas** (archive diver, quick-filter user, power searcher, multi-account user)
+- **24 user stories** across 7 categories (initiation, scope, criteria, structured expressions, fallback, results, preferences)
+- **30 functional requirements** covering search criteria (date range, sender, recipient, subject, body, flags, size, keywords), structured prefixes (`from:`, `to:`, `cc:`, `bcc:`, `keyword:`, `raw:`), Gmail raw search, charset negotiation, capability degradation, result handling, and preference persistence
+- **7 non-functional requirements** (responsiveness, scale, degradation transparency, offline, provider compatibility, privacy, accessibility)
+- **18 acceptance criteria** with testable conditions
+- **8 open questions** documenting genuine ambiguities found in the source
+- **7 design notes** explaining the rationale behind key decisions (local-first default, AND-only logic, try-and-fallback capability negotiation, charset transliteration, Gmail raw search scoping)

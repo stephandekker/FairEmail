@@ -1,1 +1,9 @@
-You've hit your limit · resets 3:10am (Europe/Amsterdam)
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/7.1-imap-idle-push.md`. It covers:
+
+- **Background**: Why IMAP IDLE exists and what real-world complications it must handle
+- **Goals**: Near-instant delivery, multi-folder IDLE, capability detection, automatic recovery, keep-alive tuning
+- **42 Functional Requirements** across 11 subsections: capability detection, push operation, poll operation, keep-alive, auto-tuning, auto-optimization fallback, failure recovery, network/power awareness, per-folder control, observability, and token refresh
+- **8 Non-Functional Requirements**: latency, scalability, resource efficiency, reliability, graceful degradation, transparency, network fairness, security
+- **18 Acceptance Criteria** with specific measurable thresholds
+- **6 Open Questions** covering NOTIFY exploitation, provider quirks, RFC ceilings, suspend behavior, connection limits, and known server bugs
+- **8 Design Notes** explaining the rationale behind key architectural decisions found in the source

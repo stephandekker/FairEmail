@@ -1,0 +1,10 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/14.6-system-mailto-handler.md`. It covers:
+
+- Registration as the system's `mailto:` handler
+- RFC 6068 URI parsing (To, CC, BCC, Subject, Body)
+- Compose window pre-population and cold-start behavior
+- Account/identity selection logic (primary account fallback, smart matching)
+- Error handling for no-account and malformed-URI scenarios
+- Sanitization of invisible characters and HTML injection prevention
+- Send-to-self convenience shortcut
+- Open questions around non-standard extensions (`aid`, `in-reply-to`), XDG registration strategy, and body format ambiguity
