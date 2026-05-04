@@ -102,6 +102,30 @@ pub(crate) fn show(
         .build();
     sync_group.add(&polling_row);
 
+    // -- Unmetered network only toggle (FR-7, US-29) --
+    let unmetered_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Unmetered network only"))
+        .subtitle(gettextrs::gettext("Suppress sync on metered connections"))
+        .active(account.unmetered_only())
+        .build();
+    sync_group.add(&unmetered_row);
+
+    // -- VPN only toggle (FR-7, US-29, AC-13) --
+    let vpn_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("VPN only"))
+        .subtitle(gettextrs::gettext("Suppress sync when no VPN is active"))
+        .active(account.vpn_only())
+        .build();
+    sync_group.add(&vpn_row);
+
+    // -- Schedule exemption toggle (FR-7, US-30) --
+    let schedule_exempt_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Schedule exemption"))
+        .subtitle(gettextrs::gettext("Continue syncing during off-hours"))
+        .active(account.schedule_exempt())
+        .build();
+    sync_group.add(&schedule_exempt_row);
+
     vbox.append(&sync_group);
 
     // -- Account colour (FR-5, FR-12) --
@@ -664,6 +688,12 @@ pub(crate) fn show(
         on_demand_row,
         #[weak]
         polling_row,
+        #[weak]
+        unmetered_row,
+        #[weak]
+        vpn_row,
+        #[weak]
+        schedule_exempt_row,
         #[strong]
         color_active,
         #[strong]
@@ -736,6 +766,9 @@ pub(crate) fn show(
                         Some(v)
                     }
                 },
+                unmetered_only: unmetered_row.is_active(),
+                vpn_only: vpn_row.is_active(),
+                schedule_exempt: schedule_exempt_row.is_active(),
             };
 
             let mut acct = account.borrow_mut();

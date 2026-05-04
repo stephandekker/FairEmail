@@ -618,6 +618,9 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
                 sync_enabled: true,
                 on_demand: false,
                 polling_interval_minutes: None,
+                unmetered_only: false,
+                vpn_only: false,
+                schedule_exempt: false,
             }) {
                 Ok(account) => {
                     on_done(Some(account));

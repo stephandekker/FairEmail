@@ -105,6 +105,9 @@ mod tests {
             sync_enabled: true,
             on_demand: false,
             polling_interval_minutes: None,
+            unmetered_only: false,
+            vpn_only: false,
+            schedule_exempt: false,
         })
         .unwrap()
     }
@@ -178,6 +181,9 @@ mod tests {
                 sync_enabled: true,
                 on_demand: false,
                 polling_interval_minutes: None,
+                unmetered_only: false,
+                vpn_only: false,
+                schedule_exempt: false,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();
@@ -229,6 +235,9 @@ mod tests {
                 sync_enabled: true,
                 on_demand: false,
                 polling_interval_minutes: None,
+                unmetered_only: false,
+                vpn_only: false,
+                schedule_exempt: false,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();

@@ -123,6 +123,12 @@ pub struct NewAccountParams {
     /// Polling / keep-alive interval in minutes (FR-6, US-28).
     /// `None` means use the application default.
     pub polling_interval_minutes: Option<u32>,
+    /// Suppress sync on metered (cellular/tethered) connections (FR-7, US-29).
+    pub unmetered_only: bool,
+    /// Suppress sync when no VPN tunnel is active (FR-7, US-29, AC-13).
+    pub vpn_only: bool,
+    /// Exempt this account from the global sync schedule (FR-7, US-30).
+    pub schedule_exempt: bool,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -150,6 +156,12 @@ pub struct UpdateAccountParams {
     /// Polling / keep-alive interval in minutes (FR-6, US-28).
     /// `None` means use the application default.
     pub polling_interval_minutes: Option<u32>,
+    /// Suppress sync on metered (cellular/tethered) connections (FR-7, US-29).
+    pub unmetered_only: bool,
+    /// Suppress sync when no VPN tunnel is active (FR-7, US-29, AC-13).
+    pub vpn_only: bool,
+    /// Exempt this account from the global sync schedule (FR-7, US-30).
+    pub schedule_exempt: bool,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -186,6 +198,15 @@ pub struct Account {
     /// `None` means use the application default.
     #[serde(default)]
     polling_interval_minutes: Option<u32>,
+    /// Suppress sync on metered (cellular/tethered) connections (FR-7, US-29).
+    #[serde(default)]
+    unmetered_only: bool,
+    /// Suppress sync when no VPN tunnel is active (FR-7, US-29, AC-13).
+    #[serde(default)]
+    vpn_only: bool,
+    /// Exempt this account from the global sync schedule (FR-7, US-30).
+    #[serde(default)]
+    schedule_exempt: bool,
     /// Whether this is the primary account (FR-24, FR-26, FR-27).
     #[serde(default)]
     is_primary: bool,
@@ -306,6 +327,9 @@ impl Account {
             sync_enabled: params.sync_enabled,
             on_demand: params.on_demand,
             polling_interval_minutes: params.polling_interval_minutes,
+            unmetered_only: params.unmetered_only,
+            vpn_only: params.vpn_only,
+            schedule_exempt: params.schedule_exempt,
             is_primary: false,
             error_state: None,
         })
@@ -387,6 +411,36 @@ impl Account {
         self.polling_interval_minutes = interval;
     }
 
+    /// Whether sync is suppressed on metered connections (FR-7, US-29).
+    pub fn unmetered_only(&self) -> bool {
+        self.unmetered_only
+    }
+
+    /// Set the unmetered-only flag (FR-7, US-29).
+    pub fn set_unmetered_only(&mut self, val: bool) {
+        self.unmetered_only = val;
+    }
+
+    /// Whether sync is suppressed when no VPN is active (FR-7, US-29, AC-13).
+    pub fn vpn_only(&self) -> bool {
+        self.vpn_only
+    }
+
+    /// Set the VPN-only flag (FR-7, US-29, AC-13).
+    pub fn set_vpn_only(&mut self, val: bool) {
+        self.vpn_only = val;
+    }
+
+    /// Whether this account is exempt from the global sync schedule (FR-7, US-30).
+    pub fn schedule_exempt(&self) -> bool {
+        self.schedule_exempt
+    }
+
+    /// Set the schedule exemption flag (FR-7, US-30).
+    pub fn set_schedule_exempt(&mut self, val: bool) {
+        self.schedule_exempt = val;
+    }
+
     pub fn is_primary(&self) -> bool {
         self.is_primary
     }
@@ -445,6 +499,9 @@ impl Account {
         self.set_sync_enabled(params.sync_enabled);
         self.on_demand = params.on_demand;
         self.polling_interval_minutes = params.polling_interval_minutes;
+        self.unmetered_only = params.unmetered_only;
+        self.vpn_only = params.vpn_only;
+        self.schedule_exempt = params.schedule_exempt;
         Ok(())
     }
 }
@@ -499,6 +556,9 @@ mod tests {
             sync_enabled: true,
             on_demand: false,
             polling_interval_minutes: None,
+            unmetered_only: false,
+            vpn_only: false,
+            schedule_exempt: false,
         }
     }
 
@@ -592,6 +652,9 @@ mod tests {
             sync_enabled: true,
             on_demand: false,
             polling_interval_minutes: None,
+            unmetered_only: false,
+            vpn_only: false,
+            schedule_exempt: false,
         }
     }
 
@@ -813,6 +876,9 @@ mod tests {
             sync_enabled: true,
             on_demand: false,
             polling_interval_minutes: None,
+            unmetered_only: false,
+            vpn_only: false,
+            schedule_exempt: false,
         };
         acct.update(up).unwrap();
         assert_eq!(acct.id(), original_id);
@@ -1220,5 +1286,129 @@ mod tests {
             .remove("polling_interval_minutes");
         let restored: Account = serde_json::from_value(json).unwrap();
         assert!(restored.polling_interval_minutes().is_none());
+    }
+
+    // -- Network condition fields tests (FR-7, US-29, US-30) --
+
+    #[test]
+    fn unmetered_only_defaults_to_false() {
+        let acct = valid_account();
+        assert!(!acct.unmetered_only());
+    }
+
+    #[test]
+    fn unmetered_only_can_be_set_on_creation() {
+        let mut p = valid_params();
+        p.unmetered_only = true;
+        let acct = Account::new(p).unwrap();
+        assert!(acct.unmetered_only());
+    }
+
+    #[test]
+    fn set_unmetered_only_toggles() {
+        let mut acct = valid_account();
+        acct.set_unmetered_only(true);
+        assert!(acct.unmetered_only());
+        acct.set_unmetered_only(false);
+        assert!(!acct.unmetered_only());
+    }
+
+    #[test]
+    fn vpn_only_defaults_to_false() {
+        let acct = valid_account();
+        assert!(!acct.vpn_only());
+    }
+
+    #[test]
+    fn vpn_only_can_be_set_on_creation() {
+        let mut p = valid_params();
+        p.vpn_only = true;
+        let acct = Account::new(p).unwrap();
+        assert!(acct.vpn_only());
+    }
+
+    #[test]
+    fn set_vpn_only_toggles() {
+        let mut acct = valid_account();
+        acct.set_vpn_only(true);
+        assert!(acct.vpn_only());
+        acct.set_vpn_only(false);
+        assert!(!acct.vpn_only());
+    }
+
+    #[test]
+    fn schedule_exempt_defaults_to_false() {
+        let acct = valid_account();
+        assert!(!acct.schedule_exempt());
+    }
+
+    #[test]
+    fn schedule_exempt_can_be_set_on_creation() {
+        let mut p = valid_params();
+        p.schedule_exempt = true;
+        let acct = Account::new(p).unwrap();
+        assert!(acct.schedule_exempt());
+    }
+
+    #[test]
+    fn set_schedule_exempt_toggles() {
+        let mut acct = valid_account();
+        acct.set_schedule_exempt(true);
+        assert!(acct.schedule_exempt());
+        acct.set_schedule_exempt(false);
+        assert!(!acct.schedule_exempt());
+    }
+
+    #[test]
+    fn network_conditions_changed_via_update() {
+        let mut acct = valid_account();
+        let mut up = valid_update_params();
+        up.unmetered_only = true;
+        up.vpn_only = true;
+        up.schedule_exempt = true;
+        acct.update(up).unwrap();
+        assert!(acct.unmetered_only());
+        assert!(acct.vpn_only());
+        assert!(acct.schedule_exempt());
+    }
+
+    #[test]
+    fn network_conditions_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.unmetered_only = true;
+        p.vpn_only = true;
+        p.schedule_exempt = true;
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert!(restored.unmetered_only());
+        assert!(restored.vpn_only());
+        assert!(restored.schedule_exempt());
+    }
+
+    #[test]
+    fn deserialize_account_without_network_conditions_defaults_to_false() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("unmetered_only");
+        json.as_object_mut().unwrap().remove("vpn_only");
+        json.as_object_mut().unwrap().remove("schedule_exempt");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(!restored.unmetered_only());
+        assert!(!restored.vpn_only());
+        assert!(!restored.schedule_exempt());
+    }
+
+    #[test]
+    fn network_conditions_independent_of_sync_enabled() {
+        let mut acct = valid_account();
+        acct.set_unmetered_only(true);
+        acct.set_vpn_only(true);
+        acct.set_schedule_exempt(true);
+        acct.set_sync_enabled(false);
+        assert!(acct.unmetered_only());
+        assert!(acct.vpn_only());
+        assert!(acct.schedule_exempt());
+        assert!(!acct.sync_enabled());
     }
 }

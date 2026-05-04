@@ -303,6 +303,39 @@ fn make_account_row(account: &Account) -> adw::ActionRow {
         row.add_suffix(&paused);
     }
 
+    // FR-7, US-29: indicate unmetered-only constraint.
+    if account.unmetered_only() {
+        let icon = gtk::Image::builder()
+            .icon_name("network-cellular-signal-excellent-symbolic")
+            .pixel_size(16)
+            .valign(gtk::Align::Center)
+            .tooltip_text(gettextrs::gettext("Unmetered network only"))
+            .build();
+        row.add_suffix(&icon);
+    }
+
+    // FR-7, US-29, AC-13: indicate VPN-only constraint.
+    if account.vpn_only() {
+        let icon = gtk::Image::builder()
+            .icon_name("network-vpn-symbolic")
+            .pixel_size(16)
+            .valign(gtk::Align::Center)
+            .tooltip_text(gettextrs::gettext("VPN only"))
+            .build();
+        row.add_suffix(&icon);
+    }
+
+    // FR-7, US-30: indicate schedule exemption.
+    if account.schedule_exempt() {
+        let icon = gtk::Image::builder()
+            .icon_name("alarm-symbolic")
+            .pixel_size(16)
+            .valign(gtk::Align::Center)
+            .tooltip_text(gettextrs::gettext("Schedule exempt"))
+            .build();
+        row.add_suffix(&icon);
+    }
+
     // FR-27: visually indicate the primary account with a star icon.
     if account.is_primary() {
         let star = gtk::Image::builder()
