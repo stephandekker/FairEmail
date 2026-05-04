@@ -4,37 +4,68 @@
 #
 # Usage: bash ralph.sh
 #
-# User stories live in docs/epics/user-stories and are grouped by EPIC number and title
-# A story is "unblocked" when every US-NN listed in its "## Dependencies" section has
-# already been moved to docs/epics/user-stories/done/.
-# Stories without "## Acceptance criteria" (e.g. PRDs) are skipped.
-# Lowest US-NN among unblocked stories is picked first.
-# ONE story is fully completed (including a git commit) before the next is started.
-# When a story is finished, its .md file is moved to docs/epics/user-stories/done/ under the correct epic subdirectory.
+# User stories live in docs/user-stories/<epic-slug>/<N>-<title>.md
+#   e.g. docs/user-stories/10.2-no-third-party-servers/2-remote-content-blocking.md
+# Each epic-slug directory is named "<major>.<minor>-<short-title>" and contains the
+# stories belonging to that epic, named "<N>-<title>.md" where N is the per-epic story
+# number (no zero padding).
 #
-# Max iterations: 2x the number of open stories at startup. This prevents agents that
-# create new stories mid-loop (e.g. the UX reviewer) from running ralph indefinitely.
+# A story is "unblocked" when every story listed in its "## Blocked by" section has
+# already been moved to docs/user-stories/done/<epic-slug>/. Blockers are referenced as
+# backtick-wrapped filename stems (e.g. `1-default-network-posture`) and resolved within
+# the same epic directory.
+# Stories without "## Acceptance Criteria" (e.g. PRDs) are skipped.
+# Stories are picked in epic-then-story numeric order: 1.1 before 1.10 before 2.1, and
+# within each epic 1- before 2- before 10-.
+# ONE story is fully completed (including a git commit) before the next is started.
+# When a story is finished, its .md file is moved to
+# docs/user-stories/done/<epic-slug>/<N>-<title>.md, mirroring the epic layout.
+#
+# Max iterations: 2x the number of open stories at startup, to prevent runaway loops if
+# the agent creates new stories mid-run.
 
 set -euo pipefail
 
-STORIES_DIR="docs/epics/user-stories"
+STORIES_DIR="docs/user-stories"
 DONE_DIR="${STORIES_DIR}/done"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
-# List open story files (top-level *.md only — excludes bugs/, tasks/, done/).
+# List open story files under each epic dir, sorted by epic.major, epic.minor, story-num.
+# Excludes anything under DONE_DIR.
 list_open_stories() {
-  find "$STORIES_DIR" -maxdepth 1 -type f -name '*.md' | sort
+  find "$STORIES_DIR" -mindepth 2 -maxdepth 2 -type f -name '*.md' \
+    -not -path "$DONE_DIR/*" \
+  | awk -F/ '{
+      epic = $(NF-1); file = $NF
+      if (match(epic, /^([0-9]+)\.([0-9]+)/)) {
+        split(substr(epic, RSTART, RLENGTH), e, ".")
+        major = e[1] + 0; minor = e[2] + 0
+      } else { major = 0; minor = 0 }
+      story = (match(file, /^[0-9]+/)) ? substr(file, RSTART, RLENGTH) + 0 : 0
+      printf "%05d.%05d.%05d\t%s\n", major, minor, story, $0
+    }' \
+  | sort \
+  | cut -f2-
 }
 
-# Extract US-NN id from a path like "docs/.../US-01_Project foundation.md".
+# Story id used in logs and commit messages: "<epic-slug>/<story-stem>".
 story_id_from_path() {
-  basename "$1" | grep -oE '^US-[0-9]+'
+  local epic stem
+  epic=$(basename "$(dirname "$1")")
+  stem=$(basename "$1" .md)
+  echo "${epic}/${stem}"
 }
 
-# Extract human title from a filename like "US-01_Project foundation.md" → "Project foundation".
+# Human title: prefer the first H1 heading in the file; fall back to the filename.
 story_title_from_path() {
-  basename "$1" .md | sed -E 's/^US-[0-9]+_//'
+  local h1
+  h1=$(grep -m1 -E '^# [^#]' "$1" 2>/dev/null | sed -E 's/^# +//')
+  if [ -n "$h1" ]; then
+    echo "$h1"
+  else
+    basename "$1" .md | sed -E 's/^[0-9]+-//; s/-/ /g'
+  fi
 }
 
 pick_unblocked_story() {
@@ -46,34 +77,30 @@ pick_unblocked_story() {
     return
   fi
 
-  # Build a space-padded list of currently-open story ids for blocker lookup.
-  local open_ids=" "
-  while IFS= read -r f; do
-    [ -z "$f" ] && continue
-    local id
-    id=$(story_id_from_path "$f" || true)
-    [ -n "$id" ] && open_ids+="$id "
-  done <<< "$open_files"
-
   while IFS= read -r f; do
     [ -z "$f" ] && continue
 
-    # Skip files without acceptance criteria (e.g. PRDs).
-    if ! grep -q "^## Acceptance criteria" "$f"; then
+    # Skip files without acceptance criteria (e.g. PRDs). Casing varies in the corpus.
+    if ! grep -qiE '^## Acceptance Criteria' "$f"; then
       continue
     fi
 
-    # Pull just the "## Dependencies" section — ignore US-NN mentions elsewhere
-    # in the file (Story narrative, Out of scope, etc.).
-    local deps_section
-    deps_section=$(awk '/^## Dependencies/{flag=1; next} /^## /{flag=0} flag' "$f")
+    local epic_dir
+    epic_dir=$(dirname "$f")
 
+    # Pull just the "## Blocked by" section — ignore mentions elsewhere in the file.
+    local deps_section
+    deps_section=$(awk '/^## Blocked by/{flag=1; next} /^## /{flag=0} flag' "$f")
+
+    # Blockers are backtick-wrapped filename stems, e.g. `1-default-network-posture`.
     local blockers
-    blockers=$(echo "$deps_section" | grep -oE 'US-[0-9]+' | sort -u || true)
+    blockers=$(echo "$deps_section" | grep -oE '`[0-9]+-[A-Za-z0-9_-]+`' | tr -d '`' | sort -u || true)
 
     local all_clear=true
     for b in $blockers; do
-      if [[ "$open_ids" == *" $b "* ]]; then
+      # Blocker is unresolved if its file is still in the open epic dir
+      # (i.e. has not yet been moved into DONE_DIR/<epic-slug>/).
+      if [ -f "${epic_dir}/${b}.md" ]; then
         all_clear=false
         break
       fi
@@ -114,7 +141,7 @@ mkdir -p "$DONE_DIR"
 INITIAL_STORY_COUNT=0
 while IFS= read -r f; do
   [ -z "$f" ] && continue
-  if grep -q "^## Acceptance criteria" "$f"; then
+  if grep -qiE '^## Acceptance Criteria' "$f"; then
     INITIAL_STORY_COUNT=$(( INITIAL_STORY_COUNT + 1 ))
   fi
 done <<< "$(list_open_stories)"
@@ -147,11 +174,14 @@ while true; do
   STORY_ID=$(story_id_from_path "$STORY_FILE")
   STORY_TITLE=$(story_title_from_path "$STORY_FILE")
   STORY_BODY=$(cat "$STORY_FILE")
+  STORY_EPIC_DIR=$(basename "$(dirname "$STORY_FILE")")
+  STORY_DONE_DIR="${DONE_DIR}/${STORY_EPIC_DIR}"
 
   # Exposed for the pre-commit hook (if installed) so it can reference Ralph context.
   export RALPH_STORY_ID="$STORY_ID"
   export RALPH_STORY_TITLE="$STORY_TITLE"
   export RALPH_STORY_FILE="$STORY_FILE"
+  export RALPH_STORY_DONE_DIR="$STORY_DONE_DIR"
 
   log ""
   log ">>> Implementing ${STORY_ID}: ${STORY_TITLE}"
@@ -183,9 +213,10 @@ Do not start or plan any other stories. Complete this story fully before stoppin
 
 ## Commit
 Once all acceptance criteria are met and tests pass, create a single git commit
-that includes all changed files. Also \`git mv\` the story spec
-(\`${STORY_FILE}\`) into \`${DONE_DIR}/\` as part of the same commit so the
-ralph loop can see it is finished. The commit message must be exactly:
+that includes all changed files. Also \`git mv\` the story spec from
+\`${STORY_FILE}\` into \`${STORY_DONE_DIR}/\` (creating that directory if it does
+not exist) as part of the same commit so the ralph loop can see it is finished.
+The commit message must be exactly:
 
 RALPH: ${STORY_ID} - ${STORY_TITLE}
 PROMPT
@@ -200,8 +231,9 @@ PROMPT
   # doesn't pick the same story again next iteration.
   if [ -f "$STORY_FILE" ]; then
     log ""
-    log "--- Story file still in place; moving ${STORY_FILE} → ${DONE_DIR}/ ---"
-    git mv "$STORY_FILE" "$DONE_DIR/"
+    log "--- Story file still in place; moving ${STORY_FILE} → ${STORY_DONE_DIR}/ ---"
+    mkdir -p "$STORY_DONE_DIR"
+    git mv "$STORY_FILE" "$STORY_DONE_DIR/"
     git commit -m "RALPH: mark ${STORY_ID} done"
   fi
 
