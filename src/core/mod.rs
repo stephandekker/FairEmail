@@ -1,4 +1,5 @@
 pub mod account;
+pub mod account_creation;
 pub mod account_order;
 pub mod account_review;
 pub mod auth_error;
@@ -28,6 +29,9 @@ pub use account::{
     FetchSettings, Folder, FolderRole, KeepAliveSettings, NewAccountParams, Pop3Settings, Protocol,
     QuotaInfo, SecuritySettings, SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
     UpdateAccountParams, QUOTA_HIGH_THRESHOLD_PERCENT,
+};
+pub use account_creation::{
+    create_account_and_identity, AccountCreationParams, AccountCreationResult, SendingIdentity,
 };
 pub use account_order::{apply_custom_order, default_order, move_account, order_from_accounts};
 pub use account_review::{build_review_data, AccountReviewData, ReviewFolderEntry};
