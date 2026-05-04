@@ -88,6 +88,24 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
         .build();
     server_group.add(&encryption_row);
 
+    // -- POP3 limitations banner (US-35, FR-10) --
+    let pop3_banner = adw::Banner::builder()
+        .title(gettextrs::gettext(
+            "POP3 limitations: no server-side folders, no server-side search, no remote flag sync. Sent, Drafts, and Trash are local-only.",
+        ))
+        .revealed(false)
+        .build();
+    vbox.append(&pop3_banner);
+
+    // Show/hide the banner when the protocol selection changes.
+    protocol_row.connect_selected_notify(clone!(
+        #[weak]
+        pop3_banner,
+        move |row| {
+            pop3_banner.set_revealed(row.selected() == 1);
+        }
+    ));
+
     vbox.append(&server_group);
 
     // -- Authentication --

@@ -79,6 +79,70 @@ pub struct Account {
     smtp: Option<SmtpConfig>,
 }
 
+/// A local folder associated with an account.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Folder {
+    name: String,
+    local_only: bool,
+}
+
+impl Folder {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn is_local_only(&self) -> bool {
+        self.local_only
+    }
+}
+
+impl Protocol {
+    /// Returns the default folder set for this protocol.
+    /// POP3 accounts have a fixed set of local-only folders (FR-10).
+    /// IMAP accounts get a minimal default set; server-side folders are
+    /// discovered at sync time.
+    pub fn default_folders(&self) -> Vec<Folder> {
+        match self {
+            Protocol::Pop3 => vec![
+                Folder {
+                    name: "Inbox".into(),
+                    local_only: true,
+                },
+                Folder {
+                    name: "Drafts".into(),
+                    local_only: true,
+                },
+                Folder {
+                    name: "Sent".into(),
+                    local_only: true,
+                },
+                Folder {
+                    name: "Trash".into(),
+                    local_only: true,
+                },
+            ],
+            Protocol::Imap => vec![Folder {
+                name: "Inbox".into(),
+                local_only: false,
+            }],
+        }
+    }
+
+    /// Returns a list of limitation descriptions for this protocol.
+    /// POP3 has significant limitations compared to IMAP (US-35).
+    pub fn limitations(&self) -> Vec<&'static str> {
+        match self {
+            Protocol::Pop3 => vec![
+                "No server-side folders — all folders are local-only",
+                "No server-side search",
+                "No remote flag synchronisation",
+                "Sent, Drafts, and Trash are stored locally only",
+            ],
+            Protocol::Imap => vec![],
+        }
+    }
+}
+
 /// Errors that can occur when building an account.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum AccountValidationError {
@@ -404,5 +468,60 @@ mod tests {
         // No fields should have changed.
         assert_eq!(a.host(), original_host);
         assert_eq!(a.display_name(), "Work Email");
+    }
+
+    // -- POP3 folder structure tests (FR-10) --
+
+    #[test]
+    fn pop3_default_folders_are_fixed_local_set() {
+        let folders = Protocol::Pop3.default_folders();
+        let names: Vec<&str> = folders.iter().map(|f| f.name()).collect();
+        assert_eq!(names, vec!["Inbox", "Drafts", "Sent", "Trash"]);
+        assert!(folders.iter().all(|f| f.is_local_only()));
+    }
+
+    #[test]
+    fn imap_default_folders_include_inbox() {
+        let folders = Protocol::Imap.default_folders();
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].name(), "Inbox");
+        assert!(!folders[0].is_local_only());
+    }
+
+    // -- POP3 limitations tests (US-35) --
+
+    #[test]
+    fn pop3_has_limitations() {
+        let lims = Protocol::Pop3.limitations();
+        assert!(!lims.is_empty());
+        assert!(lims.iter().any(|l| l.contains("server-side folders")));
+        assert!(lims.iter().any(|l| l.contains("server-side search")));
+        assert!(lims.iter().any(|l| l.contains("flag")));
+        assert!(lims.iter().any(|l| l.contains("local")));
+    }
+
+    #[test]
+    fn imap_has_no_limitations() {
+        assert!(Protocol::Imap.limitations().is_empty());
+    }
+
+    #[test]
+    fn folder_serialization_roundtrip() {
+        let folders = Protocol::Pop3.default_folders();
+        let json = serde_json::to_string(&folders).unwrap();
+        let parsed: Vec<Folder> = serde_json::from_str(&json).unwrap();
+        assert_eq!(folders, parsed);
+    }
+
+    #[test]
+    fn pop3_account_creation_and_folder_access() {
+        let mut p = valid_params();
+        p.protocol = Protocol::Pop3;
+        p.host = "pop.example.com".into();
+        p.port = 995;
+        let acct = Account::new(p).unwrap();
+        assert_eq!(acct.protocol(), Protocol::Pop3);
+        let folders = acct.protocol().default_folders();
+        assert_eq!(folders.len(), 4);
     }
 }

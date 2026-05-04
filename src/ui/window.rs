@@ -172,14 +172,30 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
 }
 
 fn make_account_row(account: &Account) -> adw::ActionRow {
-    adw::ActionRow::builder()
+    use crate::core::Protocol;
+
+    let subtitle = format!(
+        "{} – {}:{}",
+        account.protocol(),
+        account.host(),
+        account.port()
+    );
+
+    let row = adw::ActionRow::builder()
         .title(account.display_name())
-        .subtitle(format!(
-            "{} – {}:{}",
-            account.protocol(),
-            account.host(),
-            account.port()
-        ))
+        .subtitle(&subtitle)
         .activatable(true)
-        .build()
+        .build();
+
+    // FR-11: visually distinguish POP3 accounts with a suffix badge.
+    if account.protocol() == Protocol::Pop3 {
+        let badge = gtk::Label::builder()
+            .label("POP3")
+            .css_classes(["caption", "accent"])
+            .valign(gtk::Align::Center)
+            .build();
+        row.add_suffix(&badge);
+    }
+
+    row
 }
