@@ -172,6 +172,10 @@ pub struct Account {
     /// Whether this is the primary account (FR-24, FR-26, FR-27).
     #[serde(default)]
     is_primary: bool,
+    /// Active error or warning message for this account (e.g. sync failure).
+    /// Cleared automatically when synchronization is disabled (FR-32, AC-11).
+    #[serde(default)]
+    error_state: Option<String>,
 }
 
 /// A local folder associated with an account.
@@ -284,6 +288,7 @@ impl Account {
             avatar_path: params.avatar_path,
             sync_enabled: params.sync_enabled,
             is_primary: false,
+            error_state: None,
         })
     }
 
@@ -347,6 +352,24 @@ impl Account {
         self.is_primary
     }
 
+    pub fn error_state(&self) -> Option<&str> {
+        self.error_state.as_deref()
+    }
+
+    /// Set an error or warning message on this account.
+    pub fn set_error_state(&mut self, error: Option<String>) {
+        self.error_state = error;
+    }
+
+    /// Enable or disable synchronization (FR-6, AC-11).
+    /// Disabling clears any active error/warning state (FR-32, AC-11).
+    pub fn set_sync_enabled(&mut self, enabled: bool) {
+        self.sync_enabled = enabled;
+        if !enabled {
+            self.error_state = None;
+        }
+    }
+
     /// Set or clear primary designation on this account.
     pub fn set_primary(&mut self, primary: bool) {
         self.is_primary = primary;
@@ -380,7 +403,7 @@ impl Account {
         self.pop3_settings = params.pop3_settings;
         self.color = params.color;
         self.avatar_path = params.avatar_path;
-        self.sync_enabled = params.sync_enabled;
+        self.set_sync_enabled(params.sync_enabled);
         Ok(())
     }
 }
@@ -947,5 +970,79 @@ mod tests {
         json.as_object_mut().unwrap().remove("avatar_path");
         let restored: Account = serde_json::from_value(json).unwrap();
         assert!(restored.avatar_path().is_none());
+    }
+
+    // -- Sync toggle tests (FR-6, AC-11, AC-19) --
+
+    #[test]
+    fn set_sync_enabled_disables_sync() {
+        let mut acct = valid_account();
+        assert!(acct.sync_enabled());
+        acct.set_sync_enabled(false);
+        assert!(!acct.sync_enabled());
+    }
+
+    #[test]
+    fn set_sync_enabled_enables_sync() {
+        let mut p = valid_params();
+        p.sync_enabled = false;
+        let mut acct = Account::new(p).unwrap();
+        assert!(!acct.sync_enabled());
+        acct.set_sync_enabled(true);
+        assert!(acct.sync_enabled());
+    }
+
+    #[test]
+    fn disabling_sync_clears_error_state() {
+        let mut acct = valid_account();
+        acct.set_error_state(Some("connection timeout".into()));
+        assert!(acct.error_state().is_some());
+        acct.set_sync_enabled(false);
+        assert!(acct.error_state().is_none());
+    }
+
+    #[test]
+    fn enabling_sync_preserves_error_state() {
+        let mut p = valid_params();
+        p.sync_enabled = false;
+        let mut acct = Account::new(p).unwrap();
+        acct.set_error_state(Some("stale error".into()));
+        acct.set_sync_enabled(true);
+        assert_eq!(acct.error_state(), Some("stale error"));
+    }
+
+    #[test]
+    fn update_disabling_sync_clears_error_state() {
+        let mut acct = valid_account();
+        acct.set_error_state(Some("auth failed".into()));
+        let mut up = valid_update_params();
+        up.sync_enabled = false;
+        acct.update(up).unwrap();
+        assert!(!acct.sync_enabled());
+        assert!(acct.error_state().is_none());
+    }
+
+    #[test]
+    fn error_state_defaults_to_none() {
+        let acct = valid_account();
+        assert!(acct.error_state().is_none());
+    }
+
+    #[test]
+    fn error_state_serialization_roundtrip() {
+        let mut acct = valid_account();
+        acct.set_error_state(Some("sync failure".into()));
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.error_state(), Some("sync failure"));
+    }
+
+    #[test]
+    fn deserialize_account_without_error_state_defaults_to_none() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("error_state");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.error_state().is_none());
     }
 }

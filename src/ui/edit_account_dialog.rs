@@ -65,6 +65,17 @@ pub(crate) fn show(
     name_group.add(&name_row);
     vbox.append(&name_group);
 
+    // -- Synchronization toggle (FR-6, AC-11) --
+    let sync_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Synchronization"))
+        .build();
+    let sync_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Enable synchronization"))
+        .active(account.sync_enabled())
+        .build();
+    sync_group.add(&sync_row);
+    vbox.append(&sync_group);
+
     // -- Account colour (FR-5, FR-12) --
     let color_group = adw::PreferencesGroup::builder()
         .title(gettextrs::gettext("Account Colour"))
@@ -619,6 +630,8 @@ pub(crate) fn show(
         toast_overlay,
         #[weak]
         color_btn,
+        #[weak]
+        sync_row,
         #[strong]
         color_active,
         #[strong]
@@ -681,7 +694,7 @@ pub(crate) fn show(
                 pop3_settings,
                 color,
                 avatar_path: avatar,
-                sync_enabled: account.borrow().sync_enabled(),
+                sync_enabled: sync_row.is_active(),
             };
 
             let mut acct = account.borrow_mut();
