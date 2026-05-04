@@ -5,6 +5,7 @@ use libadwaita::prelude::*;
 
 use glib::clone;
 
+use crate::core::account_review::AccountReviewData;
 use crate::core::detection_failure::build_detection_failure_fallback;
 use crate::core::detection_progress::{detection_sequence, DetectionStep};
 use crate::core::privacy;
@@ -300,6 +301,71 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
 
     vbox.append(&fallback_box);
 
+    // -- Account review screen (FR-26) --
+    let review_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .visible(false)
+        .build();
+    review_box.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Account review",
+    ))]);
+
+    // Provider name label (FR-26a).
+    let review_provider_label = gtk::Label::builder()
+        .css_classes(["title-3"])
+        .halign(gtk::Align::Start)
+        .build();
+    review_box.append(&review_provider_label);
+
+    // Editable account name (FR-26a, FR-26c).
+    let review_account_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Account name"))
+        .build();
+    let review_account_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Account name"))
+        .build();
+    review_account_row.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Editable account name",
+    ))]);
+    review_account_group.add(&review_account_row);
+    review_box.append(&review_account_group);
+
+    // System folders list (FR-26b).
+    let review_folders_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Detected folders"))
+        .build();
+    review_box.append(&review_folders_group);
+
+    // Confirm / Back buttons for review screen.
+    let review_btn_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(12)
+        .halign(gtk::Align::Center)
+        .margin_top(12)
+        .build();
+
+    let review_back_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Back"))
+        .css_classes(["pill"])
+        .build();
+    review_back_btn.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Go back to modify inputs",
+    ))]);
+    review_btn_box.append(&review_back_btn);
+
+    let review_confirm_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Save account"))
+        .css_classes(["suggested-action", "pill"])
+        .build();
+    review_confirm_btn.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Confirm and save account",
+    ))]);
+    review_btn_box.append(&review_confirm_btn);
+
+    review_box.append(&review_btn_box);
+    vbox.append(&review_box);
+
     clamp.set_child(Some(&vbox));
     scrolled.set_child(Some(&clamp));
     toast_overlay.set_child(Some(&scrolled));
@@ -337,6 +403,26 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         check_btn,
         #[weak]
         manual_btn,
+        #[weak]
+        review_box,
+        #[weak]
+        review_provider_label,
+        #[weak]
+        review_account_row,
+        #[weak]
+        review_folders_group,
+        #[weak]
+        name_group,
+        #[weak]
+        email_group,
+        #[weak]
+        password_group,
+        #[weak]
+        privacy_box,
+        #[weak]
+        btn_box,
+        #[weak]
+        fallback_box,
         #[strong]
         on_done,
         move |_| {
@@ -412,6 +498,15 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                 progress_label.clone(),
                 progress_box.clone(),
                 fallback_box.clone(),
+                review_box.clone(),
+                review_provider_label.clone(),
+                review_account_row.clone(),
+                review_folders_group.clone(),
+                name_group.clone(),
+                email_group.clone(),
+                password_group.clone(),
+                privacy_box.clone(),
+                btn_box.clone(),
                 check_btn.clone(),
                 manual_btn.clone(),
                 dialog.clone(),
@@ -479,6 +574,65 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         }
     ));
 
+    // -- Review screen: Back button handler (FR-26) --
+    // Hides the review screen and shows the input form again.
+    review_back_btn.connect_clicked(clone!(
+        #[weak]
+        review_box,
+        #[weak]
+        name_group,
+        #[weak]
+        email_group,
+        #[weak]
+        password_group,
+        #[weak]
+        privacy_box,
+        #[weak]
+        btn_box,
+        move |_| {
+            review_box.set_visible(false);
+            name_group.set_visible(true);
+            email_group.set_visible(true);
+            password_group.set_visible(true);
+            privacy_box.set_visible(true);
+            btn_box.set_visible(true);
+        }
+    ));
+
+    // -- Review screen: Confirm button handler (FR-26) --
+    // Saves the account with the (possibly edited) account name.
+    review_confirm_btn.connect_clicked(clone!(
+        #[weak]
+        review_account_row,
+        #[weak]
+        name_row,
+        #[weak]
+        email_row,
+        #[weak]
+        password_row,
+        #[weak]
+        dialog,
+        #[strong]
+        on_done,
+        move |_| {
+            let account_name = review_account_row.text().trim().to_string();
+            let display_name = if account_name.is_empty() {
+                name_row.text().trim().to_string()
+            } else {
+                account_name
+            };
+            let email = email_row.text().trim().to_string();
+            let password = password_row.text().to_string();
+
+            on_done(Some(WizardAction::Check(WizardData {
+                display_name,
+                email,
+                password,
+            })));
+            dialog.close();
+        }
+    ));
+
     dialog.connect_closed(move |_| {
         let _ = &on_done_close;
     });
@@ -492,15 +646,23 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
 /// see real-time updates. The UI thread is never blocked because we use
 /// `glib::timeout_future` which yields back to the main loop.
 ///
-/// When detection completes without finding a provider, the fallback box
-/// is shown with a non-technical message and a path to manual setup
-/// (FR-23, FR-24, FR-25, US-18).
+/// When detection completes successfully, the review screen is shown (FR-26).
+/// When detection fails, the fallback box is shown (FR-23, FR-24, FR-25, US-18).
 #[allow(clippy::too_many_arguments)]
 fn run_detection_progress(
     steps: Vec<DetectionStep>,
     progress_label: gtk::Label,
     progress_box: gtk::Box,
     fallback_box: gtk::Box,
+    review_box: gtk::Box,
+    review_provider_label: gtk::Label,
+    review_account_row: adw::EntryRow,
+    review_folders_group: adw::PreferencesGroup,
+    name_group: adw::PreferencesGroup,
+    email_group: adw::PreferencesGroup,
+    password_group: adw::PreferencesGroup,
+    privacy_box: gtk::Box,
+    btn_box: gtk::Box,
     check_btn: gtk::Button,
     manual_btn: gtk::Button,
     _dialog: adw::Dialog,
@@ -526,10 +688,117 @@ fn run_detection_progress(
         manual_btn.set_sensitive(true);
 
         // No real detection pipeline yet — show the failure fallback (FR-23).
-        // Future slices will check a DetectionOutcome and only show
-        // the fallback when no provider was found.
+        // Future slices will replace this with actual provider detection and show
+        // the review screen on success via `show_review_screen()`.
         fallback_box.set_visible(true);
+
+        // The review screen infrastructure is ready. When a real detection pipeline
+        // returns a ConnectivityCheckResult, call show_review_screen() instead of
+        // showing fallback_box. Example (for future use):
+        // show_review_screen(
+        //     &review_data,
+        //     &review_box, &review_provider_label, &review_account_row,
+        //     &review_folders_group, &name_group, &email_group,
+        //     &password_group, &privacy_box, &btn_box,
+        // );
+
+        // Suppress unused variable warnings for review widgets until pipeline is wired.
+        let _ = (&review_box, &review_provider_label, &review_account_row);
+        let _ = (&review_folders_group, &name_group, &email_group);
+        let _ = (&password_group, &privacy_box, &btn_box);
     });
+}
+
+/// Populate and show the account review screen (FR-26).
+///
+/// Hides the input form and displays the review with provider name,
+/// editable account name, and detected folder indicators.
+#[allow(dead_code, clippy::too_many_arguments)]
+pub(crate) fn show_review_screen(
+    data: &AccountReviewData,
+    review_box: &gtk::Box,
+    review_provider_label: &gtk::Label,
+    review_account_row: &adw::EntryRow,
+    review_folders_group: &adw::PreferencesGroup,
+    name_group: &adw::PreferencesGroup,
+    email_group: &adw::PreferencesGroup,
+    password_group: &adw::PreferencesGroup,
+    privacy_box: &gtk::Box,
+    btn_box: &gtk::Box,
+) {
+    // Hide the input form.
+    name_group.set_visible(false);
+    email_group.set_visible(false);
+    password_group.set_visible(false);
+    privacy_box.set_visible(false);
+    btn_box.set_visible(false);
+
+    // Populate provider name (FR-26a).
+    review_provider_label
+        .set_label(&gettextrs::gettext("Provider: %s").replace("%s", &data.provider_name));
+
+    // Populate editable account name (FR-26c).
+    review_account_row.set_text(&data.account_name);
+
+    // Clear any previous folder rows.
+    while let Some(child) = review_folders_group.first_child() {
+        // Skip the group title/header widget — only remove ActionRow children.
+        if child.downcast_ref::<adw::ActionRow>().is_some() {
+            review_folders_group.remove(&child);
+        } else {
+            // Move past non-removable children (header).
+            break;
+        }
+    }
+
+    // Add Inbox entry.
+    let inbox_row = adw::ActionRow::builder()
+        .title(gettextrs::gettext("Inbox"))
+        .build();
+    let inbox_icon = if data.has_inbox {
+        "emblem-ok-symbolic"
+    } else {
+        "window-close-symbolic"
+    };
+    let inbox_suffix = gtk::Image::from_icon_name(inbox_icon);
+    inbox_suffix.update_property(&[gtk::accessible::Property::Label(&if data.has_inbox {
+        gettextrs::gettext("Found")
+    } else {
+        gettextrs::gettext("Not found")
+    })]);
+    inbox_row.add_suffix(&inbox_suffix);
+    review_folders_group.add(&inbox_row);
+
+    // Add system folder entries (FR-26b).
+    for entry in &data.folder_entries {
+        let row = adw::ActionRow::builder()
+            .title(gettextrs::gettext(entry.role_label()))
+            .build();
+
+        let icon_name = if entry.is_detected() {
+            "emblem-ok-symbolic"
+        } else {
+            "window-close-symbolic"
+        };
+        let suffix = gtk::Image::from_icon_name(icon_name);
+        let accessible_label = if entry.is_detected() {
+            gettextrs::gettext("Found")
+        } else {
+            gettextrs::gettext("Not found")
+        };
+        suffix.update_property(&[gtk::accessible::Property::Label(&accessible_label)]);
+        row.add_suffix(&suffix);
+
+        // Show the server folder name as subtitle if detected.
+        if let Some(ref name) = entry.server_name {
+            row.set_subtitle(name);
+        }
+
+        review_folders_group.add(&row);
+    }
+
+    // Show the review screen.
+    review_box.set_visible(true);
 }
 
 /// Map validation errors to field-specific error labels.
