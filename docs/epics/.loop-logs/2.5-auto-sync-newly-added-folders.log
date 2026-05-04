@@ -1,0 +1,8 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/2.5-auto-sync-newly-added-folders.md`. 
+
+The document covers the Auto-Sync Newly Added Folders feature with all required sections matching the reference epic's structure:
+
+- **Background**: Explains the pain point (manual sync enablement for every new folder) and the opt-in global toggle solution
+- **Key behaviors captured**: disabled by default, applies only to user-created folders, only to selectable folders, only when the account already has at least one user folder (first-run guard), inherits parent settings first then overrides sync+notify to enabled, immediately queues a sync operation
+- **5 open questions** flagged, including per-account granularity, the notification pairing decision, the first-run guard subtlety, shared namespace interaction, and retroactive bulk-enable
+- **6 design notes** documenting the rationale behind key decisions found in the source code

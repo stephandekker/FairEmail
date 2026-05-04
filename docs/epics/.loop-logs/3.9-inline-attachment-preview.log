@@ -1,0 +1,9 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/3.9-inline-attachment-preview.md`. The document covers:
+
+- **5 attachment families**: images (inline + gallery), audio, PDF, EML, and barcodes/QR codes
+- **24 user stories** across 8 categories
+- **40 functional requirements** covering each preview type, the settings hierarchy, and gallery behavior
+- **9 non-functional requirements** (async loading, memory safety, caching, privacy, accessibility)
+- **20 acceptance criteria**
+- **7 open questions** (EML toggle gap, barcode scope, multi-barcode handling, audio player scope, SVG cap, gallery ordering, inline-vs-gallery overlap)
+- **7 design notes** explaining key architectural decisions

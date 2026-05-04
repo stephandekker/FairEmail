@@ -1,0 +1,11 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/1.2-unlimited-identities-per-account.md`. It covers:
+
+- **11 sections** matching the reference epic structure
+- **45 user stories** across 13 sub-categories (lifecycle, primary identity, composition, auto-matching, sender flexibility, SMTP per identity, signatures, addressing defaults, encryption, envelope sender, visual identity, receipt/sensitivity, list management)
+- **49 functional requirements** covering identity data model, account relationship, primary designation, composable filtering, auto-matching on reply, sender-extra/regex, per-identity SMTP, signatures, reply-to/CC/BCC/envelope, encryption/signing, receipts/sensitivity, visual color, creation helpers, and encoding
+- **7 non-functional requirements** (no hard limit, responsiveness, credential security, offline, consistency, accessibility, privacy)
+- **22 acceptance criteria**
+- **6 open questions** (per-identity Sent folder, ordering, regex complexity, password sync scope, color inheritance, name vs display-name)
+- **7 design notes** explaining key architectural decisions
+
+No code or other files were modified.

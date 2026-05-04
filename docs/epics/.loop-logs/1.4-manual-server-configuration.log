@@ -1,0 +1,11 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/1.4-manual-server-configuration.md`. It covers:
+
+- **11 sections** matching the reference structure (Background & Purpose, Goals, Non-Goals, Glossary, Personas, User Stories, Functional Requirements, Non-Functional Requirements, Acceptance Criteria, Open Questions, Design Notes & Rationale)
+- **40 user stories** across account creation, auto-config, test connection, folder roles, saving, SMTP identity, POP3 settings, editing, and advanced options
+- **61 functional requirements** covering protocol selection, server fields, security options, validation, auto-config, provider selection, test connection, folder roles, saving, SMTP, POP3, display properties, and editing
+- **8 non-functional requirements** (responsiveness, security defaults, credential safety, accessibility, offline resilience, error clarity, idempotent save, scale)
+- **20 acceptance criteria** with concrete testable scenarios
+- **7 open questions** capturing genuine ambiguities
+- **8 design notes** documenting rationale behind key decisions
+
+No other files were modified.

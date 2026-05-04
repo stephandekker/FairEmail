@@ -1,0 +1,10 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/2.7-folder-colors-and-per-folder-unread-counters.md`. It covers:
+
+- **Folder color rendering** in both the folder list (vertical color stripe) and navigation pane (icon tinting), including the Inbox-to-account-color fallback and default Trash/Junk warning colors
+- **Per-folder unread counters** with bold/highlight styling, numeric display, and the "unexposed" (newly arrived) indicator
+- **Child-folder aggregation** when parent folders are collapsed
+- **Count-unread flag** controlling contribution to account-level badge totals
+- **Hide-when-read** auto-hiding of folders with no unread mail
+- **Navigation pane count settings** (unread count, message count, pinned count, drafts total)
+- **Sort unread atop** folder ordering option
+- Clearly scoped relationship to the existing coloring epic (1.8), with overlap noted in Open Questions

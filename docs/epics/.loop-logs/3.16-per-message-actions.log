@@ -1,0 +1,16 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/3.16-per-message-actions.md`. It covers all actions specified in the feature description:
+
+- **Snooze** (9 user stories, 9 functional requirements) — presets, thread-scoped behavior, wake-up notifications, configurable auto-flag/importance
+- **Hide** (4 user stories, 5 FRs) — local-only toggle, shares filter with snooze
+- **Pin** (2 user stories, 3 FRs) — system-level shortcut creation
+- **Flag with color** (5 user stories, 6 FRs) — arbitrary RGB picker, Open-Xchange and provider label color recognition
+- **Set importance** (5 user stories, 6 FRs) — three-level system, dual header-based and local importance
+- **Edit subject** (3 user stories, 4 FRs) — server-side replace, experimental gate, thread preservation
+- **Edit notes** (6 user stories, 7 FRs) — local-only, colored, cross-copy propagation
+- **IMAP keywords/labels** (9 user stories, 10 FRs) — colors, aliases, global keywords, provider-specific labels
+- **Move/Copy** (8 user stories, 8 FRs) — cross-account, undo, thread-aware, archive as move
+- **Delete** (6 user stories, 7 FRs) — soft/hard modes, confirmation, POP3 leave-on-server
+- **Delete attachments** (4 user stories, 5 FRs) — selective removal, server-side stubs
+- **Action surfaces** (7 user stories, 5 FRs) — configurable toolbar, swipe, keyboard, bulk-select
+
+Plus 9 open questions and 11 design notes capturing non-obvious source-application decisions.

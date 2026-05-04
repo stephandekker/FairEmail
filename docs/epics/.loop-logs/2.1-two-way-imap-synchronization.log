@@ -1,0 +1,12 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/2.1-two-way-imap-synchronization.md`. It covers:
+
+- **Background & Purpose**: Why two-way sync is foundational
+- **Goals/Non-Goals**: Scoped to IMAP sync mechanics, excluding POP3/JMAP, scheduling, and UI
+- **Glossary**: 14 domain terms
+- **Personas**: 5 user types (multi-device, offline, power user, shared mailbox, cautious)
+- **User Stories**: 29 stories across 8 categories (local→server, server→local, offline, conflicts, errors, incremental sync, UID validity, expunge)
+- **Functional Requirements**: 47 requirements covering operations, sync cycles, conflict resolution, offline queuing, move/delete/flag mechanics, retry logic, and provider compatibility
+- **Non-Functional Requirements**: 10 requirements (consistency, durability, ordering, latency, bandwidth, scale, resilience, observability, idempotency, privacy)
+- **Acceptance Criteria**: 24 testable criteria
+- **Open Questions**: 7 genuine ambiguities discovered during analysis
+- **Design Notes**: 8 rationale notes explaining key architectural choices

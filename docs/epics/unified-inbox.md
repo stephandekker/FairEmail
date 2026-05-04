@@ -1,0 +1,278 @@
+# Epic: Unified Inbox
+
+> Reverse-engineered from the FairEmail Android application. Maps to high-level feature **3.1** in [/reverse-engineering/high-level-features.md](../../reverse-engineering/high-level-features.md): *"Unified Inbox. Cross-account merged inbox; togglable per-account or per-folder."*
+>
+> This document captures **what** the feature must do, not **how**. It describes user-visible behavior and contract-level expectations, and is intended to drive design and implementation work in subsequent stages without prescribing them.
+
+---
+
+## 1. Background & Purpose
+
+A user of an email client with multiple accounts typically wants two things at once:
+
+1. A single, unified place to triage their incoming mail across all their accounts and providers, without having to walk through each account separately.
+2. Fine-grained control over which streams of mail join that unified place — e.g. they may want their work and personal Inboxes merged but their newsletters or shared-team folders kept out, or they may also want to surface a handful of custom server-side folders alongside the Inboxes.
+
+The Unified Inbox feature exists to satisfy both needs at the same time. It provides an aggregated view that merges messages from *user-selected folders* across *all of the user's mail accounts*, and at the same time provides simple, discoverable controls so that any folder of any account can be added to or removed from the unified stream at any time.
+
+The feature also acts as the **default home view** for new users, so that the first thing a freshly configured account presents is the user's mail — not an empty folder tree.
+
+## 2. Goals
+
+- **G1.** Provide a single, always-available view that merges messages from a user-curated set of folders across one or more accounts.
+- **G2.** Make membership in the unified view discoverable and reversible at the granularity of an individual folder.
+- **G3.** Make the unified view feel like a real folder for all common reading and triage operations — sorting, filtering, searching, threading, marking, moving, replying, composing.
+- **G4.** Give a brand-new user a useful unified view immediately, without forcing them to configure anything.
+- **G5.** Treat unified-inbox membership as an independent concern from notification settings and from synchronization scope.
+
+## 3. Non-Goals
+
+- **NG1.** This epic does **not** define how messages are fetched, stored, or synchronized; it only constrains how the unified view consumes whatever the synchronization subsystem produces.
+- **NG2.** This epic does **not** prescribe how membership state is persisted or queried — only that it is durable, per-folder, and observable at runtime.
+- **NG3.** A single account-level "include this whole account in unified" toggle is **not** a goal. Per-folder is the governing granularity. (See §11 for the rationale.)
+- **NG4.** Custom virtual / saved-search folders, smart folders, or tag-based unified streams are out of scope; this epic concerns only physical folders that the user already has on a server (or a synthesized-but-real folder such as POP3's locally-emulated Inbox).
+- **NG5.** Unified views for non-Inbox roles (e.g. "Unified Sent", "Unified Drafts") are not a goal as separate features. Any folder may be added to the single unified stream regardless of role, but no separate per-role aggregations are required.
+
+## 4. Glossary
+
+| Term | Definition |
+|---|---|
+| **Account** | A configured connection to a single mail provider (mailbox), with credentials, server settings, and its own folder tree. A user may have one or many. |
+| **Folder** | A container of messages within an account. Folders may be system folders (Inbox, Sent, Drafts, Trash, Spam, Archive, Outbox) or user-created folders. |
+| **Folder role / type** | The semantic meaning of a folder (Inbox, Sent, etc.) as detected from the server or assigned by the user. |
+| **Unified-inbox membership** | A boolean property of a folder indicating whether its messages should be merged into the Unified Inbox view. The user can change this at any time. |
+| **Unified Inbox** | A single, application-wide view that displays the union of messages from every folder whose unified-inbox membership is enabled, across every synchronized account. |
+| **Synchronized account** | An account whose messages are being kept up to date by the application. (An account that is suspended, on-demand only, or otherwise non-syncing is treated specially — see §6.6.) |
+| **Primary account** | The account designated as the fallback for any operation initiated from a context where no specific account is implied (typically: composing from the Unified Inbox). |
+| **Conversation / thread** | A set of related messages grouped by their reply chain (`Message-ID` / `In-Reply-To` / `References`). Threading is determined application-wide and is independent of the Unified Inbox feature. |
+| **System folder** | A folder with a known role: Inbox, Sent, Drafts, Trash, Spam, Archive, Outbox. |
+| **On-demand account** | An account whose folders are only synchronized when the user explicitly triggers a sync. |
+
+## 5. Personas
+
+- **P1. The merged-inbox user.** Has 2–4 personal/work accounts; wants one place to read everything. Rarely customizes — accepts the default (all Inboxes merged).
+- **P2. The curating power user.** Has many accounts and many folders; wants the unified view to include their main Inbox plus 2–3 specific shared/team folders, and explicitly does **not** want some accounts' Inboxes appearing there.
+- **P3. The role-separator.** Has multiple accounts but wants to keep them distinct; opts the Unified Inbox out entirely and navigates per-account.
+- **P4. The newcomer.** Has just installed the app and added their first account; expects the first screen to show their mail.
+
+## 6. User Stories
+
+### 6.1 Default behavior on adding an account
+
+> **US-1.** As a newcomer, when I finish adding my first account, I want the application to show me my Inbox merged into the Unified Inbox by default, so that I do not have to configure anything to read my mail.
+
+> **US-2.** As any user, when I add an additional account, I want that account's Inbox to be added to the Unified Inbox automatically, so that the Unified Inbox stays useful as I add accounts.
+
+> **US-3.** As any user, when an account is added, I want **only the Inbox** to be added to the Unified Inbox by default — not Sent, Drafts, Trash, Spam, Archive, or any user folders — so that the unified view is not cluttered with mail I have already handled.
+
+### 6.2 Toggling a folder in or out of the Unified Inbox
+
+> **US-4.** As any user, I want to toggle Unified Inbox membership for any single folder on or off through a context action on that folder, so that I can curate the unified stream without leaving the folder list.
+
+> **US-5.** As a power user, I want to toggle membership for any folder — Inbox or not, system or user-created — so that I can compose a unified view that fits my workflow (e.g. include a shared "Team" folder, or include my Sent folder so I can see my outgoing mail in the same stream).
+
+> **US-6.** As a power user with hierarchical folder trees, when I act on a parent folder I want to be able to add or remove **all of its descendants** at once, so that I do not have to toggle each child folder individually.
+
+> **US-7.** As any user, I want to toggle membership through a properties / edit screen for a folder as well, so that I have a discoverable place to find this setting alongside the folder's other properties.
+
+> **US-8.** As any user, I want my membership choices to persist across application restarts and across re-syncing, so that I configure each folder once.
+
+### 6.3 Viewing the Unified Inbox
+
+> **US-9.** As any user, I want to open the Unified Inbox from the application's primary navigation, so that it is one click away at all times.
+
+> **US-10.** As any user, I want the Unified Inbox to display messages from all folders whose membership is currently enabled, merged into a single chronological list, so that I can read all my new mail in one place.
+
+> **US-11.** As any user, when an account I have configured is not currently synchronized at all, I want messages from that account **not** to appear in the Unified Inbox, so that the view reflects only the mail the application is actively maintaining.
+
+> **US-12.** As a multi-account user, I want a visual indicator on each message in the Unified Inbox that tells me which account or folder it belongs to (color, name, icon), so that I can disambiguate without opening each message.
+
+> **US-13.** As a multi-account user, I want messages that are part of the same conversation to be grouped together even when the replies live in different accounts, so that long cross-account threads stay readable.
+
+### 6.4 Acting on messages in the Unified Inbox
+
+> **US-14.** As any user, I want every per-message action that I have on a folder view (read/unread, flag, snooze, hide, move, copy, delete, archive, mark important, reply, forward, etc.) to be available in the Unified Inbox, so that I do not have to drill into the source folder to triage.
+
+> **US-15.** As any user, when I act on a message in the Unified Inbox, I want the action to be applied to the *original* message in its real folder/account, so that what I do in the unified view stays consistent with the underlying mailbox.
+
+> **US-16.** As any user, when I select multiple messages in the Unified Inbox, I want to apply the same triage action across all of them in one step, so that I can clean up faster.
+
+### 6.5 Composing from the Unified Inbox
+
+> **US-17.** As any user, when I start composing a new message from the Unified Inbox, I want the application to choose a sensible "From" account — specifically, the user-designated *primary account* — so that I am not forced to choose an account every single time.
+
+> **US-18.** As any user, when I compose, I want the resulting draft to be stored in the chosen account's Drafts folder and the sent message to be stored in that account's Sent folder, so that my outgoing mail is filed in a way that matches my expectations.
+
+> **US-19.** As any user, when I reply to or forward a message from within the Unified Inbox, I want the reply to default to the same account that received the original message, so that conversations remain consistent in the eyes of the recipient.
+
+### 6.6 Notifications
+
+> **US-20.** As any user, I want notification settings for new mail to be configurable independently of unified-inbox membership, so that I can have a folder appear in the unified view without making noise, or have a folder make noise without appearing in the unified view.
+
+> **US-21.** As any user, I want changing unified-inbox membership on a folder to have **no effect** on whether that folder produces notifications, so that I can rearrange my unified stream without accidentally disabling alerts.
+
+### 6.7 Searching and filtering
+
+> **US-22.** As any user, when I search from the Unified Inbox, I want the search to span every folder that is currently a member of the Unified Inbox, across every synchronized account, so that "search from the unified inbox" means "search everything I see here".
+
+> **US-23.** As any user, I want the same in-list filters that I have in a single folder (unread/read, flagged, with attachment, snoozed, deleted, etc.) to be available in the Unified Inbox, so that I can narrow the merged stream the same way I would narrow a folder.
+
+> **US-24.** As any user, I want my chosen filter set in the Unified Inbox to be remembered separately from filter sets in individual folders, so that I do not lose my custom filtering when I switch contexts.
+
+### 6.8 Sorting
+
+> **US-25.** As any user, I want to choose how the merged messages are ordered (by date, sender, subject, size, attachment count, importance, etc., ascending or descending), and have the Unified Inbox remember my chosen sort separately from any folder's sort, so that the unified view can have its own sensible ordering.
+
+### 6.9 Snoozed, hidden, and excluded messages
+
+> **US-26.** As any user, I want messages that I have *hidden* not to appear in the Unified Inbox under any circumstance, so that "hide" means "hide everywhere, not just here".
+
+> **US-27.** As any user, I want messages that I have *snoozed* to be excluded from the Unified Inbox by default until they reappear, but I want to be able to opt into seeing snoozed messages via a filter, so that I can verify my upcoming queue without losing the focus benefit of snoozing.
+
+> **US-28.** As any user, I want flagged/starred messages to be included in the Unified Inbox like any other message, so that flagging never accidentally removes a message from the merged view.
+
+### 6.10 Discoverability
+
+> **US-29.** As a newcomer, on first run I want a brief on-screen hint telling me that I can curate the unified stream by acting on a folder in the folder list, so that I learn the feature exists.
+
+> **US-30.** As any user, I want the Unified Inbox to be visible as a clearly-labeled root entry in the navigation pane, distinct from per-account folder trees, so that there is no confusion about what view I am in.
+
+> **US-31.** As any user, I want a way to *collapse* or *hide* the unified-inbox area of the navigation pane if I do not use it, so that my navigation stays clean.
+
+### 6.11 External surfaces
+
+> **US-32.** As any user, I want to be able to expose the Unified Inbox on at least one external application surface (e.g. a system-tray indicator, a panel applet, a keyboard shortcut, a desktop shortcut, a startup target), so that the unified view is reachable without first opening the main window.
+
+> **US-33.** As any user, on any external surface that displays the Unified Inbox, I want options equivalent to the in-app view: filter to unseen-only, show account name/color, optional sender/preview, etc., so that the surface is actually useful.
+
+## 7. Functional Requirements
+
+### 7.1 Membership state
+
+- **FR-1.** Every folder shall have an independent, persistent **unified-inbox membership** state, expressed as a boolean (in-unified / not-in-unified).
+- **FR-2.** This state shall be observable and editable by the user at any time without losing data.
+- **FR-3.** This state shall be independent of: (a) the folder's notification setting, (b) the folder's synchronization setting, (c) the folder's visibility in the navigation pane, (d) the folder's role/type.
+- **FR-4.** This state shall survive application restart, re-login, and re-discovery of the server folder list.
+
+### 7.2 Defaults on account creation
+
+- **FR-5.** When a new account is added, the folder identified as the account's Inbox shall have unified-inbox membership set to **enabled** by default.
+- **FR-6.** All other folders detected at account creation (Sent, Drafts, Trash, Spam, Archive, Outbox, user folders) shall have unified-inbox membership set to **disabled** by default.
+- **FR-7.** When a new folder is later discovered on the server, its default unified-inbox membership shall be **disabled** unless the folder is detected as the account's Inbox and the account did not already have one.
+- **FR-8.** Provider-specific exceptional folders that the application recognizes as "should be treated like an Inbox" (provider-specific synonyms) **may** be unified by default; this is a known carve-out and shall be documented per provider.
+
+### 7.3 Toggle controls
+
+- **FR-9.** The user shall be able to toggle unified-inbox membership on a single folder via a context action exposed directly from the folder list (e.g. context menu, right-click, keyboard shortcut).
+- **FR-10.** The user shall be able to toggle unified-inbox membership for a single folder from a folder properties / edit screen.
+- **FR-11.** When acting on a folder that has descendant folders, the application shall offer a bulk action to enable or disable unified-inbox membership for all descendants in one operation.
+- **FR-12.** A toggle change shall take effect immediately and shall be reflected in the Unified Inbox view, the navigation pane, and any external surface listing the unified inbox, without requiring a manual refresh or restart.
+
+### 7.4 The Unified Inbox view
+
+- **FR-13.** The application shall provide exactly one Unified Inbox view, addressable from the primary navigation.
+- **FR-14.** The Unified Inbox view shall present the union of messages from every folder whose unified-inbox membership is enabled **and** whose owning account is currently synchronized.
+- **FR-15.** Hidden messages (per US-26) shall never appear in the Unified Inbox.
+- **FR-16.** Snoozed messages shall be excluded from the Unified Inbox by default, but a per-view filter shall be available to include them.
+- **FR-17.** The Unified Inbox shall support all message-list display options that a single folder supports: density, columns, conversation grouping, date headers, account-color stripe, account name, preview, etc.
+- **FR-18.** Each message shown in the Unified Inbox shall carry an unambiguous indication of its owning account and/or folder (visual or textual).
+- **FR-19.** When two or more messages in the Unified Inbox belong to the same conversation thread (regardless of which account each belongs to), they shall be grouped together according to the application-wide threading mode.
+
+### 7.5 Per-message actions
+
+- **FR-20.** Every per-message action available in a regular folder view shall also be available in the Unified Inbox.
+- **FR-21.** When the user performs an action on a message in the Unified Inbox, the action shall be applied to the message **in its original folder and account** — never to a copy or proxy.
+- **FR-22.** Multi-select and bulk actions shall be available in the Unified Inbox with the same semantics as in a folder view.
+
+### 7.6 Composition from the Unified Inbox
+
+- **FR-23.** When the user starts composing a new message from the Unified Inbox (with no message context), the application shall pre-select the user-designated **primary account** as the From identity / account, and use the primary account's Drafts and Sent folders for storage.
+- **FR-24.** When the user replies to, replies-all-to, or forwards a specific message from the Unified Inbox, the application shall pre-select the account that received the message (or, if ambiguous, the primary account) and use that account's folders for storage.
+- **FR-25.** The user shall always be able to override the chosen account before sending.
+
+### 7.7 Notifications interaction
+
+- **FR-26.** A folder's unified-inbox membership and its notification setting shall be configurable independently. Toggling one shall never modify the other.
+- **FR-27.** Notifications shall be governed solely by the per-folder notification setting and any global mute / quiet-hours settings — not by unified-inbox membership.
+
+### 7.8 Search
+
+- **FR-28.** A search initiated from the Unified Inbox shall return results from every folder that is a current member of the Unified Inbox, across every synchronized account.
+- **FR-29.** A search initiated from any other context (single folder, single account) shall remain scoped to that context — the Unified Inbox search scope shall not leak.
+
+### 7.9 Sort and filter
+
+- **FR-30.** The Unified Inbox shall expose all sort orders that a single folder exposes (date, sender, subject, size, attachment count, importance, etc., ascending or descending).
+- **FR-31.** The Unified Inbox's chosen sort order and filter set shall be persisted independently of any individual folder's sort/filter.
+- **FR-32.** All list filters available in a folder view (read/unread, flagged/unflagged, has-attachment, snoozed, deleted, sent, language, duplicates, etc.) shall be available in the Unified Inbox.
+
+### 7.10 Synchronization scope
+
+- **FR-33.** Folders belonging to an account that is fully un-synchronized (disabled, suspended) shall **not** appear in the Unified Inbox even if their unified-inbox membership is enabled.
+- **FR-34.** Folders belonging to an account that is configured as **on-demand** (synchronized only when explicitly requested) **may** appear in the Unified Inbox if their unified-inbox membership is enabled, but only the messages that have actually been fetched for that account will be visible. The user shall not be misled that the unified list is exhaustive for an on-demand account.
+
+### 7.11 Navigation
+
+- **FR-35.** The Unified Inbox shall be presented as a top-level entry in the application's navigation pane, separate from per-account folder trees.
+- **FR-36.** The user shall be able to collapse or hide the unified-inbox area of the navigation pane via a single setting, without losing their per-folder membership choices.
+- **FR-37.** When more than one account is configured, the navigation may additionally surface per-role aggregations (e.g. a "Drafts" entry that opens the appropriate account's Drafts when there is only one, or that lists all Drafts folders when there are several). These aggregations are **not** the Unified Inbox; the Unified Inbox is a single named view.
+
+### 7.12 External surfaces
+
+- **FR-38.** The application shall provide at least one external surface (system-tray indicator, panel applet, keyboard shortcut, desktop shortcut, autostart target, or equivalent) that exposes the Unified Inbox without requiring the main window to be open.
+- **FR-39.** Each external surface that lists Unified Inbox messages shall offer at minimum: a filter to "unseen only", a toggle for showing the account name/color per message, and an indicator of total unseen count.
+
+## 8. Non-Functional Requirements
+
+- **NFR-1. Responsiveness.** Toggling a folder's unified-inbox membership shall reflect in the Unified Inbox view in well under one second under normal load.
+- **NFR-2. Scale.** The feature shall remain usable with at least 20 accounts and at least 200 unified-member folders combined.
+- **NFR-3. Offline.** The Unified Inbox shall be fully readable offline for any messages already fetched. Membership toggles shall apply offline and propagate any time the relevant subsystems are next active.
+- **NFR-4. Consistency.** A user looking at a message in the Unified Inbox and the same user looking at the same message in its original folder shall see the same flags, read state, and content — no divergence.
+- **NFR-5. Discoverability.** A first-run hint shall guide the user to the toggle control. The hint shall be dismissible and shall not return for that user.
+- **NFR-6. Privacy.** Unified-inbox membership state shall be local user preference only. The feature shall introduce no extra network round-trips beyond what synchronization already requires.
+- **NFR-7. Accessibility.** All controls (toggle, navigation entry, filters, sort) shall be reachable via keyboard, with screen-reader labels, and shall obey the application-wide theme.
+
+## 9. Acceptance Criteria
+
+| # | Criterion |
+|---|---|
+| AC-1 | After adding a new account in the setup flow, opening the Unified Inbox displays at least one message from the new account's Inbox once that Inbox has been synchronized. |
+| AC-2 | After adding a new account, none of its non-Inbox folders (Sent, Drafts, Trash, Spam, Archive, user folders) contribute messages to the Unified Inbox. |
+| AC-3 | Toggling unified-inbox membership off for a folder removes its messages from the Unified Inbox immediately on the next refresh of the view. |
+| AC-4 | Toggling unified-inbox membership on for an arbitrary folder (Inbox or otherwise, system or user-created) makes its messages appear in the Unified Inbox immediately. |
+| AC-5 | Toggling unified-inbox membership for a folder does not change that folder's notification setting and vice versa. (Verifiable by inspection of both settings before and after a toggle.) |
+| AC-6 | A bulk toggle on a parent folder applies to all descendant folders. |
+| AC-7 | Marking a message read in the Unified Inbox marks the same message read in its original folder, and vice versa. |
+| AC-8 | Composing a new message from the Unified Inbox opens a draft using the primary account's identity, with the draft saved into the primary account's Drafts and the sent copy filed in the primary account's Sent. |
+| AC-9 | Replying to a message viewed from the Unified Inbox uses the receiving account's identity by default, not the primary account's. |
+| AC-10 | A search initiated from the Unified Inbox returns matches from at least two distinct accounts when those accounts each have a matching message in a unified-member folder. |
+| AC-11 | A search initiated from a single folder returns matches only from that folder. |
+| AC-12 | Hidden messages do not appear in the Unified Inbox; snoozed messages do not appear by default; enabling a "show snoozed" filter makes snoozed messages appear. |
+| AC-13 | Unified Inbox sort and filter settings are independent of any folder's sort and filter settings, and persist across restart. |
+| AC-14 | Disabling synchronization for an account causes its messages to disappear from the Unified Inbox within the next refresh cycle, even if its folders' unified-inbox membership remains enabled. Re-enabling synchronization restores them. |
+| AC-15 | Each message displayed in the Unified Inbox shows an indicator that identifies its owning account and/or folder. |
+| AC-16 | Two messages of the same conversation residing in different accounts appear as a single thread in the Unified Inbox. |
+| AC-17 | The user can disable the Unified Inbox section of the navigation pane via a setting, and this does not modify any folder's unified-inbox membership state. |
+| AC-18 | At least one external surface (system tray, panel applet, shortcut, etc.) exposes the Unified Inbox and reflects updates to it within one minute of a change. |
+
+## 10. Open Questions
+
+- **OQ-1. Provider exception list.** Which provider-specific folders, if any, should be treated as Inbox-equivalent for the purposes of FR-8? The carve-out exists in the source application; deciding the canonical list (and whether to support user overrides) is a design decision deferred to specification stage.
+- **OQ-2. On-demand account behavior.** Should the Unified Inbox visually mark messages from on-demand accounts (e.g. with a subtle indicator that "this stream is not live")? FR-34 leaves this open.
+- **OQ-3. Conversation cross-account merging.** When the application-wide threading mode is "by subject only" (no `Message-ID` chain), is cross-account merging desirable, or does it produce spurious aggregations? This may need a separate threading sub-decision.
+- **OQ-4. External-surface inventory.** FR-38 requires "at least one" external surface. The full inventory (tray indicator vs. panel applet vs. notification daemon vs. keyboard shortcut vs. autostart) is to be decided as part of the desktop integration epic, not here.
+- **OQ-5. Bulk toggle semantics.** When a parent folder is toggled and some descendants already match the desired state, should the bulk action be idempotent (silently leave them alone) or report a per-folder summary? The source application is silently idempotent; this should be confirmed.
+- **OQ-6. Default for snoozed visibility.** FR-16 says snoozed messages are hidden by default. Is the same default appropriate for the external surfaces (tray etc.), or should those always show snoozed messages? Defer to the desktop integration epic.
+
+## 11. Design Notes & Rationale
+
+These notes record decisions implicit in the source application that future designers should understand before changing them.
+
+- **N-1. Per-folder, not per-account.** The source application has no account-level "include all folders in unified inbox" switch. The framing "togglable per-account or per-folder" in the high-level feature list refers to the fact that a user can effectively control per-account inclusion *by toggling that account's Inbox* — not to the existence of an account-level switch. This is intentional: most users want the Inbox of every account merged but very rarely want non-Inbox folders included account-wide. A per-account switch would either be redundant with per-folder or would obscure unintended inclusions of Sent / Drafts / Trash. Per-folder remains the governing granularity.
+- **N-2. Independence of three flags.** Synchronization, notification, and unified-inbox membership are three different concerns and are configured independently. A folder can be synchronized but not notify and not unified (e.g. "Spam"); synchronized and notify but not unified (e.g. a noisy team folder the user does not want merged); synchronized, notify, and unified (e.g. the main Inbox); unified but not notify (e.g. a low-volume newsletter folder the user wants to read inline but not be alerted about). All eight combinations are meaningful and supported.
+- **N-3. Primary account as fallback.** Composition from the Unified Inbox is *the* archetypal "ambiguous account" situation. A designated primary account is the simplest disambiguation rule; any more sophisticated rule (e.g. "remember last used", "guess from history") can be considered later but is not required for the feature to work.
+- **N-4. Default-on Inbox.** The choice to opt the Inbox of every new account *into* the Unified Inbox by default — rather than presenting an empty unified view and asking the user to populate it — is what makes the feature useful for the newcomer persona without onboarding. It is the difference between "the unified inbox feature exists" and "the unified inbox is the user's default home view".
+
+---
+
+*Source review boundary:* this epic was reverse-engineered from the FairEmail Android source tree at `/home/stephan/src/FairEmail/` (latest reviewed CHANGELOG entry: 1.2315, 2026-04-27) and the in-repo FAQ. Where the high-level feature list and the source disagreed, the source's behavior has been treated as authoritative; where the source allowed multiple readings, the most recent shipped behavior has been treated as authoritative.

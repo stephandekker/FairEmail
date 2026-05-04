@@ -1,0 +1,13 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/3.5-mark-as-read-on-view-on-scroll-or-never.md`. It covers:
+
+- **Auto-mark-read on expand** with configurable delay (Off through 60s)
+- **Per-account auto-seen override** to disable auto-marking for specific accounts
+- **Peek semantics** ensuring server-side fetch never implicitly marks read
+- **Auto-read on move** (archive/trash/file implies read)
+- **Undo grace period** for triage actions (configurable, default 5s)
+- **Manual toggle** via button, context menu, keyboard shortcut, and swipe
+- **Threading interaction** (auto-mark = single message; manual toggle = whole thread)
+- **Close-on-unread** workflow accelerator
+- **Server synchronization** of read-state changes
+
+Six open questions documented, including the "on scroll" naming ambiguity (the source app has no distinct scroll-based trigger — it's expand-plus-delay).

@@ -1,0 +1,9 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/1.5-oauth2-sign-in.md`. It covers:
+
+- **8 supported OAuth providers** (Gmail, Outlook/Office 365, Yahoo, AOL, Yandex, Mail.ru, Fastmail, NetEase 163)
+- **26 user stories** across sign-in, token lifecycle, provider selection, custom OAuth, fallback, re-authorization, browser security, shared mailboxes, and error communication
+- **40 functional requirements** covering the authorization flow, token storage/refresh, setup integration, custom OAuth, fallback/conversion, browser selection, identity extraction, and provider-specific behavior
+- **10 non-functional requirements** (latency, reliability, security, concurrency, privacy, accessibility, offline resilience)
+- **16 acceptance criteria**
+- **8 open questions** (jump page trust, on-device accounts, multiple Google accounts, Graph API scope, Yahoo dual registrations, token encryption, NetEase HTTP endpoints, browser compatibility)
+- **9 design notes** capturing implicit decisions from the source code

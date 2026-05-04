@@ -1,0 +1,11 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/3.11-tracker-image-detection.md`. The document covers:
+
+- **Background**: Why tracking pixels exist and why detection matters
+- **Goals**: 6 goals spanning heuristic detection, blocklists, URL-parameter stripping, and user reporting
+- **User Stories**: 20 stories across detection, blocklist management, parameter stripping, settings, and interaction with image loading
+- **Functional Requirements**: 35 requirements covering heuristic detection, blocklist detection, replacement/reporting, URL-parameter stripping, updates, settings, and feature interaction
+- **Acceptance Criteria**: 16 testable criteria
+- **Open Questions**: 6 genuine ambiguities found in the source (beacon class scope, CID images, hardcoded baseline, redirect unwinding, per-message override, detection count display)
+- **Design Notes**: 5 rationale entries explaining key design decisions
+
+No other files were modified.

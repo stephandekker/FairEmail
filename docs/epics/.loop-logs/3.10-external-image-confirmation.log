@@ -1,0 +1,11 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/3.10-external-image-confirmation.md`. The document covers:
+
+- **Background**: Why blocking remote images matters for privacy
+- **6 goals** and **5 non-goals** clearly scoping the feature
+- **4 personas** from privacy-conscious to newcomer
+- **28 user stories** across 9 categories: default blocking, one-click show, confirmation dialog, sender/domain whitelisting, global settings, junk folder exception, tracker detection interaction, original-view auto-show, and reset
+- **34 functional requirements** specifying the default state, toggle behavior, dialog mechanics, whitelist persistence, global preferences, junk exception, original-view interaction, tracker-detection interaction, and reset
+- **8 non-functional requirements** including the zero-leakage invariant
+- **20 acceptance criteria** as testable assertions
+- **6 open questions** on subdomain matching, whitelist management UI, domain checkbox gating, secure-only downloads, encrypted message interaction, and session persistence
+- **8 design notes** explaining the rationale behind key decisions found in the source

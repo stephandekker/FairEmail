@@ -1,0 +1,9 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/1.1-unlimited-accounts.md`. It covers:
+
+- **50 functional requirements** across 14 subsections (account entity, protocol support, visual identity, categories/ordering, primary account, lifecycle, connection testing, folder defaults, swipe defaults, notifications, quota, diagnostics, export/import, advanced tuning)
+- **45 user stories** across 11 groups
+- **19 acceptance criteria**
+- **7 open questions** (JMAP scope, avatar interaction, pro-gating, category UX, POP3 disclosure, schedule exemption, OAuth provider list)
+- **8 design notes** capturing implicit decisions from the source application
+
+The document follows the same structure, tone, and depth as the reference `unified-inbox.md` epic, treats the feature as a Linux desktop application, and contains no implementation details.

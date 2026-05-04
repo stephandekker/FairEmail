@@ -1,0 +1,6 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/3.6-safe-html-view.md`. The document covers the full Safe HTML View feature with all 11 sections matching the reference structure:
+
+- **53 functional requirements** covering the sanitization pipeline, script removal, form neutralization, remote font blocking, CSS allowlisting, dark-mode adaptation, tracking pixel handling, image handling, structural transformations, hidden elements, size limits, viewport normalization, view toggle, rendering engine lockdown, and auto-linking
+- **20 acceptance criteria** with concrete, testable scenarios
+- **8 open questions** documenting genuine ambiguities found in the source (mixed content policy, table transformation fidelity, size-limit tuning, etc.)
+- **8 design notes** explaining the rationale behind key decisions (allowlist-not-blocklist, background colors off by default, tracking pixel replacement not removal, etc.)

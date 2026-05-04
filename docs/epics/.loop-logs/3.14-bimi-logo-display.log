@@ -1,0 +1,9 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/3.14-bimi-logo-display.md`. It covers:
+
+- **Background**: BIMI standard purpose and privacy-first integration
+- **11 user stories** across 9 categories: settings, DNS lookup, VMC verification, verified badge, avatar priority, caching, junk exclusion, surfaces, and privacy
+- **30 functional requirements** covering settings, DNS lookup, logo retrieval, VMC certificate validation (PKIX chain, EKU OID, domain matching, DMARC policy enforcement, Logotype extension), display, VMC-required mode, DMARC gating, caching, and build-variant restrictions
+- **7 non-functional requirements** (privacy, performance, resilience, scale, security, accessibility, consistency)
+- **18 acceptance criteria**
+- **7 open questions** (revocation checking, bundled CA list updates, unverified badge visibility, DMARC diagnostic integration, SVG security, contact-photo preference interaction, cache duration)
+- **8 design notes** explaining key decisions found in the source code

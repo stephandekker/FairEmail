@@ -1,0 +1,12 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/1.7-pre-installed-provider-database.md`. It covers:
+
+- **Background & Purpose**: Why the bundled provider database exists (offline-first, zero-config setup)
+- **7 Goals / 5 Non-Goals**: Scoped to the data catalogue, not the wizard UI or network discovery
+- **Glossary**: 11 terms including provider, domain/MX patterns, trust scores, quirks, imported profiles
+- **5 Personas**: From mainstream Gmail user to IT administrator importing custom profiles
+- **19 User Stories** across 8 categories: auto-detection, browsable list, OAuth, quirks, documentation, proprietary rejection, imports, registration links
+- **43 Functional Requirements** covering: catalogue structure, domain/MX matching, presentation, server config, username format, OAuth/Graph profiles, behavioural quirks, documentation, proprietary rejection, imported profiles, maintenance
+- **7 Non-Functional Requirements**: offline availability, speed, extensibility, locale awareness, coverage, correctness, security
+- **16 Acceptance Criteria**: concrete testable scenarios
+- **8 Open Questions**: imported-profile conflicts, staleness detection, OAuth rotation, logos, community contributions, folder mappings, multi-server selection, debug-only semantics
+- **7 Design Notes**: documenting rationale for offline-first ordering, trust scoring, data-driven quirks, MX matching, proprietary rejection, bundled OAuth, flat catalogue structure

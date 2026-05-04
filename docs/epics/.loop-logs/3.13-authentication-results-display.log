@@ -1,0 +1,14 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/3.13-authentication-results-display.md`.
+
+The document covers the full authentication results display feature as implemented in FairEmail, including:
+
+- **Server-side results parsing** (SPF, DKIM, DMARC, SMTP AUTH from Authentication-Results headers, including ARC and provider-specific headers)
+- **Warning display** on authentication failure (flag icon, warning color)
+- **Graduated status indicator** with 7 visual levels from "no data" through "complete auth + TLS"
+- **Detailed breakdown view** with per-method ✓/✗/– display, signer domains, via-domain, reply-domain mismatch, and blocklist status
+- **Client-side DKIM and ARC verification** as fallback when servers don't provide results
+- **DMARC alignment** with relaxed/strict modes
+- **DNSSEC and DANE enforcement** per account/identity
+- **DMARC aggregate report viewer**
+- **MX, blocklist, and reply-domain checks**
+- 8 open questions covering MTA-STS scope, DNSSEC availability, native DKIM defaults, and other ambiguities

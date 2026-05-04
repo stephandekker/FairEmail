@@ -1,0 +1,9 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/2.2-special-folder-auto-detection.md`. It covers:
+
+- **Three-tier detection strategy**: server metadata (RFC 6154) → name-based heuristics (8+ languages) → user override
+- **Uniqueness constraints**: at most one folder per role per account
+- **Guaranteed Inbox**: always present, synthesized if needed
+- **User overrides**: manual assignment via account settings, durable across re-sync
+- **Default properties**: role assignment triggers sensible defaults (sync, retention, notifications)
+- **Provider-specific rules**: supplementary host-scoped behaviors
+- **Setup-time review**: user can inspect and correct before finalizing

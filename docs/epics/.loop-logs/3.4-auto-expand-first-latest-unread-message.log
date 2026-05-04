@@ -1,0 +1,10 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/3.4-auto-expand-first-latest-unread-message.md`. It covers the full auto-expand/collapse feature including:
+
+- Smart auto-expand heuristic (single unread, single starred, first-when-read, no-expand-when-multiple-unread)
+- Per-message expand/collapse toggle controls
+- Single-expand vs. multi-expand modes
+- Expand-all option for read messages
+- Collapse behaviors (on mark-read, on back-press)
+- Bandwidth-aware expansion gating
+- Per-account mark-as-read-on-expand integration
+- 6 open questions documenting genuine ambiguities

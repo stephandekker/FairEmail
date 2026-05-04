@@ -1,0 +1,11 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/2.3-per-folder-sync-settings.md`. It covers:
+
+- **11 sections** matching the reference structure from the unified-inbox epic
+- **37 user stories** across sync on/off, poll interval, sync/keep windows, auto-delete, download, notifications, auto-classify, batch operations, and account-level interaction
+- **38 functional requirements** covering per-folder properties, role-based defaults, constraints/validation, sync/retention/download/notification/classification behavior, batch operations, account interaction, and conditional UI visibility
+- **7 non-functional requirements** (responsiveness, scale, offline, storage, discoverability, privacy, accessibility)
+- **22 acceptance criteria** with concrete, testable scenarios
+- **7 open questions** documenting genuine ambiguities found during reverse-engineering
+- **8 design notes** recording implicit decisions from the source application
+
+No code, configuration, or other files were modified.

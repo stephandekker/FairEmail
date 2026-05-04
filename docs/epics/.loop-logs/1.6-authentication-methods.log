@@ -1,0 +1,11 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/1.6-authentication-methods.md`. The document covers:
+
+- **7 authentication mechanisms**: PLAIN, LOGIN, CRAM-MD5, NTLM, XOAUTH2, APOP, and EXTERNAL (client certificate)
+- **Per-protocol support matrices** for IMAP, POP3, and SMTP
+- **OAuth 2.0 flows** with automatic token refresh and provider registry
+- **Client certificate / mutual TLS** support with per-endpoint certificate selection
+- **Automatic mechanism negotiation** (CRAM-MD5 > LOGIN > PLAIN > NTLM preference order)
+- **Global mechanism toggles** in advanced settings (APOP off by default, all others on)
+- **Security constraints** preventing plaintext credential transmission over unencrypted connections
+
+The document follows the same structure as the unified-inbox reference epic and contains no implementation details (no class names, method names, or library references).

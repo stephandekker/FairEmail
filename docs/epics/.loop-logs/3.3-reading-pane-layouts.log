@@ -1,0 +1,9 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/3.3-reading-pane-layouts.md`. It covers:
+
+- **Three layout tiers**: single-pane (sequential navigation), two-pane (horizontal columns or vertical rows), and three-pane (pinned navigation + two-pane split)
+- **Per-orientation configuration**: portrait and landscape each have independent layout mode, minimum-size threshold, and navigation-pin state
+- **Pane ratio control**: user-configurable split ratio (default ~67/33, or 50/50 on foldables)
+- **Reader pane collapse behavior**: configurable whether the reader pane hides or stays as an empty placeholder
+- **Context preservation on layout transitions**: conversations survive orientation/resize changes via fragment re-homing
+- **Foldable/dual-screen support**: separator aligns with physical hinge, 50/50 default
+- **7 open questions** covering drag-to-resize, per-orientation ratios, keyboard focus, and other desktop-specific concerns

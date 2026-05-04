@@ -1,0 +1,6 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/3.18-charset-override.md`. It covers:
+
+- **Automatic charset detection**: UTF-8 upgrade from ISO-8859-1, HTML meta-charset reconciliation, UTF-8/Windows-1252 repair, statistical detection via native engine, UTF-16 handling
+- **Manual charset override**: per-message action in the extended menu, full system charset list with "Automatic" revert option, re-downloads from server for clean re-interpretation
+- **Unknown charset resilience**: broad alias mapping, normalization of non-standard names, fallback to ISO-8859-1 with user warning
+- **6 open questions** covering override persistence, active-override indicator, per-sender preferences, locale-gated CJK detection, encrypted message interaction, and raw byte caching

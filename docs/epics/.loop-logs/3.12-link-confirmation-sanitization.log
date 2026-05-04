@@ -1,0 +1,10 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/3.12-link-confirmation-sanitization.md`. It covers:
+
+- **Confirmation dialog** behavior (default on, per-domain suppression, long-press override, global disable)
+- **Tracking parameter stripping** (built-in UTM/ad-network list + optional advanced filter list)
+- **Redirect unwrapping** (safe-links, AMP, click-trackers, base64 wrappers, debounce rules)
+- **IDN/punycode spoofing warnings** (mixed-script detection with Japanese script exemptions)
+- **Blocklist integration** (DNS-based + Disconnect tracker-protection list with categories)
+- **Browser/app selection** (embedded tabs, external, chooser — persistent preference)
+- **Inspection tools** (owner lookup, WHOIS, copy, share, search for mailto)
+- **Open questions** noting the "private browser" delegation pattern and other ambiguities

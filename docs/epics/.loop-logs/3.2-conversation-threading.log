@@ -1,0 +1,9 @@
+Epic written to `/home/stephan/src/FairEmail/docs/epics/3.2-conversation-threading.md`. The document covers:
+
+- **4 threading strategies**: RFC-header-based (always on), Gmail thread index, common-reference, and subject-based fallback — with their priority cascade
+- **Thread consolidation**: eager merging when bridging messages arrive
+- **Time-bounded lookups**: configurable range (default 128 days) plus fixed 48-hour window for subject-based
+- **Conversation view**: auto-expand rules, trashed/draft inclusion, expand/collapse per message
+- **Thread-level operations**: move-all and move-sent settings
+- **Forward-as-new-thread**: controlling whether forwards break the thread
+- **7 open questions** including Outlook Thread-Index readiness, per-account mode, retroactive re-threading, and the FAQ/implementation divergence on subject threading

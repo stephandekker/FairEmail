@@ -1,0 +1,3 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/3.17-show-original-headers-source-parsed-html-alternative-text.md`.
+
+The document covers all five sub-features (headers, source viewer, original HTML rendering, alternative body part toggle, charset override) plus raw message export, following the same structure as the unified-inbox reference epic. It captures the graduated privacy confirmation system, POP3 limitations, junk-folder trust exclusions, and the inline-vs-fullscreen escalation pattern — all described as behavior and contracts without implementation details.

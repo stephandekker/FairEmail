@@ -1,0 +1,1 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/2.4-folder-subscription-management.md`. It covers all four operations (subscribe/unsubscribe, create, rename, delete) with the same section structure as the unified-inbox reference epic, framed as a desktop application, with no implementation details.

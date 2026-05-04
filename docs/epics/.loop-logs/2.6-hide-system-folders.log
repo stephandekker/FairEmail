@@ -1,0 +1,8 @@
+The epic has been written to `/home/stephan/src/FairEmail/docs/epics/2.6-hide-system-folders.md`. 
+
+The document covers the three complementary visibility mechanisms found in the source code:
+1. **Explicit hide** — a per-folder boolean that removes a folder from the folder list entirely
+2. **Hide-when-read** — auto-hides folders with zero unread messages (including child folder counts)
+3. **Navigation panel pinning** — promotes folders to the side panel independently of hide state
+
+Plus the **show-hidden-folders** toggle that temporarily reveals all hidden folders at reduced opacity. Five open questions were documented where the source behavior was ambiguous or where desktop-specific design decisions are needed.

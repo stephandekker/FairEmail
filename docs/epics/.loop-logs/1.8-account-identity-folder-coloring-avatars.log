@@ -1,0 +1,14 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/1.8-account-identity-folder-coloring-avatars.md`.
+
+The document covers:
+- **Entity coloring** — user-assigned colors on accounts, identities, and folders with a full-spectrum color picker
+- **Color precedence** — identity → folder → account → default
+- **Display modes** — stripe, dot, or none, with configurable stripe width
+- **Color propagation** — message lists, navigation pane, conversation headers, action bars, context menus, widgets
+- **Default folder colors** — Trash and Junk get automatic warning colors
+- **Account avatars** — user-uploaded images per account
+- **Sender avatar cascade** — contact photo → BIMI → Gravatar → Libravatar → favicon → third-party icon service → generated icon/identicon
+- **Generated icon tuning** — saturation, brightness, and contrast threshold sliders
+- **Favicon refinements** — partial scan, manifest scan, DMARC gating, custom URI templates
+- **Privacy posture** — all network avatar sources off by default
+- **7 open questions** covering ambiguities discovered during reverse-engineering

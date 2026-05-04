@@ -1,0 +1,13 @@
+The epic document has been written to `/home/stephan/src/FairEmail/docs/epics/3.8-reformatted-plain-text-view.md`.
+
+The document covers:
+- **Background & Purpose**: The reformatted view as the default, phishing-resistant rendering mode
+- **11 sections** matching the reference epic structure
+- **28 user stories** across 10 sub-areas (default display, sanitization, plain-text handling, view switching, hint banner, force-light mode, formatting preferences, prefer-plain-text, text selection/quoting, large messages)
+- **44 functional requirements** covering sanitization, remote content blocking, plain-text handling, view switching with confirmation dialogs, hint banner, force-light mode, zoom, quote collapsing, text selection, and large message truncation
+- **7 non-functional requirements** (performance, truncation safety, theme consistency, accessibility, privacy, robustness, idempotency)
+- **20 acceptance criteria**
+- **9 open questions** on sanitization scope, hidden content, truncation configurability, etc.
+- **9 design notes** explaining key architectural decisions (reformatted-as-default, dual rendering engines, junk-folder hardening, plain-text-via-HTML pipeline, etc.)
+
+No other files were modified.
