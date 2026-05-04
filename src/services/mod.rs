@@ -12,11 +12,11 @@ pub mod smtp_checker;
 pub use account_store::AccountStore;
 pub use connection_tester::{ConnectionTester, MockConnectionTester};
 pub use export_service::{export_to_file, ExportResult, ExportServiceError};
-pub use imap_checker::{ImapChecker, MockImapChecker};
+pub use imap_checker::{ImapChecker, MockImapChecker, MOCK_CERT_FINGERPRINT};
 pub use import_service::{
     import_from_file, is_file_encrypted, read_import_file, ImportServiceError,
 };
 pub use notification_channel::{MockNotificationChannelManager, NotificationChannelManager};
 pub use order_store::OrderStore;
 pub use settings_store::{AppSettings, SettingsStore};
-pub use smtp_checker::{MockSmtpChecker, SmtpChecker};
+pub use smtp_checker::{MockSmtpChecker, SmtpChecker, MOCK_SMTP_CERT_FINGERPRINT};

@@ -1,3 +1,4 @@
+use crate::core::certificate::CertificateInfo;
 use crate::core::imap_check::{
     build_imap_success, resolve_username_candidates, ImapCheckError, ImapCheckResult,
     ImapConnectionParams,
@@ -11,7 +12,16 @@ pub trait ImapChecker {
     /// 1. Connect to the server using the provider's incoming settings.
     /// 2. Try each username candidate until one authenticates successfully (FR-18).
     /// 3. Enumerate server-side folders and detect system-folder roles.
-    fn check_imap(&self, email: &str, password: &str, provider: &Provider) -> ImapCheckResult;
+    ///
+    /// `accepted_fingerprint` allows bypassing certificate validation when the user
+    /// has previously accepted a specific certificate fingerprint (FR-19d).
+    fn check_imap(
+        &self,
+        email: &str,
+        password: &str,
+        provider: &Provider,
+        accepted_fingerprint: Option<&str>,
+    ) -> ImapCheckResult;
 }
 
 /// Mock implementation of `ImapChecker` for testing.
@@ -20,13 +30,24 @@ pub trait ImapChecker {
 /// - Hosts containing "unreachable" → `ConnectionFailed`
 /// - Hosts containing "authfail" → `AuthenticationFailed` (all usernames fail)
 /// - Hosts containing "listfail" → authenticated ok but folder listing fails
+/// - Hosts containing "untrustedcert" → `UntrustedCertificate` (unless accepted fingerprint matches)
 /// - Password "wrong" → `AuthenticationFailed`
 /// - Username "failfirst@" prefix in email → first candidate fails, second succeeds
 /// - Otherwise → success with a standard set of folders
 pub struct MockImapChecker;
 
+/// The fingerprint the mock uses for simulated untrusted certificates.
+pub const MOCK_CERT_FINGERPRINT: &str =
+    "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89";
+
 impl ImapChecker for MockImapChecker {
-    fn check_imap(&self, email: &str, password: &str, provider: &Provider) -> ImapCheckResult {
+    fn check_imap(
+        &self,
+        email: &str,
+        password: &str,
+        provider: &Provider,
+        accepted_fingerprint: Option<&str>,
+    ) -> ImapCheckResult {
         let params = ImapConnectionParams::from_provider(provider);
 
         // Simulate connection failure
@@ -34,6 +55,23 @@ impl ImapChecker for MockImapChecker {
             return Err(ImapCheckError::ConnectionFailed(
                 "could not connect to host".to_string(),
             ));
+        }
+
+        // Simulate untrusted certificate (FR-19).
+        // If the user has already accepted this fingerprint, allow the connection (FR-19d).
+        if params.host.to_lowercase().contains("untrustedcert")
+            && accepted_fingerprint != Some(MOCK_CERT_FINGERPRINT)
+        {
+            return Err(ImapCheckError::UntrustedCertificate(Box::new(
+                CertificateInfo {
+                    fingerprint: MOCK_CERT_FINGERPRINT.to_string(),
+                    dns_names: vec![
+                        "*.mail-server.example.net".to_string(),
+                        "mail-server.example.net".to_string(),
+                    ],
+                    server_hostname: params.host.clone(),
+                },
+            )));
         }
 
         // Simulate folder listing failure
@@ -118,7 +156,7 @@ mod tests {
         let checker = MockImapChecker;
         let provider = test_provider(UsernameType::EmailAddress);
         let result = checker
-            .check_imap("user@example.com", "secret", &provider)
+            .check_imap("user@example.com", "secret", &provider, None)
             .unwrap();
 
         assert_eq!(result.authenticated_username, "user@example.com");
@@ -136,7 +174,7 @@ mod tests {
         let checker = MockImapChecker;
         let mut provider = test_provider(UsernameType::EmailAddress);
         provider.incoming.hostname = "unreachable.example.com".to_string();
-        let result = checker.check_imap("user@example.com", "secret", &provider);
+        let result = checker.check_imap("user@example.com", "secret", &provider, None);
         assert!(matches!(result, Err(ImapCheckError::ConnectionFailed(_))));
     }
 
@@ -145,7 +183,7 @@ mod tests {
         let checker = MockImapChecker;
         let mut provider = test_provider(UsernameType::EmailAddress);
         provider.incoming.hostname = "authfail.example.com".to_string();
-        let result = checker.check_imap("user@example.com", "secret", &provider);
+        let result = checker.check_imap("user@example.com", "secret", &provider, None);
         assert!(matches!(result, Err(ImapCheckError::AuthenticationFailed)));
     }
 
@@ -153,7 +191,7 @@ mod tests {
     fn auth_failure_for_wrong_password() {
         let checker = MockImapChecker;
         let provider = test_provider(UsernameType::EmailAddress);
-        let result = checker.check_imap("user@example.com", "wrong", &provider);
+        let result = checker.check_imap("user@example.com", "wrong", &provider, None);
         assert!(matches!(result, Err(ImapCheckError::AuthenticationFailed)));
     }
 
@@ -163,7 +201,7 @@ mod tests {
         let provider = test_provider(UsernameType::EmailAddress);
         // "failfirst@" prefix triggers first-candidate-fails behavior
         let result = checker
-            .check_imap("failfirst@example.com", "secret", &provider)
+            .check_imap("failfirst@example.com", "secret", &provider, None)
             .unwrap();
 
         // Primary is EmailAddress, so fallback is LocalPart
@@ -175,7 +213,7 @@ mod tests {
         let checker = MockImapChecker;
         let provider = test_provider(UsernameType::LocalPart);
         let result = checker
-            .check_imap("failfirst@example.com", "secret", &provider)
+            .check_imap("failfirst@example.com", "secret", &provider, None)
             .unwrap();
 
         // Primary is LocalPart, so fallback is EmailAddress
@@ -187,7 +225,50 @@ mod tests {
         let checker = MockImapChecker;
         let mut provider = test_provider(UsernameType::EmailAddress);
         provider.incoming.hostname = "listfail.example.com".to_string();
-        let result = checker.check_imap("user@example.com", "secret", &provider);
+        let result = checker.check_imap("user@example.com", "secret", &provider, None);
         assert!(matches!(result, Err(ImapCheckError::FolderListFailed(_))));
+    }
+
+    #[test]
+    fn untrusted_certificate_error_for_untrustedcert_host() {
+        let checker = MockImapChecker;
+        let mut provider = test_provider(UsernameType::EmailAddress);
+        provider.incoming.hostname = "untrustedcert.example.com".to_string();
+        let result = checker.check_imap("user@example.com", "secret", &provider, None);
+        assert!(matches!(
+            result,
+            Err(ImapCheckError::UntrustedCertificate(_))
+        ));
+        if let Err(ImapCheckError::UntrustedCertificate(ref info)) = result {
+            assert_eq!(info.fingerprint, MOCK_CERT_FINGERPRINT);
+            assert!(!info.dns_names.is_empty());
+            assert_eq!(info.server_hostname, "untrustedcert.example.com");
+        }
+    }
+
+    #[test]
+    fn untrusted_certificate_bypassed_with_accepted_fingerprint() {
+        let checker = MockImapChecker;
+        let mut provider = test_provider(UsernameType::EmailAddress);
+        provider.incoming.hostname = "untrustedcert.example.com".to_string();
+        let result = checker.check_imap(
+            "user@example.com",
+            "secret",
+            &provider,
+            Some(MOCK_CERT_FINGERPRINT),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn untrusted_certificate_not_bypassed_with_wrong_fingerprint() {
+        let checker = MockImapChecker;
+        let mut provider = test_provider(UsernameType::EmailAddress);
+        provider.incoming.hostname = "untrustedcert.example.com".to_string();
+        let result = checker.check_imap("user@example.com", "secret", &provider, Some("wrong:fp"));
+        assert!(matches!(
+            result,
+            Err(ImapCheckError::UntrustedCertificate(_))
+        ));
     }
 }

@@ -1,4 +1,5 @@
 use crate::core::account::EncryptionMode;
+use crate::core::certificate::CertificateInfo;
 use crate::core::provider::{Provider, ProviderEncryption};
 
 /// The encryption mode to use for an SMTP connection, derived from provider settings.
@@ -45,6 +46,8 @@ pub enum SmtpCheckError {
     ConnectionFailed(String),
     #[error("authentication failed for all username formats")]
     AuthenticationFailed,
+    #[error("untrusted certificate from server")]
+    UntrustedCertificate(Box<CertificateInfo>),
 }
 
 /// The overall result of an SMTP connectivity check.

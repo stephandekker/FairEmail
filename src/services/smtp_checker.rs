@@ -1,3 +1,4 @@
+use crate::core::certificate::CertificateInfo;
 use crate::core::imap_check::resolve_username_candidates;
 use crate::core::provider::Provider;
 use crate::core::smtp_check::{
@@ -11,7 +12,16 @@ pub trait SmtpChecker {
     /// 1. Connect to the server using the provider's outgoing settings (FR-17.4).
     /// 2. Try each username candidate until one authenticates successfully (FR-17.5).
     /// 3. Query the server's maximum message size if advertised (FR-17.6).
-    fn check_smtp(&self, email: &str, password: &str, provider: &Provider) -> SmtpCheckResult;
+    ///
+    /// `accepted_fingerprint` allows bypassing certificate validation when the user
+    /// has previously accepted a specific certificate fingerprint (FR-19d).
+    fn check_smtp(
+        &self,
+        email: &str,
+        password: &str,
+        provider: &Provider,
+        accepted_fingerprint: Option<&str>,
+    ) -> SmtpCheckResult;
 }
 
 /// Mock implementation of `SmtpChecker` for testing.
@@ -19,14 +29,25 @@ pub trait SmtpChecker {
 /// Behavior:
 /// - Hosts containing "unreachable" -> `ConnectionFailed`
 /// - Hosts containing "authfail" -> `AuthenticationFailed` (all usernames fail)
+/// - Hosts containing "untrustedcert" -> `UntrustedCertificate` (unless accepted fingerprint matches)
 /// - Password "wrong" -> `AuthenticationFailed`
 /// - Username "failfirst@" prefix in email -> first candidate fails, second succeeds
 /// - Hosts containing "nosize" -> success with no max message size advertised
 /// - Otherwise -> success with max_message_size = 26_214_400 (25 MiB)
 pub struct MockSmtpChecker;
 
+/// The fingerprint the mock uses for simulated untrusted certificates.
+pub const MOCK_SMTP_CERT_FINGERPRINT: &str =
+    "FE:DC:BA:98:76:54:32:10:FE:DC:BA:98:76:54:32:10:FE:DC:BA:98:76:54:32:10:FE:DC:BA:98:76:54:32:10";
+
 impl SmtpChecker for MockSmtpChecker {
-    fn check_smtp(&self, email: &str, password: &str, provider: &Provider) -> SmtpCheckResult {
+    fn check_smtp(
+        &self,
+        email: &str,
+        password: &str,
+        provider: &Provider,
+        accepted_fingerprint: Option<&str>,
+    ) -> SmtpCheckResult {
         let params = SmtpConnectionParams::from_provider(provider);
 
         // Simulate connection failure
@@ -34,6 +55,22 @@ impl SmtpChecker for MockSmtpChecker {
             return Err(SmtpCheckError::ConnectionFailed(
                 "could not connect to host".to_string(),
             ));
+        }
+
+        // Simulate untrusted certificate (FR-19)
+        if params.host.to_lowercase().contains("untrustedcert")
+            && accepted_fingerprint != Some(MOCK_SMTP_CERT_FINGERPRINT)
+        {
+            return Err(SmtpCheckError::UntrustedCertificate(Box::new(
+                CertificateInfo {
+                    fingerprint: MOCK_SMTP_CERT_FINGERPRINT.to_string(),
+                    dns_names: vec![
+                        "*.smtp-server.example.net".to_string(),
+                        "smtp-server.example.net".to_string(),
+                    ],
+                    server_hostname: params.host.clone(),
+                },
+            )));
         }
 
         // Simulate auth failure for all candidates
@@ -108,7 +145,7 @@ mod tests {
         let checker = MockSmtpChecker;
         let provider = test_provider(UsernameType::EmailAddress);
         let result = checker
-            .check_smtp("user@example.com", "secret", &provider)
+            .check_smtp("user@example.com", "secret", &provider, None)
             .unwrap();
 
         assert_eq!(result.authenticated_username, "user@example.com");
@@ -121,7 +158,7 @@ mod tests {
         let mut provider = test_provider(UsernameType::EmailAddress);
         provider.outgoing.hostname = "nosize.smtp.example.com".to_string();
         let result = checker
-            .check_smtp("user@example.com", "secret", &provider)
+            .check_smtp("user@example.com", "secret", &provider, None)
             .unwrap();
 
         assert_eq!(result.authenticated_username, "user@example.com");
@@ -133,7 +170,7 @@ mod tests {
         let checker = MockSmtpChecker;
         let mut provider = test_provider(UsernameType::EmailAddress);
         provider.outgoing.hostname = "unreachable.smtp.example.com".to_string();
-        let result = checker.check_smtp("user@example.com", "secret", &provider);
+        let result = checker.check_smtp("user@example.com", "secret", &provider, None);
         assert!(matches!(result, Err(SmtpCheckError::ConnectionFailed(_))));
     }
 
@@ -142,7 +179,7 @@ mod tests {
         let checker = MockSmtpChecker;
         let mut provider = test_provider(UsernameType::EmailAddress);
         provider.outgoing.hostname = "authfail.smtp.example.com".to_string();
-        let result = checker.check_smtp("user@example.com", "secret", &provider);
+        let result = checker.check_smtp("user@example.com", "secret", &provider, None);
         assert!(matches!(result, Err(SmtpCheckError::AuthenticationFailed)));
     }
 
@@ -150,7 +187,7 @@ mod tests {
     fn auth_failure_for_wrong_password() {
         let checker = MockSmtpChecker;
         let provider = test_provider(UsernameType::EmailAddress);
-        let result = checker.check_smtp("user@example.com", "wrong", &provider);
+        let result = checker.check_smtp("user@example.com", "wrong", &provider, None);
         assert!(matches!(result, Err(SmtpCheckError::AuthenticationFailed)));
     }
 
@@ -159,7 +196,7 @@ mod tests {
         let checker = MockSmtpChecker;
         let provider = test_provider(UsernameType::EmailAddress);
         let result = checker
-            .check_smtp("failfirst@example.com", "secret", &provider)
+            .check_smtp("failfirst@example.com", "secret", &provider, None)
             .unwrap();
 
         // Primary is EmailAddress, so fallback is LocalPart
@@ -171,10 +208,40 @@ mod tests {
         let checker = MockSmtpChecker;
         let provider = test_provider(UsernameType::LocalPart);
         let result = checker
-            .check_smtp("failfirst@example.com", "secret", &provider)
+            .check_smtp("failfirst@example.com", "secret", &provider, None)
             .unwrap();
 
         // Primary is LocalPart, so fallback is EmailAddress
         assert_eq!(result.authenticated_username, "failfirst@example.com");
+    }
+
+    #[test]
+    fn untrusted_certificate_error_for_untrustedcert_host() {
+        let checker = MockSmtpChecker;
+        let mut provider = test_provider(UsernameType::EmailAddress);
+        provider.outgoing.hostname = "untrustedcert.smtp.example.com".to_string();
+        let result = checker.check_smtp("user@example.com", "secret", &provider, None);
+        assert!(matches!(
+            result,
+            Err(SmtpCheckError::UntrustedCertificate(_))
+        ));
+        if let Err(SmtpCheckError::UntrustedCertificate(ref info)) = result {
+            assert_eq!(info.fingerprint, MOCK_SMTP_CERT_FINGERPRINT);
+            assert!(!info.dns_names.is_empty());
+        }
+    }
+
+    #[test]
+    fn untrusted_certificate_bypassed_with_accepted_fingerprint() {
+        let checker = MockSmtpChecker;
+        let mut provider = test_provider(UsernameType::EmailAddress);
+        provider.outgoing.hostname = "untrustedcert.smtp.example.com".to_string();
+        let result = checker.check_smtp(
+            "user@example.com",
+            "secret",
+            &provider,
+            Some(MOCK_SMTP_CERT_FINGERPRINT),
+        );
+        assert!(result.is_ok());
     }
 }

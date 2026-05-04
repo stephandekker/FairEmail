@@ -2,6 +2,9 @@
 #[allow(dead_code)]
 pub mod add_account_dialog;
 #[cfg(feature = "ui")]
+#[allow(dead_code)]
+pub(crate) mod certificate_dialog;
+#[cfg(feature = "ui")]
 pub mod connection_log_dialog;
 #[cfg(feature = "ui")]
 pub mod edit_account_dialog;

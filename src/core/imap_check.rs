@@ -1,4 +1,5 @@
 use crate::core::account::{EncryptionMode, FolderRole, SystemFolders};
+use crate::core::certificate::CertificateInfo;
 use crate::core::provider::{Provider, ProviderEncryption, UsernameType};
 
 /// The encryption mode to use for an IMAP connection, derived from provider settings.
@@ -147,6 +148,8 @@ pub enum ImapCheckError {
     AuthenticationFailed,
     #[error("folder listing failed: {0}")]
     FolderListFailed(String),
+    #[error("untrusted certificate from server")]
+    UntrustedCertificate(Box<CertificateInfo>),
 }
 
 /// The overall result of an IMAP connectivity check.
