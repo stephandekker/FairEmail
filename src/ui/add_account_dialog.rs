@@ -17,11 +17,39 @@ use crate::services::connection_tester::{ConnectionTester, MockConnectionTester}
 /// Result of the add-account dialog: either a validated Account or the user cancelled.
 pub(crate) type DialogResult = Option<Account>;
 
+/// Pre-fill data carried over from the quick-setup wizard (FR-36).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct PrefillData {
+    pub display_name: String,
+    pub email: String,
+    pub password: String,
+}
+
+/// Build and show the "Add Account" dialog with optional pre-filled data from the wizard.
+/// `existing_categories` provides autocomplete suggestions for the category field (FR-23).
+pub(crate) fn show_with_prefill(
+    parent: &adw::ApplicationWindow,
+    existing_categories: Vec<String>,
+    prefill: PrefillData,
+    on_done: impl Fn(DialogResult) + 'static,
+) {
+    show_inner(parent, existing_categories, Some(prefill), on_done);
+}
+
 /// Build and show the "Add Account" dialog. Calls `on_done` with the result.
 /// `existing_categories` provides autocomplete suggestions for the category field (FR-23).
 pub(crate) fn show(
     parent: &adw::ApplicationWindow,
     existing_categories: Vec<String>,
+    on_done: impl Fn(DialogResult) + 'static,
+) {
+    show_inner(parent, existing_categories, None, on_done);
+}
+
+fn show_inner(
+    parent: &adw::ApplicationWindow,
+    existing_categories: Vec<String>,
+    prefill: Option<PrefillData>,
     on_done: impl Fn(DialogResult) + 'static,
 ) {
     let dialog = adw::Dialog::builder()
@@ -881,6 +909,19 @@ pub(crate) fn show(
     dialog.connect_closed(move |_| {
         let _ = &on_done_close;
     });
+
+    // Pre-fill fields from wizard data (FR-36).
+    if let Some(data) = prefill {
+        if !data.display_name.is_empty() {
+            name_row.set_text(&data.display_name);
+        }
+        if !data.email.is_empty() {
+            username_row.set_text(&data.email);
+        }
+        if !data.password.is_empty() {
+            password_row.set_text(&data.password);
+        }
+    }
 
     dialog.present(Some(parent));
 }

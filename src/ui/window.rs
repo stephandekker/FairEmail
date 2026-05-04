@@ -14,6 +14,7 @@ use crate::core::{
     move_account, remove_from_order, Account, ConnectionState, ConnectionStateManager,
 };
 use crate::services::{AccountStore, AppSettings, OrderStore, SettingsStore};
+use crate::ui::add_account_dialog;
 use crate::ui::edit_account_dialog;
 use crate::ui::export_dialog;
 use crate::ui::import_dialog;
@@ -484,9 +485,30 @@ pub(crate) fn build(
         #[weak]
         window,
         move |_| {
-            setup_wizard::show(&window, |_result| {
-                // Future slices will wire this to provider detection / account creation.
-            });
+            setup_wizard::show(
+                &window,
+                clone!(
+                    #[weak]
+                    window,
+                    move |result| {
+                        if let Some(setup_wizard::WizardAction::ManualSetup(data)) = result {
+                            add_account_dialog::show_with_prefill(
+                                &window,
+                                Vec::new(),
+                                add_account_dialog::PrefillData {
+                                    display_name: data.display_name,
+                                    email: data.email,
+                                    password: data.password,
+                                },
+                                |_account| {
+                                    // Future slices will wire this to account persistence.
+                                },
+                            );
+                        }
+                        // Future slices will wire Check action to provider detection / account creation.
+                    }
+                ),
+            );
         }
     ));
 
@@ -732,9 +754,30 @@ pub(crate) fn build(
 
     // FR-1: on first launch with zero accounts, present the setup wizard automatically.
     if accounts.borrow().is_empty() {
-        setup_wizard::show(&window, |_result| {
-            // Future slices will wire this to provider detection / account creation.
-        });
+        setup_wizard::show(
+            &window,
+            clone!(
+                #[weak]
+                window,
+                move |result| {
+                    if let Some(setup_wizard::WizardAction::ManualSetup(data)) = result {
+                        add_account_dialog::show_with_prefill(
+                            &window,
+                            Vec::new(),
+                            add_account_dialog::PrefillData {
+                                display_name: data.display_name,
+                                email: data.email,
+                                password: data.password,
+                            },
+                            |_account| {
+                                // Future slices will wire this to account persistence.
+                            },
+                        );
+                    }
+                    // Future slices will wire Check action to provider detection / account creation.
+                }
+            ),
+        );
     }
 }
 

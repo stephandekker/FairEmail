@@ -13,7 +13,17 @@ use crate::services::network::is_network_available;
 
 /// Result passed back from the wizard: the validated name, email, and password,
 /// or `None` if the user cancelled / closed the dialog.
-pub(crate) type WizardResult = Option<WizardData>;
+pub(crate) type WizardResult = Option<WizardAction>;
+
+/// The action chosen in the wizard: auto-detect or manual setup (FR-35).
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(crate) enum WizardAction {
+    /// User clicked "Check" — proceed with auto-detection.
+    Check(WizardData),
+    /// User clicked "Manual setup" — open manual configuration (US-26).
+    ManualSetup(WizardData),
+}
 
 /// Validated wizard data ready for the next step (provider detection / account creation).
 #[derive(Debug, Clone)]
@@ -205,6 +215,15 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         .margin_top(12)
         .build();
 
+    let manual_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Manual setup"))
+        .css_classes(["pill"])
+        .build();
+    manual_btn.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Switch to manual server configuration",
+    ))]);
+    btn_box.append(&manual_btn);
+
     let check_btn = gtk::Button::builder()
         .label(gettextrs::gettext("Check"))
         .css_classes(["suggested-action", "pill"])
@@ -288,11 +307,38 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             // Validation passed and network is available.
             // This slice does NOT proceed further (no provider detection / account creation).
             // For now, return the validated data so the caller can use it in a future slice.
-            on_done(Some(WizardData {
+            on_done(Some(WizardAction::Check(WizardData {
                 display_name: display_name.trim().to_string(),
                 email: email.trim().to_string(),
                 password,
-            }));
+            })));
+            dialog.close();
+        }
+    ));
+
+    // -- Manual setup button handler (FR-35, US-26) --
+    // Carries over any entered data without validation (FR-36).
+    manual_btn.connect_clicked(clone!(
+        #[weak]
+        name_row,
+        #[weak]
+        email_row,
+        #[weak]
+        password_row,
+        #[weak]
+        dialog,
+        #[strong]
+        on_done,
+        move |_| {
+            let display_name = name_row.text().trim().to_string();
+            let email = email_row.text().trim().to_string();
+            let password = password_row.text().to_string();
+
+            on_done(Some(WizardAction::ManualSetup(WizardData {
+                display_name,
+                email,
+                password,
+            })));
             dialog.close();
         }
     ));
