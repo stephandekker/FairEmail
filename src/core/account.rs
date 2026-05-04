@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+fn default_true() -> bool {
+    true
+}
+
 /// Supported mail protocols.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Protocol {
@@ -112,6 +116,8 @@ pub struct NewAccountParams {
     pub color: Option<AccountColor>,
     /// Optional avatar image path (FR-5, FR-13).
     pub avatar_path: Option<String>,
+    /// Whether synchronization is enabled for this account (FR-25, US-24).
+    pub sync_enabled: bool,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -132,6 +138,8 @@ pub struct UpdateAccountParams {
     pub color: Option<AccountColor>,
     /// Optional avatar image path (FR-5, FR-13).
     pub avatar_path: Option<String>,
+    /// Whether synchronization is enabled for this account (FR-25, US-24).
+    pub sync_enabled: bool,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -158,6 +166,12 @@ pub struct Account {
     /// Optional avatar image path (FR-5, FR-13).
     #[serde(default)]
     avatar_path: Option<String>,
+    /// Whether synchronization is enabled (FR-25, US-24). Defaults to true.
+    #[serde(default = "default_true")]
+    sync_enabled: bool,
+    /// Whether this is the primary account (FR-24, FR-26, FR-27).
+    #[serde(default)]
+    is_primary: bool,
 }
 
 /// A local folder associated with an account.
@@ -268,6 +282,8 @@ impl Account {
             pop3_settings: params.pop3_settings,
             color: params.color,
             avatar_path: params.avatar_path,
+            sync_enabled: params.sync_enabled,
+            is_primary: false,
         })
     }
 
@@ -323,6 +339,19 @@ impl Account {
         self.avatar_path.as_deref()
     }
 
+    pub fn sync_enabled(&self) -> bool {
+        self.sync_enabled
+    }
+
+    pub fn is_primary(&self) -> bool {
+        self.is_primary
+    }
+
+    /// Set or clear primary designation on this account.
+    pub fn set_primary(&mut self, primary: bool) {
+        self.is_primary = primary;
+    }
+
     /// Update all mutable fields on this account, preserving the unique identifier.
     /// Validates the new values the same way `new()` does.
     pub fn update(&mut self, params: UpdateAccountParams) -> Result<(), AccountValidationError> {
@@ -351,6 +380,7 @@ impl Account {
         self.pop3_settings = params.pop3_settings;
         self.color = params.color;
         self.avatar_path = params.avatar_path;
+        self.sync_enabled = params.sync_enabled;
         Ok(())
     }
 }
@@ -402,6 +432,7 @@ mod tests {
             pop3_settings: None,
             color: None,
             avatar_path: None,
+            sync_enabled: true,
         }
     }
 
@@ -492,6 +523,7 @@ mod tests {
             pop3_settings: None,
             color: None,
             avatar_path: None,
+            sync_enabled: true,
         }
     }
 
@@ -710,6 +742,7 @@ mod tests {
             }),
             color: None,
             avatar_path: None,
+            sync_enabled: true,
         };
         acct.update(up).unwrap();
         assert_eq!(acct.id(), original_id);

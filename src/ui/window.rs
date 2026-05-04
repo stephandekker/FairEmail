@@ -7,7 +7,7 @@ use libadwaita::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::core::Account;
+use crate::core::{self, Account};
 use crate::services::AccountStore;
 use crate::ui::add_account_dialog;
 use crate::ui::edit_account_dialog;
@@ -94,6 +94,43 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
         *accounts.borrow_mut() = loaded;
     }
 
+    // -- "Set as Primary" context menu on right-click (FR-24, FR-25) --
+    let gesture = gtk::GestureClick::builder()
+        .button(3) // right-click
+        .build();
+    gesture.connect_released(clone!(
+        #[strong]
+        store,
+        #[strong]
+        accounts,
+        #[weak]
+        account_list,
+        move |gesture, _, x, y| {
+            let widget = gesture.widget();
+            if let Some(row) = account_list.row_at_y(y as i32) {
+                let index = row.index() as usize;
+                let mut list = accounts.borrow_mut();
+                if let Some(acct) = list.get(index) {
+                    let id = acct.id();
+                    if let Ok(changed) = core::set_primary(&mut list, id) {
+                        if !changed.is_empty() {
+                            // Persist all changed accounts.
+                            for changed_id in &changed {
+                                if let Some(a) = list.iter().find(|a| a.id() == *changed_id) {
+                                    let _ = store.update(a.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                drop(list);
+                rebuild_account_list(&account_list, &accounts.borrow());
+            }
+            let _ = (widget, x);
+        }
+    ));
+    account_list.add_controller(gesture);
+
     // "Add account" button handler.
     add_btn.connect_clicked(clone!(
         #[weak]
@@ -107,15 +144,30 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
         move |_| {
             let store = store.clone();
             let accounts = accounts.clone();
+            let account_list = account_list.clone();
             add_account_dialog::show(&window, move |result| {
                 if let Some(account) = result {
                     if let Err(e) = store.add(account.clone()) {
                         eprintln!("Failed to persist account: {e}");
                         return;
                     }
-                    let row = make_account_row(&account);
-                    account_list.append(&row);
-                    accounts.borrow_mut().push(account);
+                    let new_id = account.id();
+                    let became_primary;
+                    {
+                        let mut list = accounts.borrow_mut();
+                        list.push(account);
+                        // FR-28: auto-designate primary if none exists.
+                        became_primary = core::auto_designate_on_add(&mut list, new_id);
+                    }
+                    // Persist if auto-designated primary.
+                    if became_primary {
+                        let list = accounts.borrow();
+                        if let Some(a) = list.iter().find(|a| a.id() == new_id) {
+                            let _ = store.update(a.clone());
+                        }
+                    }
+                    // Rebuild all rows to reflect primary indicator changes.
+                    rebuild_account_list(&account_list, &accounts.borrow());
                 }
             });
         }
@@ -142,30 +194,44 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
             };
             let store = store.clone();
             let accounts = accounts.clone();
-            let row_ref = row.clone();
+            let account_list = account_list.clone();
             edit_account_dialog::show(&window, account, move |result| {
                 if let Some(updated) = result {
                     if let Err(e) = store.update(updated.clone()) {
                         eprintln!("Failed to persist account update: {e}");
                         return;
                     }
-                    // Replace the sidebar row to reflect colour/badge changes.
-                    let new_row = make_account_row(&updated);
-                    let idx = row_ref.index();
-                    account_list.remove(&row_ref);
-                    account_list.insert(&new_row, idx);
-                    // Update the in-memory list.
-                    let idx = idx as usize;
-                    let mut list = accounts.borrow_mut();
-                    if idx < list.len() {
-                        list[idx] = updated;
+                    {
+                        let mut list = accounts.borrow_mut();
+                        if let Some(pos) = list.iter().position(|a| a.id() == updated.id()) {
+                            list[pos] = updated;
+                        }
+                        // FR-32: revoke primary if sync was disabled.
+                        if let Some(revoked_id) = core::revoke_if_sync_disabled(&mut list) {
+                            if let Some(a) = list.iter().find(|a| a.id() == revoked_id) {
+                                let _ = store.update(a.clone());
+                            }
+                        }
                     }
+                    // Rebuild all rows to reflect primary/colour changes.
+                    rebuild_account_list(&account_list, &accounts.borrow());
                 }
             });
         }
     ));
 
     window.present();
+}
+
+/// Remove all rows from the list box and rebuild from the accounts slice.
+fn rebuild_account_list(list_box: &gtk::ListBox, accounts: &[Account]) {
+    while let Some(child) = list_box.first_child() {
+        list_box.remove(&child);
+    }
+    for acct in accounts {
+        let row = make_account_row(acct);
+        list_box.append(&row);
+    }
 }
 
 fn make_account_row(account: &Account) -> adw::ActionRow {
@@ -213,6 +279,17 @@ fn make_account_row(account: &Account) -> adw::ActionRow {
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
         row.add_prefix(&stripe);
+    }
+
+    // FR-27: visually indicate the primary account with a star icon.
+    if account.is_primary() {
+        let star = gtk::Image::builder()
+            .icon_name("starred-symbolic")
+            .pixel_size(16)
+            .valign(gtk::Align::Center)
+            .tooltip_text(gettextrs::gettext("Primary account"))
+            .build();
+        row.add_suffix(&star);
     }
 
     // FR-11: visually distinguish POP3 accounts with a suffix badge.

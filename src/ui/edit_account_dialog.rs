@@ -681,6 +681,7 @@ pub(crate) fn show(
                 pop3_settings,
                 color,
                 avatar_path: avatar,
+                sync_enabled: account.borrow().sync_enabled(),
             };
 
             let mut acct = account.borrow_mut();

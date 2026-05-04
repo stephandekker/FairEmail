@@ -102,6 +102,7 @@ mod tests {
             pop3_settings: None,
             color: None,
             avatar_path: None,
+            sync_enabled: true,
         })
         .unwrap()
     }
@@ -172,6 +173,7 @@ mod tests {
                 pop3_settings: None,
                 color: None,
                 avatar_path: None,
+                sync_enabled: true,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();
@@ -220,6 +222,7 @@ mod tests {
                 pop3_settings: None,
                 color: None,
                 avatar_path: None,
+                sync_enabled: true,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();

@@ -615,6 +615,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
                 pop3_settings,
                 color,
                 avatar_path: avatar,
+                sync_enabled: true,
             }) {
                 Ok(account) => {
                     on_done(Some(account));
