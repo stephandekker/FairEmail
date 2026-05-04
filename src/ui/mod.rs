@@ -5,4 +5,6 @@ pub mod connection_log_dialog;
 #[cfg(feature = "ui")]
 pub mod edit_account_dialog;
 #[cfg(feature = "ui")]
+pub mod export_dialog;
+#[cfg(feature = "ui")]
 pub mod window;

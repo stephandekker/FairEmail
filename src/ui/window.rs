@@ -16,6 +16,7 @@ use crate::core::{
 use crate::services::{AccountStore, AppSettings, OrderStore, SettingsStore};
 use crate::ui::add_account_dialog;
 use crate::ui::edit_account_dialog;
+use crate::ui::export_dialog;
 
 /// Build the main application window with the account list and navigation pane.
 pub(crate) fn build(
@@ -41,6 +42,14 @@ pub(crate) fn build(
         .accessible_role(gtk::AccessibleRole::Button)
         .build();
     sidebar_header.pack_start(&add_btn);
+
+    // FR-47: export button for exporting account configurations.
+    let export_btn = gtk::Button::builder()
+        .icon_name("document-save-symbolic")
+        .tooltip_text(gettextrs::gettext("Export accounts"))
+        .accessible_role(gtk::AccessibleRole::Button)
+        .build();
+    sidebar_header.pack_start(&export_btn);
 
     // FR-21: toggle button for category grouping in the navigation pane.
     let category_toggle = gtk::ToggleButton::builder()
@@ -527,6 +536,18 @@ pub(crate) fn build(
                     );
                 }
             });
+        }
+    ));
+
+    // FR-47: export button handler — open export dialog.
+    export_btn.connect_clicked(clone!(
+        #[weak]
+        window,
+        #[strong]
+        accounts,
+        move |_| {
+            let accts = accounts.borrow().clone();
+            export_dialog::show(&window, accts, |_success| {});
         }
     ));
 
