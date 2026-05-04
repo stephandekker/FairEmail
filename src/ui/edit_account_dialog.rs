@@ -9,23 +9,40 @@ use libadwaita::prelude::*;
 
 use crate::core::connection_test::{ConnectionTestRequest, ServerConnectionParams};
 use crate::core::{
-    Account, AccountColor, AuthMethod, EncryptionMode, Pop3Settings, Protocol, QuotaInfo,
-    SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders, UpdateAccountParams,
+    Account, AccountColor, AuthMethod, ConnectionLogEntry, ConnectionState, EncryptionMode,
+    Pop3Settings, Protocol, QuotaInfo, SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
+    UpdateAccountParams,
 };
 use crate::services::connection_tester::{ConnectionTester, MockConnectionTester};
+use crate::ui::connection_log_dialog;
 
 /// Result of the edit-account dialog: the updated Account, or `None` if cancelled.
 pub(crate) type EditDialogResult = Option<Account>;
 
+/// Connection diagnostics passed to the edit dialog (FR-44, FR-45, FR-46).
+pub(crate) struct ConnectionDiagnostics {
+    pub state: ConnectionState,
+    pub error: Option<String>,
+    pub log: Vec<ConnectionLogEntry>,
+    pub main_window: adw::ApplicationWindow,
+}
+
 /// Build and show the "Edit Account" dialog pre-populated with the given account's values.
 /// Calls `on_done` with the updated account on save, or `None` on cancel/close.
 /// `existing_categories` provides autocomplete suggestions for the category field (FR-23).
+/// Connection diagnostics are displayed read-only to help the user diagnose
+/// connectivity problems (FR-44, FR-45, FR-46).
 pub(crate) fn show(
     parent: &adw::ApplicationWindow,
     account: Account,
     existing_categories: Vec<String>,
+    conn_diag: ConnectionDiagnostics,
     on_done: impl Fn(EditDialogResult) + 'static,
 ) {
+    let conn_state = conn_diag.state;
+    let conn_error = conn_diag.error;
+    let conn_log = conn_diag.log;
+    let log_main_window = conn_diag.main_window;
     let dialog = adw::Dialog::builder()
         .title(gettextrs::gettext("Edit Account"))
         .content_width(460)
@@ -106,6 +123,65 @@ pub(crate) fn show(
         quota_row.add_suffix(&level_bar);
         quota_group.add(&quota_row);
         vbox.append(&quota_group);
+    }
+
+    // -- Connection state and diagnostics (FR-44, FR-45, FR-46, AC-18) --
+    {
+        let conn_group = adw::PreferencesGroup::builder()
+            .title(gettextrs::gettext("Connection"))
+            .build();
+
+        let state_row = adw::ActionRow::builder()
+            .title(gettextrs::gettext("Status"))
+            .subtitle(conn_state.to_string())
+            .build();
+        let state_icon = gtk::Image::builder()
+            .icon_name(conn_state.icon_name())
+            .pixel_size(16)
+            .valign(gtk::Align::Center)
+            .css_classes([conn_state.css_class()])
+            .build();
+        state_row.add_prefix(&state_icon);
+        conn_group.add(&state_row);
+
+        // FR-45: display error detail when account is in an error state.
+        if let Some(ref error) = conn_error {
+            let error_row = adw::ActionRow::builder()
+                .title(gettextrs::gettext("Error"))
+                .subtitle(error)
+                .css_classes(["error"])
+                .build();
+            let error_icon = gtk::Image::builder()
+                .icon_name("dialog-warning-symbolic")
+                .pixel_size(16)
+                .valign(gtk::Align::Center)
+                .build();
+            error_row.add_prefix(&error_icon);
+            conn_group.add(&error_row);
+        }
+
+        // FR-46, US-42: button to view the full connection log.
+        let log_btn = gtk::Button::builder()
+            .label(gettextrs::gettext("View Connection Log"))
+            .css_classes(["flat"])
+            .build();
+        let account_name = account.display_name().to_string();
+        let log_conn_state = conn_state;
+        let log_conn_error = conn_error.clone();
+        let log_entries = conn_log;
+        let log_window = log_main_window;
+        log_btn.connect_clicked(move |_| {
+            connection_log_dialog::show(
+                &log_window,
+                &account_name,
+                log_conn_state,
+                log_conn_error.as_deref(),
+                &log_entries,
+            );
+        });
+        conn_group.add(&adw::ActionRow::builder().child(&log_btn).build());
+
+        vbox.append(&conn_group);
     }
 
     // -- Notifications toggle (FR-39, AC-19) --

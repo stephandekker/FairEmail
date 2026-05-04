@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::core::{
     self, apply_custom_order, collect_categories, group_by_category, move_account, Account,
+    ConnectionState, ConnectionStateManager,
 };
 use crate::services::{AccountStore, AppSettings, OrderStore, SettingsStore};
 use crate::ui::add_account_dialog;
@@ -112,6 +113,10 @@ pub(crate) fn build(
     // Shared mutable custom order (FR-20, AC-8).
     let custom_order: Rc<RefCell<Option<Vec<Uuid>>>> = Rc::new(RefCell::new(None));
 
+    // Per-account connection state and diagnostics (FR-44, FR-45, FR-46, NFR-2).
+    let conn_state_mgr: Rc<RefCell<ConnectionStateManager>> =
+        Rc::new(RefCell::new(ConnectionStateManager::new()));
+
     // Load settings and initialise toggle state.
     let settings: Rc<RefCell<AppSettings>> =
         Rc::new(RefCell::new(settings_store.load().unwrap_or_default()));
@@ -120,6 +125,13 @@ pub(crate) fn build(
     // Populate from store on startup.
     {
         let loaded = store.load_all().unwrap_or_default();
+        // Initialise connection state for each loaded account (FR-44).
+        {
+            let mut mgr = conn_state_mgr.borrow_mut();
+            for acct in &loaded {
+                mgr.ensure_account(acct.id());
+            }
+        }
         *accounts.borrow_mut() = loaded;
         // Load persisted order (AC-8).
         *custom_order.borrow_mut() = order_store.load().unwrap_or(None);
@@ -128,6 +140,7 @@ pub(crate) fn build(
             &accounts.borrow(),
             settings.borrow().category_display_enabled,
             custom_order.borrow().as_deref(),
+            &conn_state_mgr.borrow(),
         );
     }
 
@@ -141,6 +154,8 @@ pub(crate) fn build(
         accounts,
         #[strong]
         custom_order,
+        #[strong]
+        conn_state_mgr,
         #[weak]
         account_list,
         move |btn| {
@@ -155,6 +170,7 @@ pub(crate) fn build(
                 &accounts.borrow(),
                 enabled,
                 custom_order.borrow().as_deref(),
+                &conn_state_mgr.borrow(),
             );
         }
     ));
@@ -169,6 +185,8 @@ pub(crate) fn build(
         custom_order,
         #[strong]
         settings,
+        #[strong]
+        conn_state_mgr,
         #[weak]
         account_list,
         move |_| {
@@ -179,6 +197,7 @@ pub(crate) fn build(
                 &accounts.borrow(),
                 settings.borrow().category_display_enabled,
                 None,
+                &conn_state_mgr.borrow(),
             );
         }
     ));
@@ -196,6 +215,8 @@ pub(crate) fn build(
         settings,
         #[strong]
         custom_order,
+        #[strong]
+        conn_state_mgr,
         #[weak]
         account_list,
         move |gesture, _, x, y| {
@@ -219,6 +240,7 @@ pub(crate) fn build(
                         &accounts.borrow(),
                         settings.borrow().category_display_enabled,
                         custom_order.borrow().as_deref(),
+                        &conn_state_mgr.borrow(),
                     );
                 }
             }
@@ -281,6 +303,8 @@ pub(crate) fn build(
         order_store,
         #[strong]
         settings,
+        #[strong]
+        conn_state_mgr,
         #[weak]
         account_list,
         #[upgrade_or]
@@ -329,6 +353,7 @@ pub(crate) fn build(
                 &accounts.borrow(),
                 settings.borrow().category_display_enabled,
                 custom_order.borrow().as_deref(),
+                &conn_state_mgr.borrow(),
             );
 
             true
@@ -348,6 +373,8 @@ pub(crate) fn build(
         order_store,
         #[strong]
         settings,
+        #[strong]
+        conn_state_mgr,
         #[weak]
         account_list,
         #[upgrade_or]
@@ -420,6 +447,7 @@ pub(crate) fn build(
                 &accounts.borrow(),
                 settings.borrow().category_display_enabled,
                 custom_order.borrow().as_deref(),
+                &conn_state_mgr.borrow(),
             );
 
             // Re-select the moved row.
@@ -446,6 +474,8 @@ pub(crate) fn build(
         custom_order,
         #[strong]
         order_store,
+        #[strong]
+        conn_state_mgr,
         #[weak]
         account_list,
         move |_| {
@@ -454,6 +484,7 @@ pub(crate) fn build(
             let settings = settings.clone();
             let custom_order = custom_order.clone();
             let order_store = order_store.clone();
+            let conn_state_mgr = conn_state_mgr.clone();
             let account_list = account_list.clone();
             let categories = collect_categories(&accounts.borrow());
             add_account_dialog::show(&window, categories, move |result| {
@@ -463,6 +494,8 @@ pub(crate) fn build(
                         return;
                     }
                     let new_id = account.id();
+                    // Initialise connection state for the new account (FR-44).
+                    conn_state_mgr.borrow_mut().ensure_account(new_id);
                     let became_primary;
                     {
                         let mut list = accounts.borrow_mut();
@@ -490,6 +523,7 @@ pub(crate) fn build(
                         &accounts.borrow(),
                         settings.borrow().category_display_enabled,
                         custom_order.borrow().as_deref(),
+                        &conn_state_mgr.borrow(),
                     );
                 }
             });
@@ -508,6 +542,8 @@ pub(crate) fn build(
         settings,
         #[strong]
         custom_order,
+        #[strong]
+        conn_state_mgr,
         #[weak]
         account_list,
         move |_, row| {
@@ -519,13 +555,32 @@ pub(crate) fn build(
                     None => return,
                 }
             };
+
+            // Capture connection diagnostics for the edit dialog (FR-45, FR-46).
+            let conn_state;
+            let conn_error;
+            let conn_log;
+            {
+                let mgr = conn_state_mgr.borrow();
+                conn_state = mgr.state(account.id());
+                conn_error = mgr.error_detail(account.id()).map(String::from);
+                conn_log = mgr.log_entries(account.id()).to_vec();
+            }
+
             let store = store.clone();
             let accounts = accounts.clone();
             let settings = settings.clone();
             let custom_order = custom_order.clone();
+            let conn_state_mgr = conn_state_mgr.clone();
             let account_list = account_list.clone();
             let categories = collect_categories(&accounts.borrow());
-            edit_account_dialog::show(&window, account, categories, move |result| {
+            let conn_diag = edit_account_dialog::ConnectionDiagnostics {
+                state: conn_state,
+                error: conn_error,
+                log: conn_log,
+                main_window: window.clone(),
+            };
+            edit_account_dialog::show(&window, account, categories, conn_diag, move |result| {
                 if let Some(updated) = result {
                     if let Err(e) = store.update(updated.clone()) {
                         eprintln!("Failed to persist account update: {e}");
@@ -548,6 +603,7 @@ pub(crate) fn build(
                         &accounts.borrow(),
                         settings.borrow().category_display_enabled,
                         custom_order.borrow().as_deref(),
+                        &conn_state_mgr.borrow(),
                     );
                 }
             });
@@ -573,6 +629,7 @@ fn rebuild_account_list(
     accounts: &[Account],
     category_display: bool,
     custom_order: Option<&[Uuid]>,
+    conn_mgr: &ConnectionStateManager,
 ) {
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
@@ -603,7 +660,8 @@ fn rebuild_account_list(
             list_box.append(&header_row);
 
             for &idx in &group.accounts {
-                let row = make_account_row(&accounts[idx]);
+                let state = conn_mgr.state(accounts[idx].id());
+                let row = make_account_row(&accounts[idx], state);
                 list_box.append(&row);
             }
         }
@@ -613,20 +671,22 @@ fn rebuild_account_list(
             None => crate::core::sort_accounts_flat(accounts),
         };
         for idx in sorted {
-            let row = make_account_row(&accounts[idx]);
+            let state = conn_mgr.state(accounts[idx].id());
+            let row = make_account_row(&accounts[idx], state);
             list_box.append(&row);
         }
     }
 }
 
-fn make_account_row(account: &Account) -> adw::ActionRow {
+fn make_account_row(account: &Account, conn_state: ConnectionState) -> adw::ActionRow {
     use crate::core::Protocol;
 
     let subtitle = format!(
-        "{} – {}:{}",
+        "{} – {}:{} – {}",
         account.protocol(),
         account.host(),
-        account.port()
+        account.port(),
+        conn_state
     );
 
     let row = adw::ActionRow::builder()
@@ -635,6 +695,16 @@ fn make_account_row(account: &Account) -> adw::ActionRow {
         .activatable(true)
         .name(account.id().to_string())
         .build();
+
+    // FR-44, AC-18: connection state indicator icon.
+    let state_icon = gtk::Image::builder()
+        .icon_name(conn_state.icon_name())
+        .pixel_size(16)
+        .valign(gtk::Align::Center)
+        .tooltip_text(conn_state.to_string())
+        .css_classes([conn_state.css_class()])
+        .build();
+    row.add_prefix(&state_icon);
 
     // FR-13, AC-6: display account avatar alongside the account name.
     if let Some(path) = account.avatar_path() {

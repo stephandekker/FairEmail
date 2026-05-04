@@ -1,5 +1,6 @@
 pub mod account;
 pub mod account_order;
+pub mod connection_state;
 pub mod connection_test;
 pub mod navigation;
 pub mod primary;
@@ -12,6 +13,9 @@ pub use account::{
     SystemFolders, UpdateAccountParams, QUOTA_HIGH_THRESHOLD_PERCENT,
 };
 pub use account_order::{apply_custom_order, default_order, move_account, order_from_accounts};
+pub use connection_state::{
+    format_log_timestamp, ConnectionLogEntry, ConnectionState, ConnectionStateManager,
+};
 pub use connection_test::{
     ConnectionTestError, ConnectionTestRequest, ConnectionTestResult, ServerTestOutcome,
 };
