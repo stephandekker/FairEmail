@@ -6,6 +6,7 @@ use libadwaita::prelude::*;
 use glib::clone;
 
 use crate::core::privacy;
+use crate::core::proprietary_provider::check_proprietary_provider;
 use crate::core::wizard_validation::{
     validate_wizard_fields, WizardFieldError, WizardValidationResult,
 };
@@ -292,6 +293,17 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             }
 
             if !result.is_valid() {
+                return;
+            }
+
+            // FR-13: proprietary provider rejection (US-9).
+            // Check before any network request is made.
+            if let Some(proprietary) = check_proprietary_provider(&email) {
+                let msg = gettextrs::gettext(
+                    "%s does not support standard email protocols and is not compatible with this application.",
+                ).replace("%s", &proprietary.provider_name);
+                email_error.set_label(&msg);
+                email_error.set_visible(true);
                 return;
             }
 

@@ -9,6 +9,7 @@ pub mod import_accounts;
 pub mod navigation;
 pub mod primary;
 pub(crate) mod privacy;
+pub mod proprietary_provider;
 pub mod provider;
 pub(crate) mod provider_data;
 pub mod sync_conditions;
