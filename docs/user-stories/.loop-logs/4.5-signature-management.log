@@ -1,0 +1,20 @@
+All 14 user story files have been written to `/home/stephan/src/FairEmail/docs/user-stories/4.5-signature-management/`. Here's a summary of the breakdown:
+
+| # | Slice | Type | Blocked by |
+|---|-------|------|------------|
+| 1 | Basic signature storage & insertion | AFK | None |
+| 2 | Rich text signature editor | AFK | 1 |
+| 3 | Raw HTML editing mode | AFK | 2 |
+| 4 | Image insertion in signatures | AFK | 2 |
+| 5 | Insertion trigger settings (new/reply/forward) | AFK | 1 |
+| 6 | Signature placement options | AFK | 5 |
+| 7 | Usenet signature separator | AFK | 6 |
+| 8 | Reply-once mode | AFK | 5 |
+| 9 | Variable placeholder expansion | AFK | 1 |
+| 10 | Per-message signature toggle | AFK | 5 |
+| 11 | Identity switch updates signature | AFK | 10 |
+| 12 | Signature removal from quoted text | AFK | 1 |
+| 13 | Font inheritance | AFK | 1 |
+| 14 | Settings export/import | AFK | 4 |
+
+All epic open questions (OQ-1 through OQ-6) are flagged in the relevant story `## Notes` sections. All 23 user stories and 39 functional requirements from the epic are covered across the slices.

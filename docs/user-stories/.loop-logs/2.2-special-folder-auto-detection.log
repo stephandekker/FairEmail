@@ -1,0 +1,17 @@
+Done. 11 user stories written to `/docs/user-stories/2.2-special-folder-auto-detection/`:
+
+| # | Story | Blocked by |
+|---|---|---|
+| 1 | Role taxonomy and folder data model | _(none — foundation)_ |
+| 2 | Tier 1: IMAP SPECIAL-USE detection | 1 |
+| 3 | Inbox guaranteed detection | 1, 2 |
+| 4 | Tier 2: Name-based heuristic detection | 1, 2 |
+| 5 | Provider-scoped dictionary entries | 4 |
+| 6 | Role-triggered default properties | 1 |
+| 7 | User override of folder roles | 1, 6 |
+| 8 | Re-sync: preserve existing assignments | 2, 4 |
+| 9 | Re-sync: renamed and disappeared folders | 8 |
+| 10 | Provider-specific folder rules | 4, 6 |
+| 11 | Setup-time role review screen | 2, 4, 6, 7 |
+
+Each story is a vertical tracer-bullet slice covering the epic's functional requirements (FR-1 through FR-29), acceptance criteria (AC-1 through AC-16), and relevant user stories (US-1 through US-23). Open questions from the epic are flagged in per-story `## Notes` sections where they affect implementation decisions.

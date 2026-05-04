@@ -1,0 +1,35 @@
+All 27 stories written. Here's the breakdown summary:
+
+**Epic 3.16 — Per-Message Actions → 27 user stories**
+
+| # | Story | Blocked by |
+|---|---|---|
+| 1 | Toggle flag/star | — |
+| 2 | Flag color picker | 1 |
+| 3 | Set importance | — |
+| 4 | Hide message | — |
+| 5 | Snooze basic | — |
+| 6 | Snooze thread + options | 5 |
+| 7 | Snoozed/hidden filter | 4, 5 |
+| 8 | Edit notes | — |
+| 9 | IMAP keywords management | — |
+| 10 | Provider labels | 9 |
+| 11 | Move message with undo | — |
+| 12 | Move thread + auto-actions | 11 |
+| 13 | Archive + junk actions | 11 |
+| 14 | Cross-account move | 11 |
+| 15 | Copy message | — |
+| 16 | Delete to trash with undo | 11 |
+| 17 | Permanent delete | 16 |
+| 18 | Soft/hard delete preference | 16 |
+| 19 | Edit subject | — |
+| 20 | Delete attachments | — |
+| 21 | Pin message | — |
+| 22 | Configurable toolbar + context menu | — |
+| 23 | Swipe gestures | 22 |
+| 24 | Keyboard shortcuts | 22 |
+| 25 | Bulk selection actions | 22 |
+| 26 | Unified inbox parity | — (integration pass) |
+| 27 | Offline action queue | — (infrastructure/integration) |
+
+**14 stories can start immediately** (no blockers). Open questions from the epic (OQ-1 through OQ-9) are flagged in the relevant story `## Notes` sections rather than blocking progress.

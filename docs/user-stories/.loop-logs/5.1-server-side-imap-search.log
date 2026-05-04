@@ -1,0 +1,22 @@
+Done. 16 user stories written to `/docs/user-stories/5.1-server-side-imap-search/`.
+
+**Dependency graph (build order):**
+
+1. **Search dialog + local text search** — foundation, no blockers
+2. **Server-side IMAP search for single folder** — blocked by #1
+3. **Search field toggles** — blocked by #2
+4. **Date range criteria** — blocked by #2
+5. **Flag/size filters + quick buttons** — blocked by #2
+6. **Trash/junk inclusion toggle** — blocked by #1
+7. **Structured prefix expressions** — blocked by #3
+8. **Gmail raw search** — blocked by #2
+9. **Charset negotiation** — blocked by #2
+10. **Capability degradation** — blocked by #3
+11. **Incremental result loading** — blocked by #2
+12. **Continue searching on server** — blocked by #2
+13. **Local/server results indicator** — blocked by #2
+14. **Search preference persistence** — blocked by #3
+15. **Offline behavior** — blocked by #2
+16. **Local-only criteria + server search** — blocked by #3, #5
+
+Slices #4, #5, #6, #8, #9, #11, #12, #13, #15 can be built in parallel once their respective blockers are done. Genuine uncertainties (prefix parsing edge cases, local-only criteria interaction with server search, result cap configurability) are documented in per-story `## Notes` sections.

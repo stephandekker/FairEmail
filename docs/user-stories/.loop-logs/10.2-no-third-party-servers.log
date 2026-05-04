@@ -1,0 +1,26 @@
+All 18 stories written. Here's the summary of the breakdown:
+
+**Epic 10.2 — No Third-Party Servers** broken into 18 user stories:
+
+| # | Story | Blocked by |
+|---|-------|-----------|
+| 1 | Default network posture (mail-server-only traffic) | *(none — foundational)* |
+| 2 | Remote content blocking by default | 1 |
+| 3 | Per-sender/per-domain remote content allow-lists | 2 |
+| 4 | Tracking pixel detection and flagging | 2 |
+| 5 | Link confirmation dialog with URL display | 1 |
+| 6 | URL tracking parameter stripping | 5 |
+| 7 | Bundled provider database — offline discovery | 1 |
+| 8 | External autoconfiguration consent prompt | 7 |
+| 9 | Optional service opt-in gating framework | 1 |
+| 10 | Error/crash reporting opt-in gate | 9 |
+| 11 | Communication service gates (translation, AI, spell-check) | 9 |
+| 12 | Identity/reputation service gates (avatars, favicons, blocklists, geolocation) | 9 |
+| 13 | Security/maintenance service gates (file scanning, breach check, blocklist updates, app updates, safe browsing) | 9 |
+| 14 | OAuth — provider-only traffic | 1 |
+| 15 | Distribution channel privacy parity | 9 |
+| 16 | Data locality — all data stored locally | 1 |
+| 17 | Incidental disclosure minimization (user-agent, timezone) | 2 |
+| 18 | Privacy policy and auditability document | 9–13 |
+
+Coverage: all 25 user stories (US-1 through US-25), all 44 functional requirements (FR-1 through FR-44), all 7 NFRs, and all 15 acceptance criteria from the epic are mapped across these stories. Open questions (OQ-1 through OQ-6) are flagged in the relevant story Notes sections.

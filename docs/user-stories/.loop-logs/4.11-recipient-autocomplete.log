@@ -1,0 +1,22 @@
+All 14 user story files are in place. Here's the summary of the decomposition:
+
+| # | Story | Blocked by | HITL/AFK |
+|---|-------|-----------|----------|
+| 1 | Local contact store + sent-mail learning | _(none)_ | AFK |
+| 2 | Basic autocomplete from sent contacts | 1 | HITL |
+| 3 | Accent-insensitive matching | 2 | AFK |
+| 4 | Chip rendering | 2 | HITL |
+| 5 | Chip encryption indicator | 4 | HITL |
+| 6 | Received contacts source | 1, 2 | AFK |
+| 7 | Ranking modes | 2 | AFK |
+| 8 | System address book integration | 2, 7 | HITL |
+| 9 | System native contact picker | 8 | HITL |
+| 10 | Account scoping | 1, 2 | AFK |
+| 11 | Auto-identity selection | 1, 2 | HITL |
+| 12 | Local contact store management | 1 | HITL |
+| 13 | Contact purge | 1 | AFK |
+| 14 | Configuration settings | 2,4,6,7,10,11,13 | HITL |
+
+The critical path is **1 → 2**, which unblocks the majority of stories. Stories 3–13 can largely be parallelized after that. Story 14 (configuration settings consolidation) comes last as it integrates all the individual toggles into one settings area.
+
+Open questions from the epic (OQ-1 through OQ-8) are flagged in the relevant stories' `## Notes` sections with the decisions made and rationale.

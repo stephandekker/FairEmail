@@ -1,0 +1,18 @@
+All 12 user story files have been written to `/home/stephan/src/FairEmail/docs/user-stories/4.8-auto-save-drafts/`. Here's a summary of the slices in recommended build order:
+
+| # | Story | Blocked by |
+|---|---|---|
+| 1 | Local Draft Persistence with Dirty State Tracking | (none — foundation) |
+| 2 | Auto-Save on Paragraph Break | 1 |
+| 3 | Auto-Save on Punctuation | 1 |
+| 4 | Auto-Save on Loss of Focus | 1 |
+| 5 | Explicit Manual Save | 1 |
+| 6 | Revision History Storage | 1 |
+| 7 | Undo/Redo Controls | 6 |
+| 8 | Revision Indicator & Dirty Marker | 6 |
+| 9 | Server-Side Draft Synchronization | 1 |
+| 10 | Auto-Save Settings (4 toggles) | 2, 3, 6, 9 |
+| 11 | Cleanup on Send/Discard | 6 |
+| 12 | Periodic Orphan Cleanup | 6, 11 |
+
+Stories 2–5 and 6 and 9 can all be built in parallel once story 1 is complete. Open questions from the epic (OQ-2 through OQ-7) are flagged in the relevant story `## Notes` sections rather than resolved unilaterally.

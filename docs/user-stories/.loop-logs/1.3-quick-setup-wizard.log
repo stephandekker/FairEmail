@@ -1,0 +1,31 @@
+All 21 user story files have been written to `/home/stephan/src/FairEmail/docs/user-stories/1.3-quick-setup-wizard/`.
+
+**Summary of the breakdown:**
+
+| # | Story | Type | Blocked by |
+|---|-------|------|------------|
+| 1 | Wizard UI with input validation | AFK | None |
+| 2 | Bundled provider database | AFK | None |
+| 3 | Privacy policy links | AFK | 1 |
+| 4 | Manual setup escape hatch | AFK | 1 |
+| 5 | Proprietary provider rejection | AFK | 2 |
+| 6 | Detection progress feedback | AFK | 1, 2 |
+| 7 | IMAP connectivity check | AFK | 1, 2 |
+| 8 | SMTP connectivity check | AFK | 7 |
+| 9 | Untrusted certificate handling | AFK | 7 |
+| 10 | Auth error handling with provider hints | AFK | 7, 8 |
+| 11 | Detection failure fallback | AFK | 4, 6 |
+| 12 | Account review screen | AFK | 7, 8 |
+| 13 | Account and identity creation | AFK | 12 |
+| 14 | System folder creation and sync defaults | AFK | 13 |
+| 15 | DNS provider discovery | AFK | 2 |
+| 16 | ISPDB and vendor autodiscovery | AFK | 2 |
+| 17 | Port scanning fallback | AFK | 2 |
+| 18 | Network-to-bundled provider merge | AFK | 15, 16 |
+| 19 | OAuth sign-in option | AFK | 13 |
+| 20 | Re-authentication flow | AFK | 13 |
+| 21 | User-supplied provider file | AFK | 2 |
+
+**Two independent starting points:** Stories 1 (wizard UI) and 2 (provider database) can begin in parallel. The critical path runs 1 → 7 → 8 → 12 → 13 → 14 (UI → IMAP check → SMTP check → review → save → sync). Discovery strategies (15-18) and extensions (19-21) can be developed in parallel once their blockers are met.
+
+**Open questions from the epic** (OQ-2 through OQ-8) are flagged in the relevant story `## Notes` sections rather than resolved here.

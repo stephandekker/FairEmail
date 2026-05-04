@@ -1,0 +1,34 @@
+All 20 user story files are written to `/home/stephan/src/FairEmail/docs/user-stories/3.15-conversation-actions/`. Here's the build-order summary:
+
+| # | Story | Blocked by |
+|---|-------|-----------|
+| 1 | Action menu infrastructure | *(none — foundation)* |
+| 2 | Basic reply | 1 |
+| 3 | Identity auto-selection | 2 |
+| 4 | Reply-all | 2, 3 |
+| 5 | Reply-to-list | 2, 3 |
+| 6 | Self-reply detection | 2, 3 |
+| 7 | Selected-text quoting | 2 |
+| 8 | Quoting & prefix configuration | 2 |
+| 9 | Signature handling | 2 |
+| 10 | Basic forward | 1, 3 |
+| 11 | Forward-to shortcut | 10 |
+| 12 | Forward thread linkage | 10 |
+| 13 | Forward-as-attachment | 10 |
+| 14 | Redirect/bounce (DSN) | 1 |
+| 15 | Edit-as-new | 1 |
+| 16 | Resend | 1 |
+| 17 | Read receipt (MDN) | 1 |
+| 18 | Reply button configuration | 1, 2, 4, 10 |
+| 19 | Encryption inheritance | 2 |
+| 20 | Image resize on reply | 2 |
+
+Key decisions documented in story Notes sections:
+- **OQ-1** (prefix localization) flagged in story 8
+- **OQ-2** (redirect vs bounce semantics) flagged in story 14
+- **OQ-3** (resend Resent-* headers) flagged in story 16
+- **OQ-4** (POP3 forward-as-attachment) flagged in story 13
+- **OQ-5** (reply-all large recipient warning) flagged in story 4
+- **OQ-6** (bounce loop detection) flagged in story 14
+- **OQ-7** (resend receipt routing) flagged in story 16
+- Desktop adaptation of long-press flagged in story 18

@@ -1,0 +1,23 @@
+All 17 user stories written. Here's the dependency graph and build order:
+
+| # | Story | Blocked by |
+|---|-------|------------|
+| 1 | RFC-Header Thread Computation | _(none — foundation)_ |
+| 2 | Outgoing Reply Headers | 1 |
+| 3 | Global Threading Toggle | 1 |
+| 4 | Thread Time Range | 1 |
+| 5 | Message-List Thread Indicators | 3 |
+| 6 | Conversation View | 3 |
+| 7 | Auto-Expand Logic | 6 |
+| 8 | Thread Consolidation | 1 |
+| 9 | Trashed & Drafts in Conversation | 6 |
+| 10 | Permanent Delete from Conversation | 6 |
+| 11 | Common-Reference Threading | 1 |
+| 12 | Gmail Thread Index | 1 |
+| 13 | Subject-Based Fallback | 1 |
+| 14 | Strategy Mutual Exclusivity | 12, 13 |
+| 15 | Forwarded Message Threading | 1 |
+| 16 | Thread-Level Move Operations | 3 |
+| 17 | Sent/Received Indentation | 6 |
+
+Stories 2, 3, 4, 8, 11, 12, 13, 15 can all be parallelized after story 1 is complete. The conversation-view cluster (6, 7, 9, 10, 17) forms a second wave after the toggle (3) lands.

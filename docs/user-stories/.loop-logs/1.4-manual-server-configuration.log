@@ -1,0 +1,32 @@
+All 24 story files are in place. Here's a summary of the breakdown:
+
+**Epic 1.4 — Manual Server Configuration** broken into 24 vertical slices:
+
+| # | Story | Blocked by | Type | Epic US covered |
+|---|-------|-----------|------|-----------------|
+| 1 | Create IMAP account (foundation) | None | AFK | US-1, US-7 |
+| 2 | Field validation rules | 1 | AFK | US-1 |
+| 3 | Port auto-fill on encryption change | 1 | AFK | US-2 |
+| 4 | Account display properties | 1 | AFK | US-7 |
+| 5 | Inbound test connection — happy path | 1 | AFK | US-13,14,15,18 |
+| 6 | Test connection error diagnostics | 5 | AFK | US-16 |
+| 7 | Folder discovery & role assignment | 5 | AFK | US-19, US-20 |
+| 8 | Save with auto-test safety net | 5 | AFK | US-22 |
+| 9 | Insecure connections toggle | 1 | AFK | US-3 |
+| 10 | Certificate pinning on test failure | 5 | AFK | US-17 |
+| 11 | Client certificate selection | 1 | AFK | US-4 |
+| 12 | DANE & DNSSEC toggles | 9 | AFK | US-6 |
+| 13 | Authentication realm field | 1 | AFK | US-5 |
+| 14 | Auto-config inbound | 1 | AFK | US-8,9,10 |
+| 15 | Provider dropdown selection | 1 | AFK | US-11, US-12 |
+| 16 | SMTP identity config (basic fields) | 1 | AFK | US-24,25,28,29 |
+| 17 | SMTP test connection | 16 | AFK | US-27 |
+| 18 | SMTP auto-config | 16, 14 | AFK | US-26 |
+| 19 | SMTP advanced options | 16 | AFK | US-39, US-40 |
+| 20 | Navigate to SMTP after save | 1, 16 | AFK | US-23 |
+| 21 | POP3 protocol support | 1 | AFK | US-30–33 |
+| 22 | Edit existing account | 1 | AFK | US-34 |
+| 23 | Password propagation to identities | 22, 16 | AFK | US-35 |
+| 24 | Advanced inbound options | 1 | AFK | US-36–38 |
+
+All 40 user stories from the epic are covered. Open questions OQ-1 through OQ-4 and OQ-7 are flagged in the relevant story `## Notes` sections. No code, epic file, or other files were modified.

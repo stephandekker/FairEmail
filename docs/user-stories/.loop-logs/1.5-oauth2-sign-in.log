@@ -1,0 +1,22 @@
+Done. 16 user stories written to `/home/stephan/src/FairEmail/docs/user-stories/1.5-oauth2-sign-in/`.
+
+**Build order and dependency graph:**
+
+1. **Bundled OAuth provider database** — foundation, no blockers
+2. **Core OAuth authorization flow** — depends on 1
+3. **Setup wizard OAuth integration** — depends on 1, 2
+4. **Identity extraction from tokens** — depends on 2
+5. **Automatic token refresh** — depends on 2
+6. **Token refresh error handling** — depends on 5
+7. **Re-authorization from account settings** — depends on 2, 3
+8. **Multi-tenant support (Office 365)** — depends on 2, 3
+9. **Shared mailbox support (Outlook)** — depends on 8
+10. **Provider-specific OAuth parameters** — depends on 1, 2
+11. **Custom OAuth configuration import** — depends on 1, 2, 3
+12. **Distribution-channel gating & password fallback** — depends on 1, 3
+13. **Auth method conversion** — depends on 2, 3, 7
+14. **Browser selection and compatibility** — depends on 2
+15. **OAuth error communication** — depends on 2, 3
+16. **Jump page redirect fallback** — depends on 2
+
+Stories 4–16 can be parallelized after the critical path of 1→2→3. Each story maps to specific FRs, NFRs, user stories, and acceptance criteria from the epic, with open questions and design notes flagged in `## Notes` sections.

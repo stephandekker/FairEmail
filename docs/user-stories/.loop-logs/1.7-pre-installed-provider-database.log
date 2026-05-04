@@ -1,0 +1,19 @@
+All 13 user story files are in place. Here's a summary of the breakdown:
+
+| # | Story | Blocked by | HITL/AFK |
+|---|-------|------------|----------|
+| 1 | Provider data model and domain matching | _(none)_ | AFK |
+| 2 | Server settings pre-fill | 1 | AFK |
+| 3 | Username format derivation | 2 | AFK |
+| 4 | Browsable provider list | 1 | AFK |
+| 5 | MX-based matching for custom domains | 1 | AFK |
+| 6 | Discovery pipeline trust scoring | 1, 5 | AFK |
+| 7 | OAuth profile support | 2 | AFK |
+| 8 | Tenant-specific OAuth and Graph API | 7 | HITL |
+| 9 | Behavioural overrides (quirks) | 2 | AFK |
+| 10 | Provider documentation and guidance | 4, 9 | HITL |
+| 11 | Proprietary provider rejection | 1 | HITL |
+| 12 | Imported provider profiles | 1, 4 | HITL |
+| 13 | Catalogue extensibility and maintenance | 1 | AFK |
+
+The dependency graph fans out from story 1 (the foundation), with stories 2-5 and 11-13 as immediate dependents, and stories 6-10 building on those. Every functional requirement (FR-1 through FR-43), user story (US-1 through US-19), and acceptance criterion (AC-1 through AC-16) from the epic is covered across the 13 stories.

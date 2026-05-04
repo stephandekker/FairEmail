@@ -1,0 +1,19 @@
+Done. Epic 7.5 (Offline Storage and Operations) has been broken into **20 user stories** organized by recommended build order:
+
+**Foundation (stories 1–2):** Operation record persistence, optimistic UI updates
+
+**Replay engine (stories 3–5):** Single operation replay, priority ordering, batch replay with fallback
+
+**Error handling (stories 6–8):** Transient retry, permanent failure handling, conflict resolution
+
+**Queue optimization (story 9):** Duplicate suppression
+
+**Offline reading (stories 10–12):** Metadata storage, body/attachment storage, unavailable-offline indication
+
+**Send flow (story 13):** Queue outgoing mail while offline
+
+**Queue management UI (stories 14–18):** Operations view, cancel with revert, cancel queued send, bulk clear, status indicator
+
+**Multi-account & protocol (stories 19–20):** Parallel per-account processing, protocol-aware routing
+
+Each story follows the template with Parent Feature, User Story, Acceptance Criteria, Complexity, Blocked by (referencing sibling stories by filename), HITL/AFK classification, and Notes for ambiguities.

@@ -1,0 +1,24 @@
+All 16 story files are in place. Here's a summary of the breakdown:
+
+**Epic 8.9 — Background Daemon (System Tray Icon)** broken into 16 tracer-bullet slices:
+
+| # | Story | Blocked by |
+|---|-------|-----------|
+| 1 | Daemon process lifecycle | *(foundational)* |
+| 2 | System tray icon presence | 1 |
+| 3 | Tray icon click to open window | 2 |
+| 4 | Tray icon context menu | 2 |
+| 5 | Quit vs close semantics | 1, 4 |
+| 6 | Tray icon status tooltip | 2 |
+| 7 | Account-level monitoring conditions | 1 |
+| 8 | Global sync toggle | 1, 2 |
+| 9 | Grace period before shutdown | 1, 7 |
+| 10 | Autostart on login | 1, 2 |
+| 11 | Auto-restart on unexpected termination | 1, 10 |
+| 12 | Network awareness | 1, 6 |
+| 13 | Connection error handling & backoff | 1, 6 |
+| 14 | Poll mode support | 1, 2 |
+| 15 | Schedule integration | 1, 2 |
+| 16 | Daemon notification delivery | 1, 2 |
+
+Each story is a vertical slice covering the epic's user stories, functional requirements, non-functional requirements, and acceptance criteria. Open questions from the epic (OQ-1 through OQ-7) are flagged in the relevant stories' Notes sections. Two stories are marked HITL (2-system-tray-icon-presence for icon design review, 4-tray-icon-context-menu for menu richness decision); the rest are AFK.

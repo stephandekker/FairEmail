@@ -1,0 +1,26 @@
+Done. 24 user stories written to `/home/stephan/src/FairEmail/docs/user-stories/2.1-two-way-imap-synchronization/`, ordered by build dependency:
+
+1. **Persistent operation queue** — foundation
+2. **Mark read local→server** — tracer bullet proving the pipeline
+3. **Flag/unflag/answered local→server** — extends flag types
+4. **Server flag change detection** — server→local path
+5. **Flag conflict resolution** — dual-state, local-pending wins
+6. **Move message local→server** — atomic move + fallback
+7. **Delete (move to trash)** — default delete semantics
+8. **Permanent delete (expunge)** — per-UID expunge + fallback
+9. **Copy message local→server** — IMAP COPY
+10. **New message detection** — server→local new arrivals
+11. **Message removal detection** — server→local disappearances
+12. **Operations targeting vanished messages** — graceful cancellation
+13. **Offline queue and replay** — connectivity-aware replay
+14. **Pending operation visibility** — UI indicators + queue view
+15. **Operation retry and error handling** — backoff, classification, manual retry
+16. **Incremental sync (MODSEQ)** — efficient change detection
+17. **Full sync fallback** — baseline without MODSEQ
+18. **UID validity reset** — automatic full resync trigger
+19. **Sync window and retention** — configurable per-folder windows
+20. **Keyword sync** — custom keywords/labels
+21. **Force full resync** — user-triggered resync
+22. **Operation batching and priority** — efficiency optimization
+23. **Provider capability detection** — adapt to server features
+24. **Multi-instance flag propagation** — label-based systems

@@ -1,0 +1,21 @@
+All 15 story files are written. Here's the breakdown summary:
+
+| # | Story | Type | Blocked by |
+|---|-------|------|------------|
+| 1 | Block remote images by default | AFK | None |
+| 2 | Show-images toggle | AFK | 1 |
+| 3 | Confirmation dialog (basic) | AFK | 2 |
+| 4 | Per-sender whitelist in dialog | AFK | 3 |
+| 5 | Sender whitelist auto-load | AFK | 4 |
+| 6 | Per-domain whitelist in dialog | AFK | 4 |
+| 7 | Global disable confirmation | AFK | 3 |
+| 8 | Dialog hints and settings link | AFK | 3, 11 |
+| 9 | Dialog tracker detection note | AFK | 3 |
+| 10 | Junk/spam folder exception | AFK | 2 |
+| 11 | Privacy settings screen | AFK | 1 |
+| 12 | Whitelist management in settings | AFK | 5, 6, 11 |
+| 13 | Original-view auto-show images | AFK | 2, 11 |
+| 14 | Tracker detection integration | AFK | 2 |
+| 15 | Reset all image preferences | AFK | 11, 12 |
+
+All 28 user stories from the epic are covered. Open questions OQ-1, OQ-2, and OQ-3 are flagged in the relevant story `## Notes` sections. Cross-epic dependencies (3.11 tracker detection, 2.2 special folder detection) are noted where applicable.

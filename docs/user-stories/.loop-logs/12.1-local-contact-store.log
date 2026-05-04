@@ -1,0 +1,20 @@
+All 14 user stories written to `/docs/user-stories/12.1-local-contact-store/`. Here's the breakdown:
+
+| # | Story | Type | Blocked by |
+|---|-------|------|------------|
+| 1 | Contact record and learn-on-send | AFK | None |
+| 2 | Learn-on-receive | AFK | 1 |
+| 3 | Basic autocomplete | AFK | 1 |
+| 4 | Contact list view and search | AFK | 1 |
+| 5 | Edit and delete contacts | AFK | 4 |
+| 6 | Favorite and ignored states | AFK | 3, 4 |
+| 7 | Autocomplete refinements | AFK | 6 |
+| 8 | Contact groups | AFK | 5 |
+| 9 | Junk and no-junk contacts | AFK | 4 |
+| 10 | Bulk-clear contacts | AFK | 4, 9 |
+| 11 | Automatic purge | AFK | 1, 6 |
+| 12 | Privacy controls | AFK | 1, 2 |
+| 13 | vCard export and import | AFK | 1, 8 |
+| 14 | Cascading account deletion | AFK | 1 |
+
+All 34 user stories and all 36 functional requirements from the epic are covered. Open questions OQ-1, OQ-2, OQ-6, OQ-7, and OQ-8 are flagged in the relevant story `## Notes` sections. Story 1 is the sole root dependency — after it, stories 2, 3, 4, and 14 can proceed in parallel.

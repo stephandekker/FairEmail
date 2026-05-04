@@ -1,0 +1,19 @@
+All 31 story files are in place. Here's a summary of the breakdown:
+
+**Epic 4.14 Attachments** broken into 31 vertical slices across two independent tracks:
+
+**Compose-side track** (stories 1-19):
+- **Foundation**: 1-basic-file-attachment (no blockers), 2-compose-attachment-list, 3-remove-attachments
+- **Attachment sources**: 4-drag-and-drop, 5-image-inline-vs-attach, 12-vcard, 13-eml-thread, 14-forward-reply-carry-over, 28-external-share-in, 29-photo-capture, 30-audio-record
+- **Image processing chain**: 6-image-resize, 7-image-metadata-strip, 8-heic-re-encoding, 9-image-options-settings
+- **List actions**: 10-rename, 11-zip, 31-edit-image-action
+- **Warnings**: 15-forgotten-attachment, 16-filename-length, 17-dangerous-extension, 18-message-size
+- **Encryption**: 19-encryption-interaction
+
+**Reading-side track** (stories 20-27):
+- **Foundation**: 20-reading-attachment-list (no blockers — can start in parallel with compose track)
+- **Actions**: 21-download, 22-open-save-share, 23-inline-images
+- **Special formats**: 25-eml-nested-view, 26-tnef-unpacking, 27-zip-preview
+- **Safety**: 24-reading-dangerous-file-warning
+
+Open questions from the epic (OQ-1 through OQ-8) are flagged in the relevant story `## Notes` sections rather than resolved.

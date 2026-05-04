@@ -1,0 +1,21 @@
+All 10 user story files have been written to `/home/stephan/src/FairEmail/docs/user-stories/10.1-no-telemetry-by-default/`. Here's a summary:
+
+| # | Story | Blocked by | Complexity |
+|---|-------|-----------|------------|
+| 1 | Audit & ensure architectural absence of telemetry | (none) | Small |
+| 2 | Local crash & error logging | 1 | Small |
+| 3 | Error reporting preference toggle | 1 | Small |
+| 4 | Anonymous identifier generation & storage | 3 | Small |
+| 5 | Error report capture & transmission | 3, 4 | Medium |
+| 6 | Immediate cessation on consent revocation | 5 | Small |
+| 7 | Non-coercive one-time awareness prompt | 2, 3 | Medium |
+| 8 | Anonymous identifier display in UI | 4, 5 | Small |
+| 9 | Report retention & deletion | 5 | Small-Medium |
+| 10 | Privacy documentation & endpoint transparency | 5, 9 | Small |
+
+Key decisions documented in story Notes sections:
+- **OQ-2 (local crash log scope):** Assumed always-on for desktop (flagged in story 2)
+- **OQ-3 (prompt trigger):** Assumed first qualifying UI-visible error (flagged in story 7)
+- **OQ-4 (identifier lifecycle):** Assumed stable per-installation, matching source app (flagged in story 4)
+- **OQ-1 (service choice):** Left open, behavioral contract defined regardless (flagged in story 5)
+- **OQ-5 (deletion mechanism):** Left open, must be documented (flagged in story 9)

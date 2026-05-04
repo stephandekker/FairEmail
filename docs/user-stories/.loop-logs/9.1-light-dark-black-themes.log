@@ -1,0 +1,26 @@
+All 20 user story files have been written to `/home/stephan/src/FairEmail/docs/user-stories/9.1-light-dark-black-themes/`. Here's the breakdown:
+
+| # | Story | Key concern |
+|---|---|---|
+| 1 | Theme preference persistence | Data model & storage foundation |
+| 2 | Light variant chrome | First visible brightness variant |
+| 3 | Dark variant chrome | Dark grey backgrounds |
+| 4 | True-black variant chrome | Pure #000000 backgrounds |
+| 5 | Color scheme catalog | 6+ curated primary/accent pairings |
+| 6 | Color scheme reversal | Swap primary/accent roles |
+| 7 | Theme selection UI | User-facing picker interface |
+| 8 | Immediate theme application | No-restart, state-preserving switch |
+| 9 | System color-scheme detection | Freedesktop/GNOME/KDE detection |
+| 10 | Auto mode runtime switching | Live monitoring with debounce |
+| 11 | Auto mode dark variant preference | Dark vs. black in auto |
+| 12 | Derived semantic colors | All UI colors adapt to theme |
+| 13 | Force-light message viewer | Content override for reading |
+| 14 | Force-light composer | Content override for composing |
+| 15 | Per-message light toggle | Escape hatch per-message |
+| 16 | Algorithmic darkening | HTML content dark-mode rendering |
+| 17 | Beige mode | Warm off-white for light variant |
+| 18 | Splash screen theme consistency | No wrong-color flash at startup |
+| 19 | Multi-window theme uniformity | All windows use active theme |
+| 20 | Accessibility contrast compliance | WCAG AA audit gate |
+
+Each story is a thin vertical slice cutting end-to-end through the behaviour it covers, with explicit dependency ordering via `Blocked by` references. HITL stories (5, 7, 20) are flagged for design review. Open questions from the epic are surfaced in relevant `Notes` sections.

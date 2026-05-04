@@ -1,0 +1,17 @@
+Done. 11 user stories written for epic 7.2 — Configurable Poll Interval:
+
+| # | Story | Type | Blocked by |
+|---|-------|------|------------|
+| 1 | Account poll interval setting and scheduler | AFK | None |
+| 2 | Folder push/poll mode toggle | AFK | 1 |
+| 3 | Folder poll factor | AFK | 2 |
+| 4 | Bulk folder poll apply | AFK | 2 |
+| 5 | Global poll interval override | AFK | 1 |
+| 6 | Network-aware polling | AFK | 1 |
+| 7 | Auto-tuning keep-alive | AFK | 1 |
+| 8 | Push/poll interaction and fallback | AFK | 1, 2 |
+| 9 | On-demand and schedule interaction | AFK | 1, 5 |
+| 10 | Periodic folder-list sync | AFK | 1 |
+| 11 | Polling status transparency | AFK | 1, 5, 7, 8 |
+
+All epic user stories (US-1 through US-24), functional requirements (FR-1 through FR-38), and key acceptance criteria (AC-1 through AC-18) are covered. Open questions from the epic (OQ-1 through OQ-8) are flagged in `## Notes` sections of the relevant stories. Story 1 is the foundation; stories 2–10 fan out from it with minimal inter-dependencies; story 11 is the capstone that ties visibility together.

@@ -1,0 +1,17 @@
+Done. 11 user stories written to `/docs/user-stories/14.6-system-mailto-handler/`. Here's the breakdown and dependency graph:
+
+| # | Story | Type | Blocked by | Epic user stories |
+|---|-------|------|------------|-------------------|
+| 1 | mailto: URI parser | AFK | None | US-4,5,6,7,12 |
+| 2 | Desktop entry registration | AFK | None | US-1,2,3 |
+| 3 | Basic warm-start compose | AFK | 1, 2 | US-4 |
+| 4 | Full field pre-population | AFK | 3 | US-5,6,7,12 |
+| 5 | Cold-start compose | AFK | 4 | US-13 |
+| 6 | Default identity selection | AFK | 3 | US-8,9 |
+| 7 | Smart identity matching | AFK | 6 | US-10 |
+| 8 | URI sanitization | AFK | 4 | US-14,15,16 |
+| 9 | No-account error handling | AFK | 3 | US-11 |
+| 10 | Concurrent compose | AFK | 5 | (NFR-3) |
+| 11 | Send-to-self shortcut | AFK | 6, 9 | US-17 |
+
+All 17 epic user stories and all 23 functional requirements are covered. Open questions OQ-2 (account-hint parameter) and OQ-4/OQ-5 (registration behavior) are flagged in the relevant story Notes sections. Stories 1 and 2 can start in parallel as they have no blockers.

@@ -1,0 +1,23 @@
+All 17 user story files have been written to `/home/stephan/src/FairEmail/docs/user-stories/3.6-safe-html-view/`. Here's a summary of the breakdown:
+
+| # | Story | Blocked by |
+|---|---|---|
+| 1 | Rendering Engine Lockdown | None |
+| 2 | Core Sanitization Pipeline (Tag & Attribute Allowlist) | 1 |
+| 3 | Script and Executable Content Removal | 2 |
+| 4 | Form Neutralization | 2 |
+| 5 | CSS Property Allowlist for Inline Styles | 2 |
+| 6 | Remote Font and External Stylesheet Blocking | 5 |
+| 7 | Embedded Style Block Processing | 5, 6 |
+| 8 | Image Blocking and Placeholders | 2 |
+| 9 | Selective Styling Controls (User Preferences) | 5, 7 |
+| 10 | Dark-Mode Color Adaptation | 5, 9 |
+| 11 | Tracking Pixel Detection and Replacement | 8 |
+| 12 | Structural HTML Transformations | 2 |
+| 13 | View Toggle and Per-Sender/Domain Preferences | 2 |
+| 14 | Hidden Element Handling | 5 |
+| 15 | Size Limits and Truncation | 2 |
+| 16 | Viewport Normalization | 2 |
+| 17 | Auto-Linking of URLs and Email Addresses | 2 |
+
+Each story is a vertical tracer-bullet slice covering end-to-end behavior. Stories 3, 4, 8, 12, 13, 15, 16, and 17 can be built in parallel once story 2 is complete. Two stories (10, 12) are marked HITL for visual review; the rest are AFK.

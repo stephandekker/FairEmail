@@ -1,0 +1,21 @@
+All 15 user story files have been written to `/home/stephan/src/FairEmail/docs/user-stories/1.6-authentication-methods/`. Here's a summary of the breakdown:
+
+| # | Story | Blocked by |
+|---|-------|-----------|
+| 1 | Password-Based Mechanism Negotiation | (none — foundational) |
+| 2 | OAuth Provider Registry | (none) |
+| 3 | OAuth Browser Authorization Flow | 2 |
+| 4 | OAuth Automatic Token Refresh | 3 |
+| 5 | OAuth Revocation & Re-Authorization | 4 |
+| 6 | Switch Between OAuth and Password Auth | 3 |
+| 7 | Client Certificate Authentication (EXTERNAL) | 1 |
+| 8 | Clear Client Certificate Selection | 7 |
+| 9 | NTLM Domain Authentication | 1 |
+| 10 | APOP Support (POP3 Only) | 1 |
+| 11 | Global Mechanism Toggles | 1 |
+| 12 | Insecure Connection Protection | 1 |
+| 13 | Authentication Error Reporting | 1, 11 |
+| 14 | Credential Isolation in Diagnostic Logs | 1 |
+| 15 | Provider-Specific Authentication Handling | 1, 3 |
+
+The ordering reflects dependencies: the foundational mechanism negotiation (1) and OAuth registry (2) come first, the OAuth chain builds sequentially (3→4→5), and independent features (7-12) can be parallelized after story 1 is complete. Stories flagged HITL: 2 (provider list decisions), 7 (certificate UX), 9 (NTLM untested), 13 (error copy), 15 (provider quirk research).
