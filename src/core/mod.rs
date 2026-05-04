@@ -6,6 +6,7 @@ pub mod delete_account;
 pub(crate) mod detection_progress;
 pub mod duplicate_account;
 pub mod export_accounts;
+pub mod imap_check;
 pub mod import_accounts;
 pub mod navigation;
 pub mod primary;
@@ -35,6 +36,10 @@ pub use duplicate_account::duplicate as duplicate_account;
 pub use export_accounts::{
     export_accounts, EncryptedEnvelope, ExportCategory, ExportEnvelope, ExportError, ExportOptions,
     ExportedAccount,
+};
+pub use imap_check::{
+    build_imap_success, detect_folder_role, resolve_username_candidates, ImapCheckError,
+    ImapCheckResult, ImapCheckSuccess, ImapConnectionParams, ImapFolder, UsernameCandidate,
 };
 pub use import_accounts::{
     import_accounts, parse_import_data, AccountImportOutcome, DuplicateStrategy, ImportError,

@@ -1,6 +1,7 @@
 pub mod account_store;
 pub mod connection_tester;
 pub mod export_service;
+pub mod imap_checker;
 pub mod import_service;
 pub mod network;
 pub mod notification_channel;
@@ -10,6 +11,7 @@ pub mod settings_store;
 pub use account_store::AccountStore;
 pub use connection_tester::{ConnectionTester, MockConnectionTester};
 pub use export_service::{export_to_file, ExportResult, ExportServiceError};
+pub use imap_checker::{ImapChecker, MockImapChecker};
 pub use import_service::{
     import_from_file, is_file_encrypted, read_import_file, ImportServiceError,
 };
