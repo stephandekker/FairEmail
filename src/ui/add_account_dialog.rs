@@ -47,7 +47,9 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
     let name_row = adw::EntryRow::builder()
         .title(gettextrs::gettext("Account name"))
         .build();
-    name_row.set_tooltip_text(Some(&gettextrs::gettext("A friendly name for this account")));
+    name_row.set_tooltip_text(Some(&gettextrs::gettext(
+        "A friendly name for this account",
+    )));
     name_group.add(&name_row);
     vbox.append(&name_group);
 

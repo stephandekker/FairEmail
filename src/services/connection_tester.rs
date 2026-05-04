@@ -13,7 +13,8 @@ pub trait ConnectionTester {
 
 /// Mock implementation that simulates connection testing.
 /// Always succeeds for well-formed requests (validates params only).
-/// Returns failure for hosts containing "invalid" or "unreachable" (useful for testing UI).
+/// Returns failure for hosts containing "unreachable", "authfail", or "certfail".
+/// Returns `Offline` error for hosts containing "offline" (simulates device-offline).
 pub struct MockConnectionTester;
 
 impl ConnectionTester for MockConnectionTester {
@@ -22,6 +23,16 @@ impl ConnectionTester for MockConnectionTester {
         request: &ConnectionTestRequest,
     ) -> Result<ConnectionTestResult, ConnectionTestError> {
         request.validate()?;
+
+        // Check for simulated offline state before attempting connections.
+        if request.incoming.host.to_lowercase().contains("offline") {
+            return Err(ConnectionTestError::Offline);
+        }
+        if let Some(ref outgoing) = request.outgoing {
+            if outgoing.host.to_lowercase().contains("offline") {
+                return Err(ConnectionTestError::Offline);
+            }
+        }
 
         let incoming = test_server_mock(&request.incoming.host);
         let outgoing = request.outgoing.as_ref().map(|o| test_server_mock(&o.host));
@@ -167,6 +178,44 @@ mod tests {
         assert!(matches!(
             tester.test_connection(&req),
             Err(ConnectionTestError::EmptyHost)
+        ));
+    }
+
+    #[test]
+    fn mock_returns_offline_for_incoming_offline_host() {
+        let tester = MockConnectionTester;
+        let mut incoming = valid_incoming();
+        incoming.host = "offline.example.com".into();
+        let req = ConnectionTestRequest {
+            incoming,
+            incoming_protocol: Protocol::Imap,
+            outgoing: None,
+        };
+        assert!(matches!(
+            tester.test_connection(&req),
+            Err(ConnectionTestError::Offline)
+        ));
+    }
+
+    #[test]
+    fn mock_returns_offline_for_outgoing_offline_host() {
+        let tester = MockConnectionTester;
+        let smtp = ServerConnectionParams {
+            host: "offline.smtp.example.com".into(),
+            port: 587,
+            encryption: EncryptionMode::StartTls,
+            auth_method: AuthMethod::Plain,
+            username: "user@example.com".into(),
+            credential: "secret".into(),
+        };
+        let req = ConnectionTestRequest {
+            incoming: valid_incoming(),
+            incoming_protocol: Protocol::Pop3,
+            outgoing: Some(smtp),
+        };
+        assert!(matches!(
+            tester.test_connection(&req),
+            Err(ConnectionTestError::Offline)
         ));
     }
 
