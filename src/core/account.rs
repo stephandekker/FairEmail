@@ -116,6 +116,8 @@ pub struct NewAccountParams {
     pub color: Option<AccountColor>,
     /// Optional avatar image path (FR-5, FR-13).
     pub avatar_path: Option<String>,
+    /// Optional category label for organizing accounts (FR-17, US-17).
+    pub category: Option<String>,
     /// Whether synchronization is enabled for this account (FR-25, US-24).
     pub sync_enabled: bool,
     /// Whether this account syncs only on explicit user request (FR-6, US-27, AC-12).
@@ -149,6 +151,8 @@ pub struct UpdateAccountParams {
     pub color: Option<AccountColor>,
     /// Optional avatar image path (FR-5, FR-13).
     pub avatar_path: Option<String>,
+    /// Optional category label for organizing accounts (FR-17, US-17).
+    pub category: Option<String>,
     /// Whether synchronization is enabled for this account (FR-25, US-24).
     pub sync_enabled: bool,
     /// Whether this account syncs only on explicit user request (FR-6, US-27, AC-12).
@@ -188,6 +192,9 @@ pub struct Account {
     /// Optional avatar image path (FR-5, FR-13).
     #[serde(default)]
     avatar_path: Option<String>,
+    /// Optional category label for organizing accounts (FR-17, US-17).
+    #[serde(default)]
+    category: Option<String>,
     /// Whether synchronization is enabled (FR-25, US-24). Defaults to true.
     #[serde(default = "default_true")]
     sync_enabled: bool,
@@ -280,6 +287,21 @@ impl Protocol {
     }
 }
 
+/// Collect the distinct set of category labels currently in use across accounts (FR-22, FR-23).
+/// Categories are case-sensitive (N-4). Empty/whitespace-only labels are ignored.
+pub fn collect_categories(accounts: &[Account]) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    for acct in accounts {
+        if let Some(cat) = &acct.category {
+            let trimmed = cat.trim();
+            if !trimmed.is_empty() {
+                seen.insert(trimmed.to_string());
+            }
+        }
+    }
+    seen.into_iter().collect()
+}
+
 /// Errors that can occur when building an account.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum AccountValidationError {
@@ -324,6 +346,7 @@ impl Account {
             pop3_settings: params.pop3_settings,
             color: params.color,
             avatar_path: params.avatar_path,
+            category: params.category,
             sync_enabled: params.sync_enabled,
             on_demand: params.on_demand,
             polling_interval_minutes: params.polling_interval_minutes,
@@ -385,6 +408,11 @@ impl Account {
 
     pub fn avatar_path(&self) -> Option<&str> {
         self.avatar_path.as_deref()
+    }
+
+    /// Optional category label for organizing accounts (FR-17, US-17).
+    pub fn category(&self) -> Option<&str> {
+        self.category.as_deref()
     }
 
     pub fn sync_enabled(&self) -> bool {
@@ -496,6 +524,7 @@ impl Account {
         self.pop3_settings = params.pop3_settings;
         self.color = params.color;
         self.avatar_path = params.avatar_path;
+        self.category = params.category;
         self.set_sync_enabled(params.sync_enabled);
         self.on_demand = params.on_demand;
         self.polling_interval_minutes = params.polling_interval_minutes;
@@ -553,6 +582,7 @@ mod tests {
             pop3_settings: None,
             color: None,
             avatar_path: None,
+            category: None,
             sync_enabled: true,
             on_demand: false,
             polling_interval_minutes: None,
@@ -649,6 +679,7 @@ mod tests {
             pop3_settings: None,
             color: None,
             avatar_path: None,
+            category: None,
             sync_enabled: true,
             on_demand: false,
             polling_interval_minutes: None,
@@ -873,6 +904,7 @@ mod tests {
             }),
             color: None,
             avatar_path: None,
+            category: None,
             sync_enabled: true,
             on_demand: false,
             polling_interval_minutes: None,
@@ -1410,5 +1442,161 @@ mod tests {
         assert!(acct.vpn_only());
         assert!(acct.schedule_exempt());
         assert!(!acct.sync_enabled());
+    }
+
+    // -- Category label tests (FR-17, US-17, FR-22, FR-23, N-4) --
+
+    #[test]
+    fn category_defaults_to_none() {
+        let acct = valid_account();
+        assert!(acct.category().is_none());
+    }
+
+    #[test]
+    fn category_can_be_set_on_creation() {
+        let mut p = valid_params();
+        p.category = Some("Work".into());
+        let acct = Account::new(p).unwrap();
+        assert_eq!(acct.category(), Some("Work"));
+    }
+
+    #[test]
+    fn category_can_be_changed_via_update() {
+        let mut acct = valid_account();
+        assert!(acct.category().is_none());
+        let mut up = valid_update_params();
+        up.category = Some("Personal".into());
+        acct.update(up).unwrap();
+        assert_eq!(acct.category(), Some("Personal"));
+    }
+
+    #[test]
+    fn category_can_be_cleared_via_update() {
+        let mut p = valid_params();
+        p.category = Some("Work".into());
+        let mut acct = Account::new(p).unwrap();
+        assert!(acct.category().is_some());
+        let mut up = valid_update_params();
+        up.category = None;
+        acct.update(up).unwrap();
+        assert!(acct.category().is_none());
+    }
+
+    #[test]
+    fn category_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.category = Some("Finance".into());
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(acct.category(), restored.category());
+    }
+
+    #[test]
+    fn deserialize_account_without_category_defaults_to_none() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("category");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.category().is_none());
+    }
+
+    #[test]
+    fn category_is_case_sensitive() {
+        let mut p1 = valid_params();
+        p1.category = Some("Work".into());
+        let a1 = Account::new(p1).unwrap();
+
+        let mut p2 = valid_params();
+        p2.category = Some("work".into());
+        let a2 = Account::new(p2).unwrap();
+
+        assert_ne!(a1.category(), a2.category());
+    }
+
+    // -- collect_categories tests (FR-22, FR-23) --
+
+    #[test]
+    fn collect_categories_empty_when_no_accounts() {
+        assert!(collect_categories(&[]).is_empty());
+    }
+
+    #[test]
+    fn collect_categories_empty_when_no_categories_set() {
+        let accounts = vec![valid_account(), valid_account()];
+        assert!(collect_categories(&accounts).is_empty());
+    }
+
+    #[test]
+    fn collect_categories_returns_distinct_sorted() {
+        let mut p1 = valid_params();
+        p1.category = Some("Work".into());
+        let a1 = Account::new(p1).unwrap();
+
+        let mut p2 = valid_params();
+        p2.category = Some("Personal".into());
+        let a2 = Account::new(p2).unwrap();
+
+        let mut p3 = valid_params();
+        p3.category = Some("Work".into());
+        let a3 = Account::new(p3).unwrap();
+
+        let cats = collect_categories(&[a1, a2, a3]);
+        assert_eq!(cats, vec!["Personal", "Work"]);
+    }
+
+    #[test]
+    fn collect_categories_is_case_sensitive() {
+        let mut p1 = valid_params();
+        p1.category = Some("Work".into());
+        let a1 = Account::new(p1).unwrap();
+
+        let mut p2 = valid_params();
+        p2.category = Some("work".into());
+        let a2 = Account::new(p2).unwrap();
+
+        let cats = collect_categories(&[a1, a2]);
+        assert_eq!(cats, vec!["Work", "work"]);
+    }
+
+    #[test]
+    fn collect_categories_ignores_empty_and_whitespace() {
+        let mut p1 = valid_params();
+        p1.category = Some("".into());
+        let a1 = Account::new(p1).unwrap();
+
+        let mut p2 = valid_params();
+        p2.category = Some("   ".into());
+        let a2 = Account::new(p2).unwrap();
+
+        let mut p3 = valid_params();
+        p3.category = Some("Work".into());
+        let a3 = Account::new(p3).unwrap();
+
+        let cats = collect_categories(&[a1, a2, a3]);
+        assert_eq!(cats, vec!["Work"]);
+    }
+
+    #[test]
+    fn collect_categories_implicitly_deleted_when_no_account_has_it() {
+        let mut p1 = valid_params();
+        p1.category = Some("Work".into());
+        let mut a1 = Account::new(p1).unwrap();
+
+        let mut p2 = valid_params();
+        p2.category = Some("Personal".into());
+        let a2 = Account::new(p2).unwrap();
+
+        // Both categories exist.
+        let cats = collect_categories(&[a1.clone(), a2.clone()]);
+        assert_eq!(cats.len(), 2);
+
+        // Remove "Work" from the only account that had it.
+        let mut up = valid_update_params();
+        up.category = None;
+        a1.update(up).unwrap();
+
+        let cats = collect_categories(&[a1, a2]);
+        assert_eq!(cats, vec!["Personal"]);
     }
 }

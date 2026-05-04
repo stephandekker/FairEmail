@@ -96,6 +96,7 @@ mod tests {
             pop3_settings: None,
             color: None,
             avatar_path: None,
+            category: None,
             sync_enabled: true,
             on_demand: false,
             polling_interval_minutes: None,

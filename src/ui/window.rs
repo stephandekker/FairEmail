@@ -7,7 +7,7 @@ use libadwaita::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::core::{self, Account};
+use crate::core::{self, collect_categories, Account};
 use crate::services::AccountStore;
 use crate::ui::add_account_dialog;
 use crate::ui::edit_account_dialog;
@@ -145,7 +145,8 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
             let store = store.clone();
             let accounts = accounts.clone();
             let account_list = account_list.clone();
-            add_account_dialog::show(&window, move |result| {
+            let categories = collect_categories(&accounts.borrow());
+            add_account_dialog::show(&window, categories, move |result| {
                 if let Some(account) = result {
                     if let Err(e) = store.add(account.clone()) {
                         eprintln!("Failed to persist account: {e}");
@@ -195,7 +196,8 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
             let store = store.clone();
             let accounts = accounts.clone();
             let account_list = account_list.clone();
-            edit_account_dialog::show(&window, account, move |result| {
+            let categories = collect_categories(&accounts.borrow());
+            edit_account_dialog::show(&window, account, categories, move |result| {
                 if let Some(updated) = result {
                     if let Err(e) = store.update(updated.clone()) {
                         eprintln!("Failed to persist account update: {e}");

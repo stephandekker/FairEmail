@@ -19,9 +19,11 @@ pub(crate) type EditDialogResult = Option<Account>;
 
 /// Build and show the "Edit Account" dialog pre-populated with the given account's values.
 /// Calls `on_done` with the updated account on save, or `None` on cancel/close.
+/// `existing_categories` provides autocomplete suggestions for the category field (FR-23).
 pub(crate) fn show(
     parent: &adw::ApplicationWindow,
     account: Account,
+    existing_categories: Vec<String>,
     on_done: impl Fn(EditDialogResult) + 'static,
 ) {
     let dialog = adw::Dialog::builder()
@@ -302,6 +304,75 @@ pub(crate) fn show(
     avatar_row.add_suffix(&clear_avatar_btn);
     avatar_group.add(&avatar_row);
     vbox.append(&avatar_group);
+
+    // -- Category label (FR-17, FR-22, FR-23, US-17, US-18) --
+    let category_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Category"))
+        .build();
+    let category_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Category label"))
+        .build();
+    category_row.set_tooltip_text(Some(&gettextrs::gettext(
+        "Optional label to organize accounts (e.g. Work, Personal)",
+    )));
+    if let Some(cat) = account.category() {
+        category_row.set_text(cat);
+    }
+    category_group.add(&category_row);
+
+    // Autocomplete suggestions from existing categories (FR-23).
+    if !existing_categories.is_empty() {
+        let suggestions_box = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .css_classes(["boxed-list"])
+            .build();
+        for cat in &existing_categories {
+            let suggestion = adw::ActionRow::builder()
+                .title(cat)
+                .activatable(true)
+                .build();
+            suggestions_box.append(&suggestion);
+        }
+        suggestions_box.set_visible(false);
+
+        category_row.connect_changed(clone!(
+            #[weak]
+            suggestions_box,
+            #[strong]
+            existing_categories,
+            move |row| {
+                let text = row.text().to_string();
+                let mut any_visible = false;
+                for (idx, cat) in existing_categories.iter().enumerate() {
+                    if let Some(child) = suggestions_box.row_at_index(idx as i32) {
+                        let visible = text.is_empty() || cat.contains(&text);
+                        child.set_visible(visible);
+                        if visible {
+                            any_visible = true;
+                        }
+                    }
+                }
+                suggestions_box.set_visible(any_visible);
+            }
+        ));
+
+        suggestions_box.connect_row_activated(clone!(
+            #[weak]
+            category_row,
+            #[weak]
+            suggestions_box,
+            move |_, row| {
+                if let Some(action_row) = row.downcast_ref::<adw::ActionRow>() {
+                    category_row.set_text(&action_row.title());
+                    suggestions_box.set_visible(false);
+                }
+            }
+        ));
+
+        category_group.add(&suggestions_box);
+    }
+
+    vbox.append(&category_group);
 
     // -- Incoming server settings --
     let server_group = adw::PreferencesGroup::builder()
@@ -645,6 +716,8 @@ pub(crate) fn show(
         #[weak]
         name_row,
         #[weak]
+        category_row,
+        #[weak]
         host_row,
         #[weak]
         port_row,
@@ -743,6 +816,16 @@ pub(crate) fn show(
 
             let avatar = avatar_path.borrow().clone();
 
+            let category = {
+                let text = category_row.text().to_string();
+                let trimmed = text.trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            };
+
             let params = UpdateAccountParams {
                 display_name: name_row.text().to_string(),
                 protocol,
@@ -756,6 +839,7 @@ pub(crate) fn show(
                 pop3_settings,
                 color,
                 avatar_path: avatar,
+                category,
                 sync_enabled: sync_row.is_active(),
                 on_demand: on_demand_row.is_active(),
                 polling_interval_minutes: {

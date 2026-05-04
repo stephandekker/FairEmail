@@ -4,8 +4,9 @@ pub mod primary;
 pub mod sync_conditions;
 
 pub use account::{
-    resolve_color, Account, AccountColor, AccountValidationError, AuthMethod, EncryptionMode,
-    Folder, NewAccountParams, Pop3Settings, Protocol, SmtpConfig, UpdateAccountParams,
+    collect_categories, resolve_color, Account, AccountColor, AccountValidationError, AuthMethod,
+    EncryptionMode, Folder, NewAccountParams, Pop3Settings, Protocol, SmtpConfig,
+    UpdateAccountParams,
 };
 pub use connection_test::{
     ConnectionTestError, ConnectionTestRequest, ConnectionTestResult, ServerTestOutcome,
