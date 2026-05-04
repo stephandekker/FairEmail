@@ -8,6 +8,8 @@ pub mod export_accounts;
 pub mod import_accounts;
 pub mod navigation;
 pub mod primary;
+pub mod provider;
+pub(crate) mod provider_data;
 pub mod sync_conditions;
 pub mod wizard_validation;
 
@@ -38,6 +40,10 @@ pub use import_accounts::{
 pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
 pub use primary::{
     auto_designate_on_add, revoke_if_sync_disabled, set_primary, PrimaryDesignationError,
+};
+pub use provider::{
+    LocalizedDoc, MatchScore, MaxTlsVersion, OAuthConfig, Provider, ProviderCandidate,
+    ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
 };
 pub use sync_conditions::{
     evaluate as evaluate_sync_conditions, EnvironmentStatus, SyncEligibility, SyncPauseReason,
