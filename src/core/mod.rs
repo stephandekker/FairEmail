@@ -5,6 +5,7 @@ pub mod certificate;
 pub mod connection_state;
 pub mod connection_test;
 pub mod delete_account;
+pub(crate) mod detection_failure;
 pub(crate) mod detection_progress;
 pub mod duplicate_account;
 pub mod export_accounts;

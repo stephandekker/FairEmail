@@ -85,9 +85,7 @@ fn email_domain(email: &str) -> Option<&str> {
 
 /// Build provider hint from a provider entry and email address.
 pub fn build_provider_hint(provider: &Provider, email: &str) -> ProviderHint {
-    let is_outlook = email_domain(email)
-        .map(is_outlook_domain)
-        .unwrap_or(false);
+    let is_outlook = email_domain(email).map(is_outlook_domain).unwrap_or(false);
 
     let outlook_guidance = if is_outlook {
         Some(

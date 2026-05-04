@@ -5,6 +5,7 @@ use libadwaita::prelude::*;
 
 use glib::clone;
 
+use crate::core::detection_failure::build_detection_failure_fallback;
 use crate::core::detection_progress::{detection_sequence, DetectionStep};
 use crate::core::privacy;
 use crate::core::proprietary_provider::check_proprietary_provider;
@@ -258,6 +259,47 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
 
     vbox.append(&progress_box);
 
+    // -- Detection failure fallback (FR-23, FR-24, FR-25, US-18) --
+    let fallback_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .halign(gtk::Align::Center)
+        .margin_top(12)
+        .visible(false)
+        .build();
+
+    let fallback_data = build_detection_failure_fallback();
+
+    let fallback_label = gtk::Label::builder()
+        .label(gettextrs::gettext(&fallback_data.user_message))
+        .wrap(true)
+        .halign(gtk::Align::Center)
+        .css_classes(["body"])
+        .build();
+    fallback_box.append(&fallback_label);
+
+    let fallback_manual_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Set up manually"))
+        .css_classes(["suggested-action", "pill"])
+        .halign(gtk::Align::Center)
+        .build();
+    fallback_manual_btn.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Switch to manual server configuration",
+    ))]);
+    fallback_box.append(&fallback_manual_btn);
+
+    let fallback_support_link = gtk::LinkButton::builder()
+        .label(gettextrs::gettext("Help & FAQ"))
+        .uri(&fallback_data.support_url)
+        .halign(gtk::Align::Center)
+        .build();
+    fallback_support_link.update_property(&[gtk::accessible::Property::Label(
+        &gettextrs::gettext("Open general support and frequently asked questions"),
+    )]);
+    fallback_box.append(&fallback_support_link);
+
+    vbox.append(&fallback_box);
+
     clamp.set_child(Some(&vbox));
     scrolled.set_child(Some(&clamp));
     toast_overlay.set_child(Some(&scrolled));
@@ -369,6 +411,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                 steps,
                 progress_label.clone(),
                 progress_box.clone(),
+                fallback_box.clone(),
                 check_btn.clone(),
                 manual_btn.clone(),
                 dialog.clone(),
@@ -409,6 +452,33 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         }
     ));
 
+    // -- Fallback manual setup button handler (FR-23, FR-36, US-18) --
+    // Carries over entered data from the wizard to manual setup.
+    fallback_manual_btn.connect_clicked(clone!(
+        #[weak]
+        name_row,
+        #[weak]
+        email_row,
+        #[weak]
+        password_row,
+        #[weak]
+        dialog,
+        #[strong]
+        on_done,
+        move |_| {
+            let display_name = name_row.text().trim().to_string();
+            let email = email_row.text().trim().to_string();
+            let password = password_row.text().to_string();
+
+            on_done(Some(WizardAction::ManualSetup(WizardData {
+                display_name,
+                email,
+                password,
+            })));
+            dialog.close();
+        }
+    ));
+
     dialog.connect_closed(move |_| {
         let _ = &on_done_close;
     });
@@ -421,16 +491,21 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
 /// Steps through each detection phase with a short delay so the user can
 /// see real-time updates. The UI thread is never blocked because we use
 /// `glib::timeout_future` which yields back to the main loop.
+///
+/// When detection completes without finding a provider, the fallback box
+/// is shown with a non-technical message and a path to manual setup
+/// (FR-23, FR-24, FR-25, US-18).
 #[allow(clippy::too_many_arguments)]
 fn run_detection_progress(
     steps: Vec<DetectionStep>,
     progress_label: gtk::Label,
     progress_box: gtk::Box,
+    fallback_box: gtk::Box,
     check_btn: gtk::Button,
     manual_btn: gtk::Button,
-    dialog: adw::Dialog,
-    on_done: std::rc::Rc<dyn Fn(WizardResult)>,
-    data: WizardData,
+    _dialog: adw::Dialog,
+    _on_done: std::rc::Rc<dyn Fn(WizardResult)>,
+    _data: WizardData,
 ) {
     glib::MainContext::default().spawn_local(async move {
         for step in &steps {
@@ -445,13 +520,15 @@ fn run_detection_progress(
             glib::timeout_future(std::time::Duration::from_millis(400)).await;
         }
 
-        // Detection complete — hide progress and return result.
+        // Detection complete — hide progress and re-enable buttons.
         progress_box.set_visible(false);
         check_btn.set_sensitive(true);
         manual_btn.set_sensitive(true);
 
-        on_done(Some(WizardAction::Check(data)));
-        dialog.close();
+        // No real detection pipeline yet — show the failure fallback (FR-23).
+        // Future slices will check a DetectionOutcome and only show
+        // the fallback when no provider was found.
+        fallback_box.set_visible(true);
     });
 }
 
