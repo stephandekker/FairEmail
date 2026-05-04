@@ -14,6 +14,7 @@ pub(crate) mod privacy;
 pub mod proprietary_provider;
 pub mod provider;
 pub(crate) mod provider_data;
+pub mod smtp_check;
 pub mod sync_conditions;
 pub mod wizard_validation;
 
@@ -52,6 +53,10 @@ pub use primary::{
 pub use provider::{
     LocalizedDoc, MatchScore, MaxTlsVersion, OAuthConfig, Provider, ProviderCandidate,
     ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
+};
+pub use smtp_check::{
+    combine_connectivity_results, ConnectivityCheckError, ConnectivityCheckResult, SmtpCheckError,
+    SmtpCheckResult, SmtpCheckSuccess, SmtpConnectionParams,
 };
 pub use sync_conditions::{
     evaluate as evaluate_sync_conditions, EnvironmentStatus, SyncEligibility, SyncPauseReason,
