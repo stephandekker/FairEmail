@@ -28,6 +28,48 @@ pub enum AuthMethod {
     OAuth2,
 }
 
+/// Actions that can be assigned to swipe-left or swipe-right gestures (FR-37).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SwipeAction {
+    /// No action configured.
+    #[default]
+    None,
+    /// Archive the message.
+    Archive,
+    /// Delete / move to trash.
+    Delete,
+    /// Mark the message as read.
+    MarkRead,
+    /// Mark the message as unread.
+    MarkUnread,
+    /// Move to a specific folder (folder name stored in the variant).
+    MoveToFolder(String),
+}
+
+impl std::fmt::Display for SwipeAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "None"),
+            Self::Archive => write!(f, "Archive"),
+            Self::Delete => write!(f, "Delete"),
+            Self::MarkRead => write!(f, "Mark as read"),
+            Self::MarkUnread => write!(f, "Mark as unread"),
+            Self::MoveToFolder(name) => write!(f, "Move to {name}"),
+        }
+    }
+}
+
+/// Per-account swipe and move defaults (FR-37, FR-38, US-37).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwipeDefaults {
+    /// Action for swipe-left gesture (FR-37).
+    pub swipe_left: SwipeAction,
+    /// Action for swipe-right gesture (FR-37).
+    pub swipe_right: SwipeAction,
+    /// Default "move-to" target folder name (FR-38).
+    pub default_move_to: Option<String>,
+}
+
 /// System folder roles that can be assigned to server folders (FR-35, US-36).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FolderRole {
@@ -231,6 +273,8 @@ pub struct NewAccountParams {
     /// IMAP system folder designations (FR-35, FR-36, US-36).
     /// Should be `None` for POP3 accounts.
     pub system_folders: Option<SystemFolders>,
+    /// Per-account swipe and move defaults (FR-37, FR-38, US-37).
+    pub swipe_defaults: Option<SwipeDefaults>,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -269,6 +313,8 @@ pub struct UpdateAccountParams {
     /// IMAP system folder designations (FR-35, FR-36, US-36).
     /// Should be `None` for POP3 accounts.
     pub system_folders: Option<SystemFolders>,
+    /// Per-account swipe and move defaults (FR-37, FR-38, US-37).
+    pub swipe_defaults: Option<SwipeDefaults>,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -328,6 +374,9 @@ pub struct Account {
     /// `None` for POP3 accounts or when not yet configured.
     #[serde(default)]
     system_folders: Option<SystemFolders>,
+    /// Per-account swipe and move defaults (FR-37, FR-38, US-37).
+    #[serde(default)]
+    swipe_defaults: Option<SwipeDefaults>,
 }
 
 /// A local folder associated with an account.
@@ -463,6 +512,7 @@ impl Account {
             is_primary: false,
             error_state: None,
             system_folders: params.system_folders,
+            swipe_defaults: params.swipe_defaults,
         })
     }
 
@@ -614,6 +664,16 @@ impl Account {
         self.system_folders = folders;
     }
 
+    /// Per-account swipe and move defaults (FR-37, FR-38, US-37).
+    pub fn swipe_defaults(&self) -> Option<&SwipeDefaults> {
+        self.swipe_defaults.as_ref()
+    }
+
+    /// Set or clear the swipe and move defaults (FR-37, FR-38, US-37).
+    pub fn set_swipe_defaults(&mut self, defaults: Option<SwipeDefaults>) {
+        self.swipe_defaults = defaults;
+    }
+
     /// Update all mutable fields on this account, preserving the unique identifier.
     /// Validates the new values the same way `new()` does.
     pub fn update(&mut self, params: UpdateAccountParams) -> Result<(), AccountValidationError> {
@@ -650,6 +710,7 @@ impl Account {
         self.vpn_only = params.vpn_only;
         self.schedule_exempt = params.schedule_exempt;
         self.system_folders = params.system_folders;
+        self.swipe_defaults = params.swipe_defaults;
         Ok(())
     }
 }
@@ -709,6 +770,7 @@ mod tests {
             vpn_only: false,
             schedule_exempt: false,
             system_folders: None,
+            swipe_defaults: None,
         }
     }
 
@@ -807,6 +869,7 @@ mod tests {
             vpn_only: false,
             schedule_exempt: false,
             system_folders: None,
+            swipe_defaults: None,
         }
     }
 
@@ -1033,6 +1096,7 @@ mod tests {
             vpn_only: false,
             schedule_exempt: false,
             system_folders: None,
+            swipe_defaults: None,
         };
         acct.update(up).unwrap();
         assert_eq!(acct.id(), original_id);
@@ -1915,5 +1979,129 @@ mod tests {
         p.system_folders = None;
         let acct = Account::new(p).unwrap();
         assert!(acct.system_folders().is_none());
+    }
+
+    // -- Swipe and move defaults tests (FR-37, FR-38, US-37) --
+
+    #[test]
+    fn swipe_defaults_none_by_default() {
+        let acct = valid_account();
+        assert!(acct.swipe_defaults().is_none());
+    }
+
+    #[test]
+    fn swipe_defaults_can_be_set_on_creation() {
+        let mut p = valid_params();
+        p.swipe_defaults = Some(SwipeDefaults {
+            swipe_left: SwipeAction::Delete,
+            swipe_right: SwipeAction::Archive,
+            default_move_to: Some("Archive".into()),
+        });
+        let acct = Account::new(p).unwrap();
+        let sd = acct.swipe_defaults().unwrap();
+        assert_eq!(sd.swipe_left, SwipeAction::Delete);
+        assert_eq!(sd.swipe_right, SwipeAction::Archive);
+        assert_eq!(sd.default_move_to.as_deref(), Some("Archive"));
+    }
+
+    #[test]
+    fn swipe_defaults_can_be_changed_via_update() {
+        let mut acct = valid_account();
+        assert!(acct.swipe_defaults().is_none());
+        let mut up = valid_update_params();
+        up.swipe_defaults = Some(SwipeDefaults {
+            swipe_left: SwipeAction::MarkRead,
+            swipe_right: SwipeAction::MoveToFolder("Important".into()),
+            default_move_to: Some("Reviewed".into()),
+        });
+        acct.update(up).unwrap();
+        let sd = acct.swipe_defaults().unwrap();
+        assert_eq!(sd.swipe_left, SwipeAction::MarkRead);
+        assert_eq!(
+            sd.swipe_right,
+            SwipeAction::MoveToFolder("Important".into())
+        );
+        assert_eq!(sd.default_move_to.as_deref(), Some("Reviewed"));
+    }
+
+    #[test]
+    fn swipe_defaults_can_be_cleared_via_update() {
+        let mut p = valid_params();
+        p.swipe_defaults = Some(SwipeDefaults {
+            swipe_left: SwipeAction::Delete,
+            swipe_right: SwipeAction::Archive,
+            default_move_to: None,
+        });
+        let mut acct = Account::new(p).unwrap();
+        assert!(acct.swipe_defaults().is_some());
+        let mut up = valid_update_params();
+        up.swipe_defaults = None;
+        acct.update(up).unwrap();
+        assert!(acct.swipe_defaults().is_none());
+    }
+
+    #[test]
+    fn swipe_defaults_set_via_setter() {
+        let mut acct = valid_account();
+        acct.set_swipe_defaults(Some(SwipeDefaults {
+            swipe_left: SwipeAction::MarkUnread,
+            swipe_right: SwipeAction::None,
+            default_move_to: Some("Inbox".into()),
+        }));
+        let sd = acct.swipe_defaults().unwrap();
+        assert_eq!(sd.swipe_left, SwipeAction::MarkUnread);
+        assert_eq!(sd.swipe_right, SwipeAction::None);
+        assert_eq!(sd.default_move_to.as_deref(), Some("Inbox"));
+        acct.set_swipe_defaults(None);
+        assert!(acct.swipe_defaults().is_none());
+    }
+
+    #[test]
+    fn swipe_defaults_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.swipe_defaults = Some(SwipeDefaults {
+            swipe_left: SwipeAction::Delete,
+            swipe_right: SwipeAction::MoveToFolder("Spam".into()),
+            default_move_to: Some("Archive".into()),
+        });
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(acct.swipe_defaults(), restored.swipe_defaults());
+    }
+
+    #[test]
+    fn deserialize_account_without_swipe_defaults_defaults_to_none() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("swipe_defaults");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.swipe_defaults().is_none());
+    }
+
+    #[test]
+    fn swipe_action_default_is_none() {
+        assert_eq!(SwipeAction::default(), SwipeAction::None);
+    }
+
+    #[test]
+    fn swipe_action_display() {
+        assert_eq!(SwipeAction::None.to_string(), "None");
+        assert_eq!(SwipeAction::Archive.to_string(), "Archive");
+        assert_eq!(SwipeAction::Delete.to_string(), "Delete");
+        assert_eq!(SwipeAction::MarkRead.to_string(), "Mark as read");
+        assert_eq!(SwipeAction::MarkUnread.to_string(), "Mark as unread");
+        assert_eq!(
+            SwipeAction::MoveToFolder("Spam".into()).to_string(),
+            "Move to Spam"
+        );
+    }
+
+    #[test]
+    fn swipe_defaults_default_values() {
+        let sd = SwipeDefaults::default();
+        assert_eq!(sd.swipe_left, SwipeAction::None);
+        assert_eq!(sd.swipe_right, SwipeAction::None);
+        assert!(sd.default_move_to.is_none());
     }
 }

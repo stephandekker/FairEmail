@@ -110,6 +110,7 @@ mod tests {
             vpn_only: false,
             schedule_exempt: false,
             system_folders: None,
+            swipe_defaults: None,
         })
         .unwrap()
     }
@@ -188,6 +189,7 @@ mod tests {
                 vpn_only: false,
                 schedule_exempt: false,
                 system_folders: None,
+                swipe_defaults: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();
@@ -244,6 +246,7 @@ mod tests {
                 vpn_only: false,
                 schedule_exempt: false,
                 system_folders: None,
+                swipe_defaults: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();

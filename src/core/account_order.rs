@@ -104,6 +104,7 @@ mod tests {
             vpn_only: false,
             schedule_exempt: false,
             system_folders: None,
+            swipe_defaults: None,
         })
         .unwrap();
         if primary {

@@ -10,7 +10,7 @@ use libadwaita::prelude::*;
 use crate::core::connection_test::{ConnectionTestRequest, ServerConnectionParams};
 use crate::core::{
     Account, AccountColor, AuthMethod, EncryptionMode, NewAccountParams, Pop3Settings, Protocol,
-    SmtpConfig, SystemFolders,
+    SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
 };
 use crate::services::connection_tester::{ConnectionTester, MockConnectionTester};
 
@@ -465,6 +465,66 @@ pub(crate) fn show(
         }
     ));
 
+    // -- Swipe and move defaults (FR-37, FR-38, US-37) --
+    let swipe_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Swipe & Move Defaults"))
+        .description(gettextrs::gettext(
+            "Configure default swipe actions and move-to folder",
+        ))
+        .build();
+
+    let swipe_left_row = adw::ComboRow::builder()
+        .title(gettextrs::gettext("Swipe left action"))
+        .model(&swipe_action_string_list())
+        .selected(0)
+        .build();
+    swipe_group.add(&swipe_left_row);
+
+    let swipe_left_folder_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Swipe left folder"))
+        .visible(false)
+        .build();
+    swipe_group.add(&swipe_left_folder_row);
+
+    swipe_left_row.connect_selected_notify(clone!(
+        #[weak]
+        swipe_left_folder_row,
+        move |row| {
+            swipe_left_folder_row.set_visible(row.selected() == 5);
+        }
+    ));
+
+    let swipe_right_row = adw::ComboRow::builder()
+        .title(gettextrs::gettext("Swipe right action"))
+        .model(&swipe_action_string_list())
+        .selected(0)
+        .build();
+    swipe_group.add(&swipe_right_row);
+
+    let swipe_right_folder_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Swipe right folder"))
+        .visible(false)
+        .build();
+    swipe_group.add(&swipe_right_folder_row);
+
+    swipe_right_row.connect_selected_notify(clone!(
+        #[weak]
+        swipe_right_folder_row,
+        move |row| {
+            swipe_right_folder_row.set_visible(row.selected() == 5);
+        }
+    ));
+
+    let default_move_to_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Default move-to folder"))
+        .build();
+    default_move_to_row.set_tooltip_text(Some(&gettextrs::gettext(
+        "Default destination folder for the move action",
+    )));
+    swipe_group.add(&default_move_to_row);
+
+    vbox.append(&swipe_group);
+
     // -- Outgoing (SMTP) server settings --
     let smtp_group = adw::PreferencesGroup::builder()
         .title(gettextrs::gettext("Outgoing Server (SMTP)"))
@@ -680,6 +740,16 @@ pub(crate) fn show(
         trash_folder_row,
         #[weak]
         junk_row,
+        #[weak]
+        swipe_left_row,
+        #[weak]
+        swipe_left_folder_row,
+        #[weak]
+        swipe_right_row,
+        #[weak]
+        swipe_right_folder_row,
+        #[weak]
+        default_move_to_row,
         #[strong]
         color_active,
         #[strong]
@@ -754,6 +824,21 @@ pub(crate) fn show(
                 }
             };
 
+            let swipe_defaults = {
+                let sl = combo_to_swipe_action(swipe_left_row.selected(), &swipe_left_folder_row);
+                let sr = combo_to_swipe_action(swipe_right_row.selected(), &swipe_right_folder_row);
+                let mt = non_empty_text(&default_move_to_row);
+                if sl == SwipeAction::None && sr == SwipeAction::None && mt.is_none() {
+                    None
+                } else {
+                    Some(SwipeDefaults {
+                        swipe_left: sl,
+                        swipe_right: sr,
+                        default_move_to: mt,
+                    })
+                }
+            };
+
             match Account::new(NewAccountParams {
                 display_name: name_row.text().to_string(),
                 protocol,
@@ -775,6 +860,7 @@ pub(crate) fn show(
                 vpn_only: false,
                 schedule_exempt: false,
                 system_folders,
+                swipe_defaults,
             }) {
                 Ok(account) => {
                     on_done(Some(account));
@@ -818,5 +904,37 @@ fn non_empty_text(row: &adw::EntryRow) -> Option<String> {
         None
     } else {
         Some(trimmed)
+    }
+}
+
+fn swipe_action_string_list() -> gtk::StringList {
+    let labels = [
+        gettextrs::gettext("None"),
+        gettextrs::gettext("Archive"),
+        gettextrs::gettext("Delete"),
+        gettextrs::gettext("Mark as read"),
+        gettextrs::gettext("Mark as unread"),
+        gettextrs::gettext("Move to folder…"),
+    ];
+    let refs: Vec<&str> = labels.iter().map(|s| s.as_str()).collect();
+    gtk::StringList::new(&refs)
+}
+
+fn combo_to_swipe_action(selected: u32, folder_row: &adw::EntryRow) -> SwipeAction {
+    match selected {
+        1 => SwipeAction::Archive,
+        2 => SwipeAction::Delete,
+        3 => SwipeAction::MarkRead,
+        4 => SwipeAction::MarkUnread,
+        5 => {
+            let text = folder_row.text().to_string();
+            let trimmed = text.trim().to_string();
+            if trimmed.is_empty() {
+                SwipeAction::None
+            } else {
+                SwipeAction::MoveToFolder(trimmed)
+            }
+        }
+        _ => SwipeAction::None,
     }
 }
