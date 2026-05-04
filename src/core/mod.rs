@@ -11,6 +11,7 @@ pub(crate) mod detection_failure;
 pub(crate) mod detection_progress;
 pub mod duplicate_account;
 pub mod export_accounts;
+pub mod folder_setup;
 pub mod imap_check;
 pub mod import_accounts;
 pub mod navigation;
@@ -52,6 +53,11 @@ pub use duplicate_account::duplicate as duplicate_account;
 pub use export_accounts::{
     export_accounts, EncryptedEnvelope, ExportCategory, ExportEnvelope, ExportError, ExportOptions,
     ExportedAccount,
+};
+pub use folder_setup::{
+    build_default_sync_configs, complete_system_folders, default_folder_name,
+    find_missing_system_folders, FolderSetupError, FolderSetupResult, FolderSyncConfig, PushMode,
+    SyncMode,
 };
 pub use imap_check::{
     build_imap_success, detect_folder_role, resolve_username_candidates, ImapCheckError,
