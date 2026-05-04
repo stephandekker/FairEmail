@@ -167,6 +167,60 @@ pub fn detect_system_folders(folder_attributes: &[(String, String)]) -> SystemFo
     result
 }
 
+/// Mailbox quota information as reported by the server (FR-42, FR-43, AC-17).
+/// Stores usage and limit in bytes. When the server does not report quota,
+/// the account's `quota` field is `None`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuotaInfo {
+    /// Storage currently used, in bytes.
+    pub used_bytes: u64,
+    /// Storage limit (quota cap), in bytes.
+    pub limit_bytes: u64,
+}
+
+/// The usage percentage at or above which a high-usage warning is shown (FR-43).
+pub const QUOTA_HIGH_THRESHOLD_PERCENT: f64 = 95.0;
+
+impl QuotaInfo {
+    /// Create a new `QuotaInfo`. `limit_bytes` must be > 0.
+    pub fn new(used_bytes: u64, limit_bytes: u64) -> Option<Self> {
+        if limit_bytes == 0 {
+            return None;
+        }
+        Some(Self {
+            used_bytes,
+            limit_bytes,
+        })
+    }
+
+    /// Returns usage as a percentage (0.0–100.0+).
+    pub fn usage_percent(&self) -> f64 {
+        (self.used_bytes as f64 / self.limit_bytes as f64) * 100.0
+    }
+
+    /// Returns `true` when usage is at or above the high threshold (FR-43).
+    pub fn is_high_usage(&self) -> bool {
+        self.usage_percent() >= QUOTA_HIGH_THRESHOLD_PERCENT
+    }
+
+    /// Format bytes as a human-readable string (e.g. "1.23 GB").
+    pub fn format_bytes(bytes: u64) -> String {
+        const KB: f64 = 1024.0;
+        const MB: f64 = KB * 1024.0;
+        const GB: f64 = MB * 1024.0;
+        let b = bytes as f64;
+        if b >= GB {
+            format!("{:.2} GB", b / GB)
+        } else if b >= MB {
+            format!("{:.1} MB", b / MB)
+        } else if b >= KB {
+            format!("{:.0} KB", b / KB)
+        } else {
+            format!("{bytes} B")
+        }
+    }
+}
+
 /// POP3-specific behaviour settings (US-31, US-32, US-33, US-34, FR-9).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pop3Settings {
@@ -385,6 +439,10 @@ pub struct Account {
     /// Independent of sync enablement — toggling sync does not affect this.
     #[serde(default = "default_true")]
     notifications_enabled: bool,
+    /// Mailbox quota reported by the server (FR-42, FR-43, AC-17).
+    /// `None` when the server does not report quota information.
+    #[serde(default)]
+    quota: Option<QuotaInfo>,
 }
 
 /// A local folder associated with an account.
@@ -522,6 +580,7 @@ impl Account {
             system_folders: params.system_folders,
             swipe_defaults: params.swipe_defaults,
             notifications_enabled: params.notifications_enabled,
+            quota: None,
         })
     }
 
@@ -692,6 +751,17 @@ impl Account {
     /// Independent of sync enablement.
     pub fn set_notifications_enabled(&mut self, enabled: bool) {
         self.notifications_enabled = enabled;
+    }
+
+    /// Mailbox quota as reported by the server (FR-42, FR-43, AC-17).
+    pub fn quota(&self) -> Option<QuotaInfo> {
+        self.quota
+    }
+
+    /// Update the quota information from a sync result (FR-42, AC-17).
+    /// Pass `None` when the server does not report quota.
+    pub fn set_quota(&mut self, quota: Option<QuotaInfo>) {
+        self.quota = quota;
     }
 
     /// Update all mutable fields on this account, preserving the unique identifier.
@@ -2230,5 +2300,128 @@ mod tests {
         let id1 = Uuid::new_v4();
         let id2 = Uuid::new_v4();
         assert_ne!(notification_channel_id(id1), notification_channel_id(id2));
+    }
+
+    // -- Quota display tests (FR-42, FR-43, AC-17) --
+
+    #[test]
+    fn quota_defaults_to_none() {
+        let acct = valid_account();
+        assert!(acct.quota().is_none());
+    }
+
+    #[test]
+    fn quota_new_returns_none_for_zero_limit() {
+        assert!(QuotaInfo::new(100, 0).is_none());
+    }
+
+    #[test]
+    fn quota_new_returns_some_for_valid_values() {
+        let q = QuotaInfo::new(500, 1000).unwrap();
+        assert_eq!(q.used_bytes, 500);
+        assert_eq!(q.limit_bytes, 1000);
+    }
+
+    #[test]
+    fn quota_usage_percent() {
+        let q = QuotaInfo::new(750, 1000).unwrap();
+        assert!((q.usage_percent() - 75.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn quota_usage_percent_full() {
+        let q = QuotaInfo::new(1000, 1000).unwrap();
+        assert!((q.usage_percent() - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn quota_usage_percent_over() {
+        let q = QuotaInfo::new(1100, 1000).unwrap();
+        assert!(q.usage_percent() > 100.0);
+    }
+
+    #[test]
+    fn quota_is_high_usage_below_threshold() {
+        let q = QuotaInfo::new(940, 1000).unwrap();
+        assert!(!q.is_high_usage());
+    }
+
+    #[test]
+    fn quota_is_high_usage_at_threshold() {
+        let q = QuotaInfo::new(950, 1000).unwrap();
+        assert!(q.is_high_usage());
+    }
+
+    #[test]
+    fn quota_is_high_usage_above_threshold() {
+        let q = QuotaInfo::new(990, 1000).unwrap();
+        assert!(q.is_high_usage());
+    }
+
+    #[test]
+    fn quota_set_and_get() {
+        let mut acct = valid_account();
+        let q = QuotaInfo::new(500_000_000, 1_000_000_000).unwrap();
+        acct.set_quota(Some(q));
+        assert_eq!(acct.quota(), Some(q));
+    }
+
+    #[test]
+    fn quota_can_be_cleared() {
+        let mut acct = valid_account();
+        let q = QuotaInfo::new(100, 200).unwrap();
+        acct.set_quota(Some(q));
+        assert!(acct.quota().is_some());
+        acct.set_quota(None);
+        assert!(acct.quota().is_none());
+    }
+
+    #[test]
+    fn quota_serialization_roundtrip() {
+        let mut acct = valid_account();
+        let q = QuotaInfo::new(750_000_000, 1_000_000_000).unwrap();
+        acct.set_quota(Some(q));
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.quota(), Some(q));
+    }
+
+    #[test]
+    fn deserialize_account_without_quota_defaults_to_none() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("quota");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.quota().is_none());
+    }
+
+    #[test]
+    fn quota_preserved_across_update() {
+        let mut acct = valid_account();
+        let q = QuotaInfo::new(800, 1000).unwrap();
+        acct.set_quota(Some(q));
+        acct.update(valid_update_params()).unwrap();
+        // Quota is server-reported; update() does not touch it.
+        assert_eq!(acct.quota(), Some(q));
+    }
+
+    #[test]
+    fn quota_format_bytes_bytes() {
+        assert_eq!(QuotaInfo::format_bytes(512), "512 B");
+    }
+
+    #[test]
+    fn quota_format_bytes_kb() {
+        assert_eq!(QuotaInfo::format_bytes(2048), "2 KB");
+    }
+
+    #[test]
+    fn quota_format_bytes_mb() {
+        assert_eq!(QuotaInfo::format_bytes(5_242_880), "5.0 MB");
+    }
+
+    #[test]
+    fn quota_format_bytes_gb() {
+        assert_eq!(QuotaInfo::format_bytes(1_073_741_824), "1.00 GB");
     }
 }

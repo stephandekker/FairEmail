@@ -9,8 +9,8 @@ use libadwaita::prelude::*;
 
 use crate::core::connection_test::{ConnectionTestRequest, ServerConnectionParams};
 use crate::core::{
-    Account, AccountColor, AuthMethod, EncryptionMode, Pop3Settings, Protocol, SmtpConfig,
-    SwipeAction, SwipeDefaults, SystemFolders, UpdateAccountParams,
+    Account, AccountColor, AuthMethod, EncryptionMode, Pop3Settings, Protocol, QuotaInfo,
+    SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders, UpdateAccountParams,
 };
 use crate::services::connection_tester::{ConnectionTester, MockConnectionTester};
 
@@ -66,6 +66,47 @@ pub(crate) fn show(
     name_row.set_text(account.display_name());
     name_group.add(&name_row);
     vbox.append(&name_group);
+
+    // -- Quota display (FR-42, FR-43, AC-17) --
+    // Only shown when the server reports quota information.
+    if let Some(quota) = account.quota() {
+        let quota_group = adw::PreferencesGroup::builder()
+            .title(gettextrs::gettext("Storage Quota"))
+            .build();
+
+        let used_str = QuotaInfo::format_bytes(quota.used_bytes);
+        let limit_str = QuotaInfo::format_bytes(quota.limit_bytes);
+        let pct = quota.usage_percent();
+
+        let quota_row = adw::ActionRow::builder()
+            .title(gettextrs::gettext("Usage"))
+            .subtitle(format!("{used_str} / {limit_str} ({pct:.1}%)"))
+            .build();
+
+        let level_bar = gtk::LevelBar::builder()
+            .min_value(0.0)
+            .max_value(100.0)
+            .value(pct.min(100.0))
+            .valign(gtk::Align::Center)
+            .width_request(120)
+            .build();
+
+        if quota.is_high_usage() {
+            level_bar.add_css_class("quota-warning");
+            quota_row.add_css_class("warning");
+
+            let warning_icon = gtk::Image::builder()
+                .icon_name("dialog-warning-symbolic")
+                .valign(gtk::Align::Center)
+                .tooltip_text(gettextrs::gettext("Storage quota is critically high"))
+                .build();
+            quota_row.add_suffix(&warning_icon);
+        }
+
+        quota_row.add_suffix(&level_bar);
+        quota_group.add(&quota_row);
+        vbox.append(&quota_group);
+    }
 
     // -- Notifications toggle (FR-39, AC-19) --
     let notif_group = adw::PreferencesGroup::builder()
