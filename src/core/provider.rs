@@ -100,6 +100,12 @@ impl MatchScore {
     pub const BUNDLED_WILDCARD: Self = Self(0.9);
     /// Maximum score any network-discovered candidate can have.
     pub const NETWORK_MAX: Self = Self(0.5);
+    /// Score for a DNS NS record match (FR-10.2).
+    pub const DNS_NS: Self = Self(0.45);
+    /// Score for a DNS MX record match (FR-10.3).
+    pub const DNS_MX: Self = Self(0.40);
+    /// Score for RFC 6186 SRV record discovery (FR-10.4).
+    pub const DNS_SRV: Self = Self(0.35);
 
     pub fn value(&self) -> f64 {
         self.0

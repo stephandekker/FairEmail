@@ -9,6 +9,7 @@ pub mod connection_test;
 pub mod delete_account;
 pub(crate) mod detection_failure;
 pub(crate) mod detection_progress;
+pub mod dns_discovery;
 pub mod duplicate_account;
 pub mod export_accounts;
 pub mod folder_setup;
@@ -49,6 +50,7 @@ pub use connection_test::{
     ConnectionTestError, ConnectionTestRequest, ConnectionTestResult, ServerTestOutcome,
 };
 pub use delete_account::{clear_primary_if_deleted, remove_from_order};
+pub use dns_discovery::{discover_by_dns, DnsDiscoveryResult, DnsError, DnsResolver, SrvRecord};
 pub use duplicate_account::duplicate as duplicate_account;
 pub use export_accounts::{
     export_accounts, EncryptedEnvelope, ExportCategory, ExportEnvelope, ExportError, ExportOptions,
