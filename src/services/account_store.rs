@@ -99,6 +99,7 @@ mod tests {
             username: "user@example.com".into(),
             credential: "secret".into(),
             smtp: None,
+            pop3_settings: None,
         })
         .unwrap()
     }
@@ -166,6 +167,7 @@ mod tests {
                 username: "updated@example.com".into(),
                 credential: "new-secret".into(),
                 smtp: None,
+                pop3_settings: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();
@@ -211,6 +213,7 @@ mod tests {
                 username: "user@example.com".into(),
                 credential: "secret".into(),
                 smtp: None,
+                pop3_settings: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();

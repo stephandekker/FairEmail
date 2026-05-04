@@ -24,6 +24,31 @@ pub enum AuthMethod {
     OAuth2,
 }
 
+/// POP3-specific behaviour settings (US-31, US-32, US-33, US-34, FR-9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Pop3Settings {
+    /// When enabled, downloaded messages remain on the server (US-31, AC-14).
+    pub leave_on_server: bool,
+    /// When enabled, deleting a message on the device also deletes it from the server (US-32).
+    pub delete_from_server_when_deleted_on_device: bool,
+    /// When enabled, messages deleted from the server are kept locally on the device (US-33).
+    pub keep_on_device_when_deleted_from_server: bool,
+    /// Optional cap on the number of messages to download per sync (US-34).
+    /// `None` means unlimited.
+    pub max_messages_to_download: Option<u32>,
+}
+
+impl Default for Pop3Settings {
+    fn default() -> Self {
+        Self {
+            leave_on_server: true,
+            delete_from_server_when_deleted_on_device: false,
+            keep_on_device_when_deleted_from_server: true,
+            max_messages_to_download: None,
+        }
+    }
+}
+
 /// SMTP (outgoing) server configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SmtpConfig {
@@ -46,6 +71,8 @@ pub struct NewAccountParams {
     pub username: String,
     pub credential: String,
     pub smtp: Option<SmtpConfig>,
+    /// POP3-specific settings. Should be `Some` for POP3 accounts, `None` for IMAP.
+    pub pop3_settings: Option<Pop3Settings>,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -60,6 +87,8 @@ pub struct UpdateAccountParams {
     pub username: String,
     pub credential: String,
     pub smtp: Option<SmtpConfig>,
+    /// POP3-specific settings. Should be `Some` for POP3 accounts, `None` for IMAP.
+    pub pop3_settings: Option<Pop3Settings>,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -77,6 +106,9 @@ pub struct Account {
     credential: String,
     /// Optional SMTP (outgoing) server configuration.
     smtp: Option<SmtpConfig>,
+    /// POP3-specific settings (only meaningful for POP3 accounts).
+    #[serde(default)]
+    pop3_settings: Option<Pop3Settings>,
 }
 
 /// A local folder associated with an account.
@@ -184,6 +216,7 @@ impl Account {
             username: params.username,
             credential: params.credential,
             smtp: params.smtp,
+            pop3_settings: params.pop3_settings,
         })
     }
 
@@ -227,6 +260,10 @@ impl Account {
         self.smtp.as_ref()
     }
 
+    pub fn pop3_settings(&self) -> Option<&Pop3Settings> {
+        self.pop3_settings.as_ref()
+    }
+
     /// Update all mutable fields on this account, preserving the unique identifier.
     /// Validates the new values the same way `new()` does.
     pub fn update(&mut self, params: UpdateAccountParams) -> Result<(), AccountValidationError> {
@@ -252,6 +289,7 @@ impl Account {
         self.username = params.username;
         self.credential = params.credential;
         self.smtp = params.smtp;
+        self.pop3_settings = params.pop3_settings;
         Ok(())
     }
 }
@@ -300,6 +338,7 @@ mod tests {
             username: "user@example.com".into(),
             credential: "secret".into(),
             smtp: None,
+            pop3_settings: None,
         }
     }
 
@@ -387,6 +426,7 @@ mod tests {
             username: "new@example.com".into(),
             credential: "new-secret".into(),
             smtp: None,
+            pop3_settings: None,
         }
     }
 
@@ -523,5 +563,120 @@ mod tests {
         assert_eq!(acct.protocol(), Protocol::Pop3);
         let folders = acct.protocol().default_folders();
         assert_eq!(folders.len(), 4);
+    }
+
+    // -- POP3-specific settings tests (US-31, US-32, US-33, US-34, FR-9) --
+
+    #[test]
+    fn pop3_settings_default_values() {
+        let settings = Pop3Settings::default();
+        assert!(settings.leave_on_server);
+        assert!(!settings.delete_from_server_when_deleted_on_device);
+        assert!(settings.keep_on_device_when_deleted_from_server);
+        assert_eq!(settings.max_messages_to_download, None);
+    }
+
+    #[test]
+    fn pop3_account_stores_pop3_settings() {
+        let mut p = valid_params();
+        p.protocol = Protocol::Pop3;
+        p.host = "pop.example.com".into();
+        p.port = 995;
+        p.pop3_settings = Some(Pop3Settings::default());
+        let acct = Account::new(p).unwrap();
+        let settings = acct.pop3_settings().unwrap();
+        assert!(settings.leave_on_server);
+        assert!(!settings.delete_from_server_when_deleted_on_device);
+        assert!(settings.keep_on_device_when_deleted_from_server);
+        assert_eq!(settings.max_messages_to_download, None);
+    }
+
+    #[test]
+    fn pop3_account_custom_settings() {
+        let mut p = valid_params();
+        p.protocol = Protocol::Pop3;
+        p.host = "pop.example.com".into();
+        p.port = 995;
+        p.pop3_settings = Some(Pop3Settings {
+            leave_on_server: false,
+            delete_from_server_when_deleted_on_device: true,
+            keep_on_device_when_deleted_from_server: false,
+            max_messages_to_download: Some(500),
+        });
+        let acct = Account::new(p).unwrap();
+        let settings = acct.pop3_settings().unwrap();
+        assert!(!settings.leave_on_server);
+        assert!(settings.delete_from_server_when_deleted_on_device);
+        assert!(!settings.keep_on_device_when_deleted_from_server);
+        assert_eq!(settings.max_messages_to_download, Some(500));
+    }
+
+    #[test]
+    fn imap_account_has_no_pop3_settings() {
+        let acct = valid_account();
+        assert!(acct.pop3_settings().is_none());
+    }
+
+    #[test]
+    fn update_preserves_pop3_settings() {
+        let mut p = valid_params();
+        p.protocol = Protocol::Pop3;
+        p.host = "pop.example.com".into();
+        p.port = 995;
+        p.pop3_settings = Some(Pop3Settings::default());
+        let mut acct = Account::new(p).unwrap();
+        let original_id = acct.id();
+
+        let up = UpdateAccountParams {
+            display_name: "Updated POP3".into(),
+            protocol: Protocol::Pop3,
+            host: "pop2.example.com".into(),
+            port: 995,
+            encryption: EncryptionMode::SslTls,
+            auth_method: AuthMethod::Plain,
+            username: "user@example.com".into(),
+            credential: "secret".into(),
+            smtp: None,
+            pop3_settings: Some(Pop3Settings {
+                leave_on_server: false,
+                delete_from_server_when_deleted_on_device: true,
+                keep_on_device_when_deleted_from_server: false,
+                max_messages_to_download: Some(100),
+            }),
+        };
+        acct.update(up).unwrap();
+        assert_eq!(acct.id(), original_id);
+        let settings = acct.pop3_settings().unwrap();
+        assert!(!settings.leave_on_server);
+        assert!(settings.delete_from_server_when_deleted_on_device);
+        assert_eq!(settings.max_messages_to_download, Some(100));
+    }
+
+    #[test]
+    fn pop3_settings_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.protocol = Protocol::Pop3;
+        p.host = "pop.example.com".into();
+        p.port = 995;
+        p.pop3_settings = Some(Pop3Settings {
+            leave_on_server: false,
+            delete_from_server_when_deleted_on_device: true,
+            keep_on_device_when_deleted_from_server: false,
+            max_messages_to_download: Some(250),
+        });
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(acct.pop3_settings(), restored.pop3_settings());
+    }
+
+    #[test]
+    fn deserialize_account_without_pop3_settings_defaults_to_none() {
+        // Simulates loading an account saved before pop3_settings existed.
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("pop3_settings");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.pop3_settings().is_none());
     }
 }

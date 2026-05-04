@@ -5,7 +5,9 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 
 use crate::core::connection_test::{ConnectionTestRequest, ServerConnectionParams};
-use crate::core::{Account, AuthMethod, EncryptionMode, NewAccountParams, Protocol, SmtpConfig};
+use crate::core::{
+    Account, AuthMethod, EncryptionMode, NewAccountParams, Pop3Settings, Protocol, SmtpConfig,
+};
 use crate::services::connection_tester::{ConnectionTester, MockConnectionTester};
 
 /// Result of the add-account dialog: either a validated Account or the user cancelled.
@@ -134,6 +136,53 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
     auth_group.add(&password_row);
 
     vbox.append(&auth_group);
+
+    // -- POP3-specific settings (US-31, US-32, US-33, US-34, FR-9) --
+    let pop3_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("POP3 Settings"))
+        .visible(false)
+        .build();
+
+    let leave_on_server_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Leave messages on server"))
+        .active(true)
+        .build();
+    pop3_group.add(&leave_on_server_row);
+
+    let delete_from_server_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext(
+            "Delete from server when deleted on device",
+        ))
+        .active(false)
+        .build();
+    pop3_group.add(&delete_from_server_row);
+
+    let keep_on_device_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext(
+            "Keep on device when deleted from server",
+        ))
+        .active(true)
+        .build();
+    pop3_group.add(&keep_on_device_row);
+
+    let max_messages_row = adw::SpinRow::builder()
+        .title(gettextrs::gettext(
+            "Maximum messages to download (0 = unlimited)",
+        ))
+        .adjustment(&gtk::Adjustment::new(0.0, 0.0, 100_000.0, 1.0, 10.0, 0.0))
+        .build();
+    pop3_group.add(&max_messages_row);
+
+    vbox.append(&pop3_group);
+
+    // Show/hide POP3 settings when protocol changes.
+    protocol_row.connect_selected_notify(clone!(
+        #[weak]
+        pop3_group,
+        move |row| {
+            pop3_group.set_visible(row.selected() == 1);
+        }
+    ));
 
     // -- Outgoing (SMTP) server settings --
     let smtp_group = adw::PreferencesGroup::builder()
@@ -327,6 +376,14 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
         #[weak]
         smtp_password_row,
         #[weak]
+        leave_on_server_row,
+        #[weak]
+        delete_from_server_row,
+        #[weak]
+        keep_on_device_row,
+        #[weak]
+        max_messages_row,
+        #[weak]
         toast_overlay,
         move |_| {
             let protocol = match protocol_row.selected() {
@@ -350,6 +407,18 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
                 })
             };
 
+            let pop3_settings = if protocol == Protocol::Pop3 {
+                let max_val = max_messages_row.value() as u32;
+                Some(Pop3Settings {
+                    leave_on_server: leave_on_server_row.is_active(),
+                    delete_from_server_when_deleted_on_device: delete_from_server_row.is_active(),
+                    keep_on_device_when_deleted_from_server: keep_on_device_row.is_active(),
+                    max_messages_to_download: if max_val == 0 { None } else { Some(max_val) },
+                })
+            } else {
+                None
+            };
+
             match Account::new(NewAccountParams {
                 display_name: name_row.text().to_string(),
                 protocol,
@@ -360,6 +429,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
                 username: username_row.text().to_string(),
                 credential: password_row.text().to_string(),
                 smtp,
+                pop3_settings,
             }) {
                 Ok(account) => {
                     on_done(Some(account));
