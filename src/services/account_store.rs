@@ -82,6 +82,7 @@ mod tests {
             auth_method: AuthMethod::Plain,
             username: "user@example.com".into(),
             credential: "secret".into(),
+            smtp: None,
         })
         .unwrap()
     }

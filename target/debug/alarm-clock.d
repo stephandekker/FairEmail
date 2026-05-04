@@ -1,0 +1,1 @@
+/home/stephan/src/FairEmail/target/debug/alarm-clock: /home/stephan/src/FairEmail/src/core/account.rs /home/stephan/src/FairEmail/src/core/mod.rs /home/stephan/src/FairEmail/src/main.rs /home/stephan/src/FairEmail/src/services/account_store.rs /home/stephan/src/FairEmail/src/services/mod.rs

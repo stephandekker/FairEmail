@@ -5,6 +5,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Protocol {
     Imap,
+    Pop3,
 }
 
 /// Connection encryption mode.
@@ -23,6 +24,17 @@ pub enum AuthMethod {
     OAuth2,
 }
 
+/// SMTP (outgoing) server configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmtpConfig {
+    pub host: String,
+    pub port: u16,
+    pub encryption: EncryptionMode,
+    pub auth_method: AuthMethod,
+    pub username: String,
+    pub credential: String,
+}
+
 /// Parameters for creating a new account (avoids too-many-arguments).
 pub struct NewAccountParams {
     pub display_name: String,
@@ -33,6 +45,7 @@ pub struct NewAccountParams {
     pub auth_method: AuthMethod,
     pub username: String,
     pub credential: String,
+    pub smtp: Option<SmtpConfig>,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -48,6 +61,8 @@ pub struct Account {
     username: String,
     /// Password or OAuth token, depending on `auth_method`.
     credential: String,
+    /// Optional SMTP (outgoing) server configuration.
+    smtp: Option<SmtpConfig>,
 }
 
 /// Errors that can occur when building an account.
@@ -90,6 +105,7 @@ impl Account {
             auth_method: params.auth_method,
             username: params.username,
             credential: params.credential,
+            smtp: params.smtp,
         })
     }
 
@@ -124,6 +140,10 @@ impl Account {
     pub fn username(&self) -> &str {
         &self.username
     }
+
+    pub fn smtp(&self) -> Option<&SmtpConfig> {
+        self.smtp.as_ref()
+    }
 }
 
 impl std::fmt::Display for EncryptionMode {
@@ -150,6 +170,7 @@ impl std::fmt::Display for Protocol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Imap => write!(f, "IMAP"),
+            Self::Pop3 => write!(f, "POP3"),
         }
     }
 }
@@ -168,6 +189,7 @@ mod tests {
             auth_method: AuthMethod::Plain,
             username: "user@example.com".into(),
             credential: "secret".into(),
+            smtp: None,
         }
     }
 
