@@ -105,6 +105,7 @@ mod tests {
             schedule_exempt,
             system_folders: None,
             swipe_defaults: None,
+            notifications_enabled: true,
         })
         .unwrap()
     }

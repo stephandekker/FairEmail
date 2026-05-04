@@ -861,6 +861,7 @@ pub(crate) fn show(
                 schedule_exempt: false,
                 system_folders,
                 swipe_defaults,
+                notifications_enabled: true,
             }) {
                 Ok(account) => {
                     on_done(Some(account));

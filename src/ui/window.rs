@@ -678,6 +678,17 @@ fn make_account_row(account: &Account) -> adw::ActionRow {
         row.add_suffix(&on_demand_icon);
     }
 
+    // FR-39: visually indicate notification-enabled accounts.
+    if account.notifications_enabled() {
+        let notif_icon = gtk::Image::builder()
+            .icon_name("preferences-system-notifications-symbolic")
+            .pixel_size(16)
+            .valign(gtk::Align::Center)
+            .tooltip_text(gettextrs::gettext("Notifications enabled"))
+            .build();
+        row.add_suffix(&notif_icon);
+    }
+
     // FR-6: visually indicate sync-disabled accounts with a paused icon.
     if !account.sync_enabled() {
         let paused = gtk::Image::builder()

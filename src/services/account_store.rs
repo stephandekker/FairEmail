@@ -111,6 +111,7 @@ mod tests {
             schedule_exempt: false,
             system_folders: None,
             swipe_defaults: None,
+            notifications_enabled: true,
         })
         .unwrap()
     }
@@ -190,6 +191,7 @@ mod tests {
                 schedule_exempt: false,
                 system_folders: None,
                 swipe_defaults: None,
+                notifications_enabled: true,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();
@@ -247,6 +249,7 @@ mod tests {
                 schedule_exempt: false,
                 system_folders: None,
                 swipe_defaults: None,
+                notifications_enabled: true,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();

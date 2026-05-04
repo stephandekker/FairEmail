@@ -275,6 +275,8 @@ pub struct NewAccountParams {
     pub system_folders: Option<SystemFolders>,
     /// Per-account swipe and move defaults (FR-37, FR-38, US-37).
     pub swipe_defaults: Option<SwipeDefaults>,
+    /// Whether notifications are enabled for this account (FR-39, AC-19).
+    pub notifications_enabled: bool,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -315,6 +317,8 @@ pub struct UpdateAccountParams {
     pub system_folders: Option<SystemFolders>,
     /// Per-account swipe and move defaults (FR-37, FR-38, US-37).
     pub swipe_defaults: Option<SwipeDefaults>,
+    /// Whether notifications are enabled for this account (FR-39, AC-19).
+    pub notifications_enabled: bool,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -377,6 +381,10 @@ pub struct Account {
     /// Per-account swipe and move defaults (FR-37, FR-38, US-37).
     #[serde(default)]
     swipe_defaults: Option<SwipeDefaults>,
+    /// Whether notifications are enabled for this account (FR-39, AC-19).
+    /// Independent of sync enablement — toggling sync does not affect this.
+    #[serde(default = "default_true")]
+    notifications_enabled: bool,
 }
 
 /// A local folder associated with an account.
@@ -513,6 +521,7 @@ impl Account {
             error_state: None,
             system_folders: params.system_folders,
             swipe_defaults: params.swipe_defaults,
+            notifications_enabled: params.notifications_enabled,
         })
     }
 
@@ -674,6 +683,17 @@ impl Account {
         self.swipe_defaults = defaults;
     }
 
+    /// Whether notifications are enabled for this account (FR-39, AC-19).
+    pub fn notifications_enabled(&self) -> bool {
+        self.notifications_enabled
+    }
+
+    /// Enable or disable notifications for this account (FR-39, AC-19).
+    /// Independent of sync enablement.
+    pub fn set_notifications_enabled(&mut self, enabled: bool) {
+        self.notifications_enabled = enabled;
+    }
+
     /// Update all mutable fields on this account, preserving the unique identifier.
     /// Validates the new values the same way `new()` does.
     pub fn update(&mut self, params: UpdateAccountParams) -> Result<(), AccountValidationError> {
@@ -711,8 +731,15 @@ impl Account {
         self.schedule_exempt = params.schedule_exempt;
         self.system_folders = params.system_folders;
         self.swipe_defaults = params.swipe_defaults;
+        self.notifications_enabled = params.notifications_enabled;
         Ok(())
     }
+}
+
+/// Generate a stable notification channel identifier for an account (FR-40).
+/// The channel ID is deterministic and derived from the account's UUID.
+pub fn notification_channel_id(account_id: Uuid) -> String {
+    format!("account-{account_id}")
 }
 
 impl std::fmt::Display for EncryptionMode {
@@ -771,6 +798,7 @@ mod tests {
             schedule_exempt: false,
             system_folders: None,
             swipe_defaults: None,
+            notifications_enabled: true,
         }
     }
 
@@ -870,6 +898,7 @@ mod tests {
             schedule_exempt: false,
             system_folders: None,
             swipe_defaults: None,
+            notifications_enabled: true,
         }
     }
 
@@ -1097,6 +1126,7 @@ mod tests {
             schedule_exempt: false,
             system_folders: None,
             swipe_defaults: None,
+            notifications_enabled: true,
         };
         acct.update(up).unwrap();
         assert_eq!(acct.id(), original_id);
@@ -2103,5 +2133,102 @@ mod tests {
         assert_eq!(sd.swipe_left, SwipeAction::None);
         assert_eq!(sd.swipe_right, SwipeAction::None);
         assert!(sd.default_move_to.is_none());
+    }
+
+    // -- Per-account notification tests (FR-39, FR-40, FR-41, AC-19) --
+
+    #[test]
+    fn notifications_enabled_defaults_to_true() {
+        let acct = valid_account();
+        assert!(acct.notifications_enabled());
+    }
+
+    #[test]
+    fn notifications_enabled_can_be_set_on_creation() {
+        let mut p = valid_params();
+        p.notifications_enabled = false;
+        let acct = Account::new(p).unwrap();
+        assert!(!acct.notifications_enabled());
+    }
+
+    #[test]
+    fn set_notifications_enabled_toggles() {
+        let mut acct = valid_account();
+        assert!(acct.notifications_enabled());
+        acct.set_notifications_enabled(false);
+        assert!(!acct.notifications_enabled());
+        acct.set_notifications_enabled(true);
+        assert!(acct.notifications_enabled());
+    }
+
+    #[test]
+    fn notifications_independent_of_sync_enabled() {
+        let mut acct = valid_account();
+        acct.set_notifications_enabled(true);
+        acct.set_sync_enabled(false);
+        // Disabling sync must NOT change notifications (AC-19).
+        assert!(acct.notifications_enabled());
+        assert!(!acct.sync_enabled());
+
+        acct.set_sync_enabled(true);
+        // Re-enabling sync must NOT change notifications either.
+        assert!(acct.notifications_enabled());
+    }
+
+    #[test]
+    fn notifications_survive_sync_toggle_off_and_on() {
+        let mut acct = valid_account();
+        acct.set_notifications_enabled(false);
+        acct.set_sync_enabled(false);
+        acct.set_sync_enabled(true);
+        // Notification setting survives sync toggling (AC-19).
+        assert!(!acct.notifications_enabled());
+    }
+
+    #[test]
+    fn notifications_changed_via_update() {
+        let mut acct = valid_account();
+        assert!(acct.notifications_enabled());
+        let mut up = valid_update_params();
+        up.notifications_enabled = false;
+        acct.update(up).unwrap();
+        assert!(!acct.notifications_enabled());
+    }
+
+    #[test]
+    fn notifications_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.notifications_enabled = false;
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert!(!restored.notifications_enabled());
+    }
+
+    #[test]
+    fn deserialize_account_without_notifications_defaults_to_true() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut()
+            .unwrap()
+            .remove("notifications_enabled");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.notifications_enabled());
+    }
+
+    #[test]
+    fn notification_channel_id_is_deterministic() {
+        let id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let ch1 = notification_channel_id(id);
+        let ch2 = notification_channel_id(id);
+        assert_eq!(ch1, ch2);
+        assert_eq!(ch1, "account-550e8400-e29b-41d4-a716-446655440000");
+    }
+
+    #[test]
+    fn notification_channel_id_differs_per_account() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        assert_ne!(notification_channel_id(id1), notification_channel_id(id2));
     }
 }

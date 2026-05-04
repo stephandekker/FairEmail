@@ -67,6 +67,20 @@ pub(crate) fn show(
     name_group.add(&name_row);
     vbox.append(&name_group);
 
+    // -- Notifications toggle (FR-39, AC-19) --
+    let notif_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Notifications"))
+        .build();
+    let notif_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Enable notifications"))
+        .subtitle(gettextrs::gettext(
+            "Receive alerts for new messages on this account",
+        ))
+        .active(account.notifications_enabled())
+        .build();
+    notif_group.add(&notif_row);
+    vbox.append(&notif_group);
+
     // -- Synchronization toggle (FR-6, AC-11) --
     let sync_group = adw::PreferencesGroup::builder()
         .title(gettextrs::gettext("Synchronization"))
@@ -891,6 +905,8 @@ pub(crate) fn show(
         #[weak]
         color_btn,
         #[weak]
+        notif_row,
+        #[weak]
         sync_row,
         #[weak]
         on_demand_row,
@@ -1042,6 +1058,7 @@ pub(crate) fn show(
                 schedule_exempt: schedule_exempt_row.is_active(),
                 system_folders,
                 swipe_defaults,
+                notifications_enabled: notif_row.is_active(),
             };
 
             let mut acct = account.borrow_mut();
