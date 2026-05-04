@@ -764,6 +764,38 @@ impl Account {
         self.quota = quota;
     }
 
+    /// Extract the configuration of this account into `NewAccountParams` suitable for
+    /// creating a duplicate. The duplicate will NOT inherit:
+    /// - The source's unique identifier (a new UUID is assigned on creation)
+    /// - The primary designation
+    /// - Any mutable state (error state, quota, messages, folders, sync state)
+    pub fn to_new_account_params(&self) -> NewAccountParams {
+        NewAccountParams {
+            display_name: self.display_name.clone(),
+            protocol: self.protocol,
+            host: self.host.clone(),
+            port: self.port,
+            encryption: self.encryption,
+            auth_method: self.auth_method,
+            username: self.username.clone(),
+            credential: self.credential.clone(),
+            smtp: self.smtp.clone(),
+            pop3_settings: self.pop3_settings.clone(),
+            color: self.color,
+            avatar_path: self.avatar_path.clone(),
+            category: self.category.clone(),
+            sync_enabled: self.sync_enabled,
+            on_demand: self.on_demand,
+            polling_interval_minutes: self.polling_interval_minutes,
+            unmetered_only: self.unmetered_only,
+            vpn_only: self.vpn_only,
+            schedule_exempt: self.schedule_exempt,
+            system_folders: self.system_folders.clone(),
+            swipe_defaults: self.swipe_defaults.clone(),
+            notifications_enabled: self.notifications_enabled,
+        }
+    }
+
     /// Update all mutable fields on this account, preserving the unique identifier.
     /// Validates the new values the same way `new()` does.
     pub fn update(&mut self, params: UpdateAccountParams) -> Result<(), AccountValidationError> {

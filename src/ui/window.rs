@@ -656,6 +656,36 @@ pub(crate) fn build(
                             &conn_state_mgr.borrow(),
                         );
                     }
+                    Some(edit_account_dialog::EditDialogResult::Duplicated(duplicated)) => {
+                        // FR-31, AC-10: duplicate creates a new independent account.
+                        let duplicated = *duplicated;
+                        if let Err(e) = store.add(duplicated.clone()) {
+                            eprintln!("Failed to persist duplicated account: {e}");
+                            return;
+                        }
+                        let new_id = duplicated.id();
+                        // Initialise connection state for the new account.
+                        conn_state_mgr.borrow_mut().ensure_account(new_id);
+                        {
+                            let mut list = accounts.borrow_mut();
+                            list.push(duplicated);
+                        }
+                        // Add new account to custom order if one exists.
+                        {
+                            let mut order = custom_order.borrow_mut();
+                            if let Some(ref mut o) = *order {
+                                o.push(new_id);
+                                let _ = order_store.save(o);
+                            }
+                        }
+                        rebuild_account_list(
+                            &account_list,
+                            &accounts.borrow(),
+                            settings.borrow().category_display_enabled,
+                            custom_order.borrow().as_deref(),
+                            &conn_state_mgr.borrow(),
+                        );
+                    }
                     None => {}
                 }
             });

@@ -3,6 +3,7 @@ pub mod account_order;
 pub mod connection_state;
 pub mod connection_test;
 pub mod delete_account;
+pub mod duplicate_account;
 pub mod navigation;
 pub mod primary;
 pub mod sync_conditions;
@@ -21,6 +22,7 @@ pub use connection_test::{
     ConnectionTestError, ConnectionTestRequest, ConnectionTestResult, ServerTestOutcome,
 };
 pub use delete_account::{clear_primary_if_deleted, remove_from_order};
+pub use duplicate_account::duplicate as duplicate_account;
 pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
 pub use primary::{
     auto_designate_on_add, revoke_if_sync_disabled, set_primary, PrimaryDesignationError,

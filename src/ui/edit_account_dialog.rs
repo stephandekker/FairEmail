@@ -23,6 +23,8 @@ pub(crate) enum EditDialogResult {
     Updated(Box<Account>),
     /// Account should be deleted (confirmed by user).
     Deleted(uuid::Uuid),
+    /// Account should be duplicated (FR-31, AC-10).
+    Duplicated(Box<Account>),
 }
 
 /// Connection diagnostics passed to the edit dialog (FR-44, FR-45, FR-46).
@@ -890,6 +892,12 @@ pub(crate) fn show(
         .build();
     btn_box.append(&save_btn);
 
+    let duplicate_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Duplicate"))
+        .css_classes(["pill"])
+        .build();
+    btn_box.append(&duplicate_btn);
+
     let delete_btn = gtk::Button::builder()
         .label(gettextrs::gettext("Delete Account"))
         .css_classes(["destructive-action", "pill"])
@@ -1200,6 +1208,28 @@ pub(crate) fn show(
                 Err(e) => {
                     let toast = adw::Toast::new(&e.to_string());
                     toast_overlay.add_toast(toast);
+                }
+            }
+        }
+    ));
+
+    // -- Duplicate button handler (FR-31, AC-10) --
+    let on_done_duplicate = on_done_save.clone();
+    duplicate_btn.connect_clicked(clone!(
+        #[weak]
+        dialog,
+        #[strong]
+        account,
+        move |_| {
+            let source = account.borrow();
+            match crate::core::duplicate_account(&source) {
+                Ok(duplicated) => {
+                    on_done_duplicate(Some(EditDialogResult::Duplicated(Box::new(duplicated))));
+                    dialog.close();
+                }
+                Err(_e) => {
+                    // Validation should not fail since we copy from a valid account,
+                    // but handle gracefully just in case.
                 }
             }
         }
