@@ -99,6 +99,8 @@ mod tests {
             color: None,
             avatar_path: None,
             sync_enabled: true,
+            on_demand: false,
+            polling_interval_minutes: None,
         })
         .unwrap()
     }
@@ -118,6 +120,8 @@ mod tests {
             color: None,
             avatar_path: None,
             sync_enabled: false,
+            on_demand: false,
+            polling_interval_minutes: None,
         })
         .unwrap()
     }
@@ -231,6 +235,8 @@ mod tests {
                 color: None,
                 avatar_path: None,
                 sync_enabled: false,
+                on_demand: false,
+                polling_interval_minutes: None,
             })
             .unwrap();
 

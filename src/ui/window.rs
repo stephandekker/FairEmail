@@ -281,6 +281,17 @@ fn make_account_row(account: &Account) -> adw::ActionRow {
         row.add_prefix(&stripe);
     }
 
+    // FR-6, US-27: visually indicate on-demand accounts.
+    if account.on_demand() {
+        let on_demand_icon = gtk::Image::builder()
+            .icon_name("emblem-synchronizing-symbolic")
+            .pixel_size(16)
+            .valign(gtk::Align::Center)
+            .tooltip_text(gettextrs::gettext("On-demand sync"))
+            .build();
+        row.add_suffix(&on_demand_icon);
+    }
+
     // FR-6: visually indicate sync-disabled accounts with a paused icon.
     if !account.sync_enabled() {
         let paused = gtk::Image::builder()

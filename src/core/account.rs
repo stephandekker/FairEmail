@@ -118,6 +118,11 @@ pub struct NewAccountParams {
     pub avatar_path: Option<String>,
     /// Whether synchronization is enabled for this account (FR-25, US-24).
     pub sync_enabled: bool,
+    /// Whether this account syncs only on explicit user request (FR-6, US-27, AC-12).
+    pub on_demand: bool,
+    /// Polling / keep-alive interval in minutes (FR-6, US-28).
+    /// `None` means use the application default.
+    pub polling_interval_minutes: Option<u32>,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -140,6 +145,11 @@ pub struct UpdateAccountParams {
     pub avatar_path: Option<String>,
     /// Whether synchronization is enabled for this account (FR-25, US-24).
     pub sync_enabled: bool,
+    /// Whether this account syncs only on explicit user request (FR-6, US-27, AC-12).
+    pub on_demand: bool,
+    /// Polling / keep-alive interval in minutes (FR-6, US-28).
+    /// `None` means use the application default.
+    pub polling_interval_minutes: Option<u32>,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -169,6 +179,13 @@ pub struct Account {
     /// Whether synchronization is enabled (FR-25, US-24). Defaults to true.
     #[serde(default = "default_true")]
     sync_enabled: bool,
+    /// Whether this account syncs only on explicit user request (FR-6, US-27, AC-12).
+    #[serde(default)]
+    on_demand: bool,
+    /// Polling / keep-alive interval in minutes (FR-6, US-28).
+    /// `None` means use the application default.
+    #[serde(default)]
+    polling_interval_minutes: Option<u32>,
     /// Whether this is the primary account (FR-24, FR-26, FR-27).
     #[serde(default)]
     is_primary: bool,
@@ -287,6 +304,8 @@ impl Account {
             color: params.color,
             avatar_path: params.avatar_path,
             sync_enabled: params.sync_enabled,
+            on_demand: params.on_demand,
+            polling_interval_minutes: params.polling_interval_minutes,
             is_primary: false,
             error_state: None,
         })
@@ -348,6 +367,26 @@ impl Account {
         self.sync_enabled
     }
 
+    /// Whether this account syncs only on explicit user request (FR-6, US-27, AC-12).
+    pub fn on_demand(&self) -> bool {
+        self.on_demand
+    }
+
+    /// Set the on-demand flag (FR-6, US-27, AC-12).
+    pub fn set_on_demand(&mut self, on_demand: bool) {
+        self.on_demand = on_demand;
+    }
+
+    /// Polling / keep-alive interval in minutes (FR-6, US-28).
+    pub fn polling_interval_minutes(&self) -> Option<u32> {
+        self.polling_interval_minutes
+    }
+
+    /// Set the polling / keep-alive interval in minutes (FR-6, US-28).
+    pub fn set_polling_interval_minutes(&mut self, interval: Option<u32>) {
+        self.polling_interval_minutes = interval;
+    }
+
     pub fn is_primary(&self) -> bool {
         self.is_primary
     }
@@ -404,6 +443,8 @@ impl Account {
         self.color = params.color;
         self.avatar_path = params.avatar_path;
         self.set_sync_enabled(params.sync_enabled);
+        self.on_demand = params.on_demand;
+        self.polling_interval_minutes = params.polling_interval_minutes;
         Ok(())
     }
 }
@@ -456,6 +497,8 @@ mod tests {
             color: None,
             avatar_path: None,
             sync_enabled: true,
+            on_demand: false,
+            polling_interval_minutes: None,
         }
     }
 
@@ -547,6 +590,8 @@ mod tests {
             color: None,
             avatar_path: None,
             sync_enabled: true,
+            on_demand: false,
+            polling_interval_minutes: None,
         }
     }
 
@@ -766,6 +811,8 @@ mod tests {
             color: None,
             avatar_path: None,
             sync_enabled: true,
+            on_demand: false,
+            polling_interval_minutes: None,
         };
         acct.update(up).unwrap();
         assert_eq!(acct.id(), original_id);
@@ -1044,5 +1091,134 @@ mod tests {
         json.as_object_mut().unwrap().remove("error_state");
         let restored: Account = serde_json::from_value(json).unwrap();
         assert!(restored.error_state().is_none());
+    }
+
+    // -- On-demand sync tests (FR-6, US-27, AC-12) --
+
+    #[test]
+    fn on_demand_defaults_to_false() {
+        let acct = valid_account();
+        assert!(!acct.on_demand());
+    }
+
+    #[test]
+    fn on_demand_can_be_set_on_creation() {
+        let mut p = valid_params();
+        p.on_demand = true;
+        let acct = Account::new(p).unwrap();
+        assert!(acct.on_demand());
+    }
+
+    #[test]
+    fn set_on_demand_toggles_flag() {
+        let mut acct = valid_account();
+        acct.set_on_demand(true);
+        assert!(acct.on_demand());
+        acct.set_on_demand(false);
+        assert!(!acct.on_demand());
+    }
+
+    #[test]
+    fn on_demand_independent_of_sync_enabled() {
+        let mut acct = valid_account();
+        acct.set_on_demand(true);
+        acct.set_sync_enabled(false);
+        assert!(acct.on_demand());
+        assert!(!acct.sync_enabled());
+    }
+
+    #[test]
+    fn on_demand_changed_via_update() {
+        let mut acct = valid_account();
+        assert!(!acct.on_demand());
+        let mut up = valid_update_params();
+        up.on_demand = true;
+        acct.update(up).unwrap();
+        assert!(acct.on_demand());
+    }
+
+    #[test]
+    fn on_demand_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.on_demand = true;
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert!(restored.on_demand());
+    }
+
+    #[test]
+    fn deserialize_account_without_on_demand_defaults_to_false() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("on_demand");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(!restored.on_demand());
+    }
+
+    // -- Polling interval tests (FR-6, US-28) --
+
+    #[test]
+    fn polling_interval_defaults_to_none() {
+        let acct = valid_account();
+        assert!(acct.polling_interval_minutes().is_none());
+    }
+
+    #[test]
+    fn polling_interval_can_be_set_on_creation() {
+        let mut p = valid_params();
+        p.polling_interval_minutes = Some(15);
+        let acct = Account::new(p).unwrap();
+        assert_eq!(acct.polling_interval_minutes(), Some(15));
+    }
+
+    #[test]
+    fn set_polling_interval() {
+        let mut acct = valid_account();
+        acct.set_polling_interval_minutes(Some(30));
+        assert_eq!(acct.polling_interval_minutes(), Some(30));
+        acct.set_polling_interval_minutes(None);
+        assert!(acct.polling_interval_minutes().is_none());
+    }
+
+    #[test]
+    fn polling_interval_independent_of_sync_enabled_and_on_demand() {
+        let mut acct = valid_account();
+        acct.set_polling_interval_minutes(Some(10));
+        acct.set_sync_enabled(false);
+        acct.set_on_demand(true);
+        assert_eq!(acct.polling_interval_minutes(), Some(10));
+        assert!(!acct.sync_enabled());
+        assert!(acct.on_demand());
+    }
+
+    #[test]
+    fn polling_interval_changed_via_update() {
+        let mut acct = valid_account();
+        let mut up = valid_update_params();
+        up.polling_interval_minutes = Some(5);
+        acct.update(up).unwrap();
+        assert_eq!(acct.polling_interval_minutes(), Some(5));
+    }
+
+    #[test]
+    fn polling_interval_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.polling_interval_minutes = Some(60);
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.polling_interval_minutes(), Some(60));
+    }
+
+    #[test]
+    fn deserialize_account_without_polling_interval_defaults_to_none() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut()
+            .unwrap()
+            .remove("polling_interval_minutes");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.polling_interval_minutes().is_none());
     }
 }

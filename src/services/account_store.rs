@@ -103,6 +103,8 @@ mod tests {
             color: None,
             avatar_path: None,
             sync_enabled: true,
+            on_demand: false,
+            polling_interval_minutes: None,
         })
         .unwrap()
     }
@@ -174,6 +176,8 @@ mod tests {
                 color: None,
                 avatar_path: None,
                 sync_enabled: true,
+                on_demand: false,
+                polling_interval_minutes: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();
@@ -223,6 +227,8 @@ mod tests {
                 color: None,
                 avatar_path: None,
                 sync_enabled: true,
+                on_demand: false,
+                polling_interval_minutes: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();

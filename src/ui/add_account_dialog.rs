@@ -616,6 +616,8 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
                 color,
                 avatar_path: avatar,
                 sync_enabled: true,
+                on_demand: false,
+                polling_interval_minutes: None,
             }) {
                 Ok(account) => {
                     on_done(Some(account));

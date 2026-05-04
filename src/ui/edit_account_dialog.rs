@@ -74,6 +74,34 @@ pub(crate) fn show(
         .active(account.sync_enabled())
         .build();
     sync_group.add(&sync_row);
+
+    // -- On-demand sync toggle (FR-6, US-27, AC-12) --
+    let on_demand_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("On-demand sync only"))
+        .subtitle(gettextrs::gettext(
+            "Sync only when you explicitly request it",
+        ))
+        .active(account.on_demand())
+        .build();
+    sync_group.add(&on_demand_row);
+
+    // -- Polling interval (FR-6, US-28) --
+    let poll_default = account.polling_interval_minutes().map_or(0.0, f64::from);
+    let polling_row = adw::SpinRow::builder()
+        .title(gettextrs::gettext(
+            "Polling interval (minutes, 0 = default)",
+        ))
+        .adjustment(&gtk::Adjustment::new(
+            poll_default,
+            0.0,
+            1440.0,
+            1.0,
+            5.0,
+            0.0,
+        ))
+        .build();
+    sync_group.add(&polling_row);
+
     vbox.append(&sync_group);
 
     // -- Account colour (FR-5, FR-12) --
@@ -632,6 +660,10 @@ pub(crate) fn show(
         color_btn,
         #[weak]
         sync_row,
+        #[weak]
+        on_demand_row,
+        #[weak]
+        polling_row,
         #[strong]
         color_active,
         #[strong]
@@ -695,6 +727,15 @@ pub(crate) fn show(
                 color,
                 avatar_path: avatar,
                 sync_enabled: sync_row.is_active(),
+                on_demand: on_demand_row.is_active(),
+                polling_interval_minutes: {
+                    let v = polling_row.value() as u32;
+                    if v == 0 {
+                        None
+                    } else {
+                        Some(v)
+                    }
+                },
             };
 
             let mut acct = account.borrow_mut();
