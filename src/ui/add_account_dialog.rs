@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use glib::clone;
 use gtk4 as gtk;
 use gtk4::prelude::*;
@@ -6,7 +9,8 @@ use libadwaita::prelude::*;
 
 use crate::core::connection_test::{ConnectionTestRequest, ServerConnectionParams};
 use crate::core::{
-    Account, AuthMethod, EncryptionMode, NewAccountParams, Pop3Settings, Protocol, SmtpConfig,
+    Account, AccountColor, AuthMethod, EncryptionMode, NewAccountParams, Pop3Settings, Protocol,
+    SmtpConfig,
 };
 use crate::services::connection_tester::{ConnectionTester, MockConnectionTester};
 
@@ -54,6 +58,70 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
     )));
     name_group.add(&name_row);
     vbox.append(&name_group);
+
+    // -- Account colour (FR-5, FR-12) --
+    let color_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Account Colour"))
+        .build();
+
+    let color_row = adw::ActionRow::builder()
+        .title(gettextrs::gettext("Colour"))
+        .build();
+
+    let color_dialog = gtk::ColorDialog::builder()
+        .title(gettextrs::gettext("Choose account colour"))
+        .with_alpha(false)
+        .build();
+    let color_btn = gtk::ColorDialogButton::builder()
+        .dialog(&color_dialog)
+        .valign(gtk::Align::Center)
+        .tooltip_text(gettextrs::gettext("Pick a colour for this account"))
+        .build();
+    color_btn.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Account colour picker",
+    ))]);
+
+    let color_active = Rc::new(RefCell::new(false));
+
+    let clear_color_btn = gtk::Button::builder()
+        .icon_name("edit-clear-symbolic")
+        .tooltip_text(gettextrs::gettext("Clear account colour"))
+        .valign(gtk::Align::Center)
+        .css_classes(["flat"])
+        .sensitive(false)
+        .build();
+    clear_color_btn.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Clear account colour",
+    ))]);
+
+    color_btn.connect_rgba_notify(clone!(
+        #[strong]
+        color_active,
+        #[weak]
+        clear_color_btn,
+        move |_| {
+            *color_active.borrow_mut() = true;
+            clear_color_btn.set_sensitive(true);
+        }
+    ));
+
+    clear_color_btn.connect_clicked(clone!(
+        #[strong]
+        color_active,
+        #[weak]
+        color_btn,
+        move |btn| {
+            *color_active.borrow_mut() = false;
+            let transparent = gtk4::gdk::RGBA::new(0.5, 0.5, 0.5, 1.0);
+            color_btn.set_rgba(&transparent);
+            btn.set_sensitive(false);
+        }
+    ));
+
+    color_row.add_suffix(&color_btn);
+    color_row.add_suffix(&clear_color_btn);
+    color_group.add(&color_row);
+    vbox.append(&color_group);
 
     // -- Incoming server settings --
     let server_group = adw::PreferencesGroup::builder()
@@ -385,6 +453,10 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
         max_messages_row,
         #[weak]
         toast_overlay,
+        #[weak]
+        color_btn,
+        #[strong]
+        color_active,
         move |_| {
             let protocol = match protocol_row.selected() {
                 0 => Protocol::Imap,
@@ -419,6 +491,13 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
                 None
             };
 
+            let color = if *color_active.borrow() {
+                let rgba = color_btn.rgba();
+                Some(AccountColor::new(rgba.red(), rgba.green(), rgba.blue()))
+            } else {
+                None
+            };
+
             match Account::new(NewAccountParams {
                 display_name: name_row.text().to_string(),
                 protocol,
@@ -430,6 +509,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
                 credential: password_row.text().to_string(),
                 smtp,
                 pop3_settings,
+                color,
             }) {
                 Ok(account) => {
                     on_done(Some(account));

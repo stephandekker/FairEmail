@@ -49,6 +49,41 @@ impl Default for Pop3Settings {
     }
 }
 
+/// An RGB colour associated with an account (FR-5, FR-12).
+/// Components are in the 0.0–1.0 range, matching `gdk::RGBA` conventions so the
+/// UI layer can convert without loss.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct AccountColor {
+    pub red: f32,
+    pub green: f32,
+    pub blue: f32,
+}
+
+impl AccountColor {
+    pub fn new(red: f32, green: f32, blue: f32) -> Self {
+        Self { red, green, blue }
+    }
+
+    /// Convert to a CSS hex colour string (e.g. `#ff8800`).
+    pub fn to_hex(&self) -> String {
+        let r = (self.red.clamp(0.0, 1.0) * 255.0).round() as u8;
+        let g = (self.green.clamp(0.0, 1.0) * 255.0).round() as u8;
+        let b = (self.blue.clamp(0.0, 1.0) * 255.0).round() as u8;
+        format!("#{r:02x}{g:02x}{b:02x}")
+    }
+}
+
+/// Resolve the effective colour when multiple colour levels exist (FR-15).
+/// Precedence: identity > folder > account.  The most specific non-`None`
+/// value wins; returns `None` if all levels are unset.
+pub fn resolve_color(
+    account_color: Option<AccountColor>,
+    folder_color: Option<AccountColor>,
+    identity_color: Option<AccountColor>,
+) -> Option<AccountColor> {
+    identity_color.or(folder_color).or(account_color)
+}
+
 /// SMTP (outgoing) server configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SmtpConfig {
@@ -73,6 +108,8 @@ pub struct NewAccountParams {
     pub smtp: Option<SmtpConfig>,
     /// POP3-specific settings. Should be `Some` for POP3 accounts, `None` for IMAP.
     pub pop3_settings: Option<Pop3Settings>,
+    /// Optional account colour (FR-5, FR-12).
+    pub color: Option<AccountColor>,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -89,6 +126,8 @@ pub struct UpdateAccountParams {
     pub smtp: Option<SmtpConfig>,
     /// POP3-specific settings. Should be `Some` for POP3 accounts, `None` for IMAP.
     pub pop3_settings: Option<Pop3Settings>,
+    /// Optional account colour (FR-5, FR-12).
+    pub color: Option<AccountColor>,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -109,6 +148,9 @@ pub struct Account {
     /// POP3-specific settings (only meaningful for POP3 accounts).
     #[serde(default)]
     pop3_settings: Option<Pop3Settings>,
+    /// Optional account colour (FR-5, FR-12).
+    #[serde(default)]
+    color: Option<AccountColor>,
 }
 
 /// A local folder associated with an account.
@@ -217,6 +259,7 @@ impl Account {
             credential: params.credential,
             smtp: params.smtp,
             pop3_settings: params.pop3_settings,
+            color: params.color,
         })
     }
 
@@ -264,6 +307,10 @@ impl Account {
         self.pop3_settings.as_ref()
     }
 
+    pub fn color(&self) -> Option<AccountColor> {
+        self.color
+    }
+
     /// Update all mutable fields on this account, preserving the unique identifier.
     /// Validates the new values the same way `new()` does.
     pub fn update(&mut self, params: UpdateAccountParams) -> Result<(), AccountValidationError> {
@@ -290,6 +337,7 @@ impl Account {
         self.credential = params.credential;
         self.smtp = params.smtp;
         self.pop3_settings = params.pop3_settings;
+        self.color = params.color;
         Ok(())
     }
 }
@@ -339,6 +387,7 @@ mod tests {
             credential: "secret".into(),
             smtp: None,
             pop3_settings: None,
+            color: None,
         }
     }
 
@@ -427,6 +476,7 @@ mod tests {
             credential: "new-secret".into(),
             smtp: None,
             pop3_settings: None,
+            color: None,
         }
     }
 
@@ -643,6 +693,7 @@ mod tests {
                 keep_on_device_when_deleted_from_server: false,
                 max_messages_to_download: Some(100),
             }),
+            color: None,
         };
         acct.update(up).unwrap();
         assert_eq!(acct.id(), original_id);
@@ -678,5 +729,117 @@ mod tests {
         json.as_object_mut().unwrap().remove("pop3_settings");
         let restored: Account = serde_json::from_value(json).unwrap();
         assert!(restored.pop3_settings().is_none());
+    }
+
+    // -- Account colour tests (FR-5, FR-12, FR-15) --
+
+    #[test]
+    fn account_color_defaults_to_none() {
+        let acct = valid_account();
+        assert!(acct.color().is_none());
+    }
+
+    #[test]
+    fn account_color_can_be_set_on_creation() {
+        let mut p = valid_params();
+        p.color = Some(AccountColor::new(1.0, 0.0, 0.5));
+        let acct = Account::new(p).unwrap();
+        let c = acct.color().unwrap();
+        assert!((c.red - 1.0).abs() < f32::EPSILON);
+        assert!((c.green).abs() < f32::EPSILON);
+        assert!((c.blue - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn account_color_can_be_changed_via_update() {
+        let mut acct = valid_account();
+        assert!(acct.color().is_none());
+        let mut up = valid_update_params();
+        up.color = Some(AccountColor::new(0.2, 0.4, 0.6));
+        acct.update(up).unwrap();
+        let c = acct.color().unwrap();
+        assert!((c.red - 0.2).abs() < f32::EPSILON);
+        assert!((c.green - 0.4).abs() < f32::EPSILON);
+        assert!((c.blue - 0.6).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn account_color_can_be_cleared_via_update() {
+        let mut p = valid_params();
+        p.color = Some(AccountColor::new(1.0, 0.0, 0.0));
+        let mut acct = Account::new(p).unwrap();
+        assert!(acct.color().is_some());
+        let mut up = valid_update_params();
+        up.color = None;
+        acct.update(up).unwrap();
+        assert!(acct.color().is_none());
+    }
+
+    #[test]
+    fn account_color_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.color = Some(AccountColor::new(0.1, 0.2, 0.3));
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(acct.color(), restored.color());
+    }
+
+    #[test]
+    fn deserialize_account_without_color_defaults_to_none() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("color");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.color().is_none());
+    }
+
+    #[test]
+    fn account_color_to_hex() {
+        let c = AccountColor::new(1.0, 0.533, 0.0);
+        let hex = c.to_hex();
+        assert_eq!(hex, "#ff8800");
+    }
+
+    #[test]
+    fn account_color_to_hex_clamps() {
+        let c = AccountColor::new(1.5, -0.1, 0.5);
+        let hex = c.to_hex();
+        assert_eq!(hex, "#ff0080");
+    }
+
+    // -- Colour precedence tests (FR-15) --
+
+    #[test]
+    fn resolve_color_returns_none_when_all_unset() {
+        assert!(resolve_color(None, None, None).is_none());
+    }
+
+    #[test]
+    fn resolve_color_returns_account_when_only_account_set() {
+        let ac = AccountColor::new(1.0, 0.0, 0.0);
+        assert_eq!(resolve_color(Some(ac), None, None), Some(ac));
+    }
+
+    #[test]
+    fn resolve_color_folder_overrides_account() {
+        let ac = AccountColor::new(1.0, 0.0, 0.0);
+        let fc = AccountColor::new(0.0, 1.0, 0.0);
+        assert_eq!(resolve_color(Some(ac), Some(fc), None), Some(fc));
+    }
+
+    #[test]
+    fn resolve_color_identity_overrides_all() {
+        let ac = AccountColor::new(1.0, 0.0, 0.0);
+        let fc = AccountColor::new(0.0, 1.0, 0.0);
+        let ic = AccountColor::new(0.0, 0.0, 1.0);
+        assert_eq!(resolve_color(Some(ac), Some(fc), Some(ic)), Some(ic));
+    }
+
+    #[test]
+    fn resolve_color_identity_overrides_account_skipping_folder() {
+        let ac = AccountColor::new(1.0, 0.0, 0.0);
+        let ic = AccountColor::new(0.0, 0.0, 1.0);
+        assert_eq!(resolve_color(Some(ac), None, Some(ic)), Some(ic));
     }
 }

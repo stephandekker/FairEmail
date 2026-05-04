@@ -100,6 +100,7 @@ mod tests {
             credential: "secret".into(),
             smtp: None,
             pop3_settings: None,
+            color: None,
         })
         .unwrap()
     }
@@ -168,6 +169,7 @@ mod tests {
                 credential: "new-secret".into(),
                 smtp: None,
                 pop3_settings: None,
+                color: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();
@@ -214,6 +216,7 @@ mod tests {
                 credential: "secret".into(),
                 smtp: None,
                 pop3_settings: None,
+                color: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();

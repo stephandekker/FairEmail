@@ -129,6 +129,8 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
         store,
         #[strong]
         accounts,
+        #[weak]
+        account_list,
         move |_, row| {
             let index = row.index() as usize;
             let account = {
@@ -147,18 +149,13 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
                         eprintln!("Failed to persist account update: {e}");
                         return;
                     }
-                    // Update the sidebar row in place.
-                    if let Some(action_row) = row_ref.downcast_ref::<adw::ActionRow>() {
-                        action_row.set_title(updated.display_name());
-                        action_row.set_subtitle(&format!(
-                            "{} – {}:{}",
-                            updated.protocol(),
-                            updated.host(),
-                            updated.port()
-                        ));
-                    }
+                    // Replace the sidebar row to reflect colour/badge changes.
+                    let new_row = make_account_row(&updated);
+                    let idx = row_ref.index();
+                    account_list.remove(&row_ref);
+                    account_list.insert(&new_row, idx);
                     // Update the in-memory list.
-                    let idx = row_ref.index() as usize;
+                    let idx = idx as usize;
                     let mut list = accounts.borrow_mut();
                     if idx < list.len() {
                         list[idx] = updated;
@@ -186,6 +183,27 @@ fn make_account_row(account: &Account) -> adw::ActionRow {
         .subtitle(&subtitle)
         .activatable(true)
         .build();
+
+    // FR-14: account colour stripe as a leading prefix indicator.
+    if let Some(color) = account.color() {
+        let hex = color.to_hex();
+        let css_class = format!("account-color-{}", &hex[1..]);
+        let stripe = gtk::Box::builder()
+            .width_request(4)
+            .height_request(32)
+            .valign(gtk::Align::Center)
+            .css_classes([css_class.as_str()])
+            .build();
+        let css = format!(".{css_class} {{ background-color: {hex}; border-radius: 2px; }}");
+        let provider = gtk::CssProvider::new();
+        provider.load_from_data(&css);
+        gtk::style_context_add_provider_for_display(
+            &stripe.display(),
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+        row.add_prefix(&stripe);
+    }
 
     // FR-11: visually distinguish POP3 accounts with a suffix badge.
     if account.protocol() == Protocol::Pop3 {
