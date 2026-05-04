@@ -2,6 +2,7 @@ pub mod account_store;
 pub mod connection_tester;
 pub mod export_service;
 pub mod import_service;
+pub mod network;
 pub mod notification_channel;
 pub mod order_store;
 pub mod settings_store;

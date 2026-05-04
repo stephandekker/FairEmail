@@ -14,10 +14,10 @@ use crate::core::{
     move_account, remove_from_order, Account, ConnectionState, ConnectionStateManager,
 };
 use crate::services::{AccountStore, AppSettings, OrderStore, SettingsStore};
-use crate::ui::add_account_dialog;
 use crate::ui::edit_account_dialog;
 use crate::ui::export_dialog;
 use crate::ui::import_dialog;
+use crate::ui::setup_wizard;
 
 /// Build the main application window with the account list and navigation pane.
 pub(crate) fn build(
@@ -479,71 +479,13 @@ pub(crate) fn build(
     account_list.add_controller(key_controller);
 
     // "Add account" button handler.
+    // FR-2: the wizard is the default path when adding an account.
     add_btn.connect_clicked(clone!(
         #[weak]
         window,
-        #[strong]
-        store,
-        #[strong]
-        accounts,
-        #[strong]
-        settings,
-        #[strong]
-        custom_order,
-        #[strong]
-        order_store,
-        #[strong]
-        conn_state_mgr,
-        #[weak]
-        account_list,
         move |_| {
-            let store = store.clone();
-            let accounts = accounts.clone();
-            let settings = settings.clone();
-            let custom_order = custom_order.clone();
-            let order_store = order_store.clone();
-            let conn_state_mgr = conn_state_mgr.clone();
-            let account_list = account_list.clone();
-            let categories = collect_categories(&accounts.borrow());
-            add_account_dialog::show(&window, categories, move |result| {
-                if let Some(account) = result {
-                    if let Err(e) = store.add(account.clone()) {
-                        eprintln!("Failed to persist account: {e}");
-                        return;
-                    }
-                    let new_id = account.id();
-                    // Initialise connection state for the new account (FR-44).
-                    conn_state_mgr.borrow_mut().ensure_account(new_id);
-                    let became_primary;
-                    {
-                        let mut list = accounts.borrow_mut();
-                        list.push(account);
-                        // FR-28: auto-designate primary if none exists.
-                        became_primary = core::auto_designate_on_add(&mut list, new_id);
-                    }
-                    // Persist if auto-designated primary.
-                    if became_primary {
-                        let list = accounts.borrow();
-                        if let Some(a) = list.iter().find(|a| a.id() == new_id) {
-                            let _ = store.update(a.clone());
-                        }
-                    }
-                    // Add new account to custom order if one exists.
-                    {
-                        let mut order = custom_order.borrow_mut();
-                        if let Some(ref mut o) = *order {
-                            o.push(new_id);
-                            let _ = order_store.save(o);
-                        }
-                    }
-                    rebuild_account_list(
-                        &account_list,
-                        &accounts.borrow(),
-                        settings.borrow().category_display_enabled,
-                        custom_order.borrow().as_deref(),
-                        &conn_state_mgr.borrow(),
-                    );
-                }
+            setup_wizard::show(&window, |_result| {
+                // Future slices will wire this to provider detection / account creation.
             });
         }
     ));
@@ -787,6 +729,13 @@ pub(crate) fn build(
     ));
 
     window.present();
+
+    // FR-1: on first launch with zero accounts, present the setup wizard automatically.
+    if accounts.borrow().is_empty() {
+        setup_wizard::show(&window, |_result| {
+            // Future slices will wire this to provider detection / account creation.
+        });
+    }
 }
 
 /// Retrieve the account UUID stored on a row widget via its `widget_name`.

@@ -9,6 +9,7 @@ pub mod import_accounts;
 pub mod navigation;
 pub mod primary;
 pub mod sync_conditions;
+pub mod wizard_validation;
 
 pub use account::{
     collect_categories, detect_system_folders, notification_channel_id, resolve_color, Account,
