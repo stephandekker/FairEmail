@@ -13,13 +13,13 @@ fn main() {
     use crate::services::{AccountStore, OrderStore, SettingsStore};
 
     fn data_dir() -> std::path::PathBuf {
-        let base = glib::user_data_dir().join("alarm-clock");
+        let base = glib::user_data_dir().join("fairmail");
         std::fs::create_dir_all(&base).expect("could not create data directory");
         base
     }
 
     let app = adw::Application::builder()
-        .application_id("com.example.AlarmClock")
+        .application_id("com.example.Fairmail")
         .build();
 
     app.connect_activate(clone!(move |app| {

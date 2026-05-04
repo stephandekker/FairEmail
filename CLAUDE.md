@@ -1,15 +1,12 @@
-# Alarm Clock website
-
+# Fairmail Email client for Linux
 
 ## Overview
 
-A website that simulates an Alarm Clock. It will show the current local time and two alarms can be set.
-When an alarm goes off (i.e. visually), the user has the option to snooze or cancel.
+Fairmail is an Email client for Linux
 
 ## Claude skipping files
 
 Do not read/use/write any of the files in: /claude-skip/
-
 
 ## System Requirements
 
@@ -26,7 +23,7 @@ Do not read/use/write any of the files in: /claude-skip/
 ## Project Structure
 
 ```
-alarm-clock/
+fairmail/
 ├── CLAUDE.md
 ├── Cargo.toml
 ├── Cargo.lock
@@ -36,7 +33,7 @@ alarm-clock/
 │   ├── application.rs            # AdwApplication subclass
 │   ├── window.rs                 # Main AdwApplicationWindow
 │   ├── ui/                       # Widgets, composite templates (.ui / .blp files)
-│   ├── core/                     # Domain logic: clock, alarm, snooze (UI-free)
+│   ├── core/                     # Domain logic: accounts, emails, attachments (UI-free)
 │   └── services/                 # I/O, persistence, notifications
 ├── data/
 │   ├── resources/                # GResource bundle (UI files, icons, CSS)

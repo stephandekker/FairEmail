@@ -25,7 +25,7 @@ pub(crate) fn build(
 ) {
     let window = adw::ApplicationWindow::builder()
         .application(app)
-        .title(gettextrs::gettext("Alarm Clock – Accounts"))
+        .title(gettextrs::gettext("Fairmail – Accounts"))
         .default_width(720)
         .default_height(480)
         .build();

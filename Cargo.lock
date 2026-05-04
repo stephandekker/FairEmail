@@ -12,21 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alarm-clock"
-version = "0.1.0"
-dependencies = [
- "gettext-rs",
- "glib",
- "gtk4",
- "libadwaita",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "uuid",
-]
-
-[[package]]
 name = "anyhow"
 version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -119,6 +104,21 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "fairmail-linux"
+version = "0.1.0"
+dependencies = [
+ "gettext-rs",
+ "glib",
+ "gtk4",
+ "libadwaita",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "uuid",
 ]
 
 [[package]]
