@@ -15,27 +15,38 @@ Do not read/use/write any of the files in: /claude-skip/
 
 ## Tech Stack
 
-- **Frontend:** React 19 + TypeScript + Vite + Tailwind CSS v4 + shadcn/ui + React Router v7
-- **Backend:** Node.js + Express + TypeScript
-- **Database:** SQLite with Drizzle ORM
-- **Auth:** JWT-based (register, login, protected routes)
-- **Package Manager:** npm
-- **Testing:** Vitest (all layers), React Testing Library (frontend components), msw (HTTP mocking for scraper tests), Playwright (E2E tests)
+- **Language:** Rust (stable toolchain, edition 2021)
+- **UI:** GTK4 + libadwaita via `gtk4-rs` (`gtk4`, `libadwaita`, `glib`) crates
+- **Build:** Cargo; Meson optional if packaging for Flatpak/system install
+- **Async runtime:** `glib::MainContext` for UI tasks; `tokio` only if non-UI async work is needed
+- **Platform:** Linux (developed and tested on GNOME)
+- **Database:** Mocked until choice is made
+- **Auth:** Mocked until choice is made
 
 ## Project Structure
 
 ```
-garden-automation/
+alarm-clock/
 ├── CLAUDE.md
-├── package.json
+├── Cargo.toml
+├── Cargo.lock
 ├── .env                          # Configuration
 ├── src/
-├── docs/
-│   ├── epics/
-│       ├── user-stories/
-│           ├── tasks/
-│           ├── bugs/
-
+│   ├── main.rs                   # Application entry point (adw::Application)
+│   ├── application.rs            # AdwApplication subclass
+│   ├── window.rs                 # Main AdwApplicationWindow
+│   ├── ui/                       # Widgets, composite templates (.ui / .blp files)
+│   ├── core/                     # Domain logic: clock, alarm, snooze (UI-free)
+│   └── services/                 # I/O, persistence, notifications
+├── data/
+│   ├── resources/                # GResource bundle (UI files, icons, CSS)
+│   └── *.desktop, *.metainfo.xml # Linux app metadata
+├── tests/                        # Integration tests
+└── docs/
+    └── epics/
+        └── user-stories/
+            ├── tasks/
+            └── bugs/
 ```
 
 ## Bug template
@@ -48,63 +59,64 @@ The content of the file:
 - Actual
 - Additional context info
 
-## File Ownership Rules (CRITICAL)
-Each agent must ONLY create and edit files in their assigned directory. This prevents merge conflicts.
-
-| Agent | Owned directories | Do NOT touch |
-|-------|-------------------|--------------|
-| DB Engineer | `src/db/` | everything else |
-| Backend Dev | `src/api/`, `src/services/`, `tests/api/`, `tests/services/`, `.env` | `src/db/`, `src/client/` |
-| Frontend Dev | `src/client/` (including co-located `*.test.tsx` and `src/client/lib/api.ts`) | `src/db/`, `src/api/`, `src/services/`, `tests/` |
-| Tester | `e2e/` (Playwright E2E tests) | `src/`, `tests/` |
-| UX Reviewer | **read-only** — no file ownership; creates Bugs issues for major problems | (never writes files) |
-
-### Test ownership rationale
-Each agent owns the tests for the code they write, enabling TDD within each slice:
-- **Backend Dev** writes `tests/api/` and `tests/services/` tests alongside their route and service code
-- **Frontend Dev** writes component tests co-located in `src/client/components/`
-- **Tester** writes E2E tests in `e2e/` using Playwright, organized by priority tiers (platinum/gold/silver/all)
-
-### UX review rationale
-The UX Reviewer runs after the Frontend Dev and provides two-tier feedback: minor issues are relayed back to the Frontend Dev to fix before the commit; major issues become GitHub tickets for a future ralph loop.
-
 ## Coding Standards
-- TypeScript strict mode everywhere
-- Use `async/await`, no raw callbacks
-- Express error handling: wrap async routes with try/catch, return proper HTTP status codes
-- Frontend: functional components only, no class components
-- Use named exports, not default exports
-- All API responses follow: `{ data: T }` for success, `{ error: string }` for failure
-- Passwords hashed with bcrypt (min 10 salt rounds)
-- JWT tokens expire in 7 days
-- CORS enabled for `http://localhost:5173` (Vite dev server)
+- Rust 2021 edition; code must pass `cargo fmt --check` and `cargo clippy -- -D warnings`
+- Prefer `Result<T, E>` with `thiserror`-derived error types over `unwrap()`/`expect()`; `unwrap()` is only acceptable in tests or proven-unreachable cases (with a comment)
+- No `panic!` in library/core code paths
+- UI code uses GTK4 + libadwaita idioms:
+  - Subclass widgets via `glib::Object` + `glib::wrapper!` rather than packing in code where a `.ui`/`.blp` template fits
+  - Use `Adw*` widgets (`AdwApplicationWindow`, `AdwHeaderBar`, `AdwToastOverlay`, `AdwPreferences*`) instead of plain GTK equivalents where available
+  - Follow the GNOME Human Interface Guidelines
+- Keep `core/` UI-free so it stays unit-testable without a display server. 
+- Very high preference to put business logic in core/ where it can be extensively unit tested. Only use business logic in UI if it significantly impacts UX or if no other option.
+- Use `gettext-rs` (`gettext!`) for all user-facing strings — no hardcoded English in widgets
+- Async on the UI thread uses `glib::MainContext::spawn_local`; never block the main loop with `std::thread::sleep` or sync I/O
+- Resources (UI files, icons, CSS) loaded via `gio::Resource` (compiled from `data/resources/`), not from disk paths at runtime
+- Module visibility: prefer `pub(crate)` over `pub` unless the item is genuinely part of a public API
 
 ## Running the Project
 ```bash
-# Install dependencies
-npm install
+# Build (debug)
+cargo build
 
-# Run database migrations
-npx tsx src/db/migrate.ts
+# Run the app
+cargo run
 
-# Seed development data (adds example searches and categories)
-npx tsx src/db/seed.ts
+# Build optimized release
+cargo build --release
 
-# Start backend (port 3001)
-npx tsx src/api/index.ts
+# Format check / auto-format
+cargo fmt --check
+cargo fmt
 
-# Start frontend (port 5173)
-cd src/client && npx vite
+# Lint (treat warnings as errors)
+cargo clippy --all-targets -- -D warnings
 
-# Run the daily pipeline manually
-npx tsx src/services/scraper.ts
+# Run all tests (unit + integration)
+cargo test
 
-# Run all unit tests
-npx vitest run
+# Run a single test
+cargo test <test_name>
 
-# Run E2E tests (platinum tier — fast, top-priority flows)
-npx playwright test --project=platinum
+# Compile GResource bundle (if not handled by build.rs)
+glib-compile-resources data/resources/resources.gresource.xml \
+    --target=target/resources.gresource
 
-# Run E2E tests (all tiers)
-npx playwright test --project=all
+# Validate AppStream metadata before release
+appstreamcli validate data/*.metainfo.xml
+
+# Validate .desktop file
+desktop-file-validate data/*.desktop
+```
+
+### System dependencies (Debian/Ubuntu)
+```bash
+sudo apt install build-essential libgtk-4-dev libadwaita-1-dev \
+    libglib2.0-dev gettext desktop-file-utils appstream
+```
+
+### System dependencies (Fedora)
+```bash
+sudo dnf install gtk4-devel libadwaita-devel glib2-devel gettext \
+    desktop-file-utils appstream
 ```

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ralph.sh — Continuously picks the top-priority unblocked user story and implements it
-#             using a Claude Code agent team (db-engineer, backend-dev, frontend-dev, ux-reviewer).
+#             using a single Claude Code agent.
 #
 # Usage: bash ralph.sh
 #
@@ -159,7 +159,7 @@ while true; do
   log ""
 
   PROMPT="$(cat <<PROMPT
-Implement user story ${STORY_ID} for this repository using an agent team.
+Implement user story ${STORY_ID} for this repository.
 
 The full story spec lives at: ${STORY_FILE}
 
@@ -167,31 +167,16 @@ The full story spec lives at: ${STORY_FILE}
 
 ${STORY_BODY}
 
-## Team Setup
-Spawn an agent team from these specialists. Each agent must strictly respect
-the file ownership rules defined in CLAUDE.md and their own agent definition in
-.claude/agents/:
-
-- **db-engineer** — owns src/db/ (schema, migrations, seed)
-- **backend-dev** — owns src/api/, src/services/, tests/api/, tests/services/, .env
-- **frontend-dev** — owns src/client/ including co-located *.test.tsx and src/client/lib/api.ts
-
-Only spawn the agents that are actually needed for this story. Agents that have
-no work for this story should not be spawned.
-
 ## Implementation Instructions
-- Read CLAUDE.md first to understand the project structure, tech stack, and ownership rules.
+- Read CLAUDE.md first to understand the project structure, tech stack, and coding standards.
 - Implement everything required by the acceptance criteria — no more, no less.
-- Each agent works only in their owned directories.
+- Respect the project layout in CLAUDE.md: keep business logic in \`src/core/\` (UI-free, unit-testable),
+  put I/O and persistence in \`src/services/\`, and keep \`src/ui/\` for widgets and templates.
 - Do NOT change or remove existing tests. If tests need updating due to new behaviour, add new ones.
-- After implementation, run \`npx vitest run\` and fix any failures before finishing.
-
-## UX Review (only if frontend-dev was spawned)
-After frontend-dev completes, spawn a **ux-reviewer** agent to review the changed components.
-- The ux-reviewer will output two sections: minor issues and major issues.
-- Relay the minor issues back to frontend-dev and have them fix each one before the final commit.
-- The ux-reviewer may file major-issue bug reports under docs/epics/user-stories/bugs/ — this is expected and intentional.
-- Do not block the commit on major issues; they will be handled in a future loop.
+- After implementation, run the following and fix any failures before finishing:
+  - \`cargo fmt\`
+  - \`cargo clippy --all-targets -- -D warnings\`
+  - \`cargo test\`
 
 ## IMPORTANT: Only one story at a time
 Do not start or plan any other stories. Complete this story fully before stopping.
