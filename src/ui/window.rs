@@ -10,6 +10,7 @@ use std::rc::Rc;
 use crate::core::Account;
 use crate::services::AccountStore;
 use crate::ui::add_account_dialog;
+use crate::ui::edit_account_dialog;
 
 /// Build the main application window with the account list and navigation pane.
 pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
@@ -115,6 +116,53 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
                     let row = make_account_row(&account);
                     account_list.append(&row);
                     accounts.borrow_mut().push(account);
+                }
+            });
+        }
+    ));
+
+    // Row activation handler: open edit dialog for the selected account.
+    account_list.connect_row_activated(clone!(
+        #[weak]
+        window,
+        #[strong]
+        store,
+        #[strong]
+        accounts,
+        move |_, row| {
+            let index = row.index() as usize;
+            let account = {
+                let list = accounts.borrow();
+                match list.get(index) {
+                    Some(a) => a.clone(),
+                    None => return,
+                }
+            };
+            let store = store.clone();
+            let accounts = accounts.clone();
+            let row_ref = row.clone();
+            edit_account_dialog::show(&window, account, move |result| {
+                if let Some(updated) = result {
+                    if let Err(e) = store.update(updated.clone()) {
+                        eprintln!("Failed to persist account update: {e}");
+                        return;
+                    }
+                    // Update the sidebar row in place.
+                    if let Some(action_row) = row_ref.downcast_ref::<adw::ActionRow>() {
+                        action_row.set_title(updated.display_name());
+                        action_row.set_subtitle(&format!(
+                            "{} – {}:{}",
+                            updated.protocol(),
+                            updated.host(),
+                            updated.port()
+                        ));
+                    }
+                    // Update the in-memory list.
+                    let idx = row_ref.index() as usize;
+                    let mut list = accounts.borrow_mut();
+                    if idx < list.len() {
+                        list[idx] = updated;
+                    }
                 }
             });
         }

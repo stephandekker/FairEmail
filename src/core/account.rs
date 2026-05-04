@@ -48,6 +48,20 @@ pub struct NewAccountParams {
     pub smtp: Option<SmtpConfig>,
 }
 
+/// Parameters for updating an existing account. Same fields as creation
+/// (the unique identifier is preserved automatically).
+pub struct UpdateAccountParams {
+    pub display_name: String,
+    pub protocol: Protocol,
+    pub host: String,
+    pub port: u16,
+    pub encryption: EncryptionMode,
+    pub auth_method: AuthMethod,
+    pub username: String,
+    pub credential: String,
+    pub smtp: Option<SmtpConfig>,
+}
+
 /// A mail account with connection settings and a stable unique identifier.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Account {
@@ -141,8 +155,40 @@ impl Account {
         &self.username
     }
 
+    pub fn credential(&self) -> &str {
+        &self.credential
+    }
+
     pub fn smtp(&self) -> Option<&SmtpConfig> {
         self.smtp.as_ref()
+    }
+
+    /// Update all mutable fields on this account, preserving the unique identifier.
+    /// Validates the new values the same way `new()` does.
+    pub fn update(&mut self, params: UpdateAccountParams) -> Result<(), AccountValidationError> {
+        if params.display_name.trim().is_empty() {
+            return Err(AccountValidationError::EmptyDisplayName);
+        }
+        if params.host.trim().is_empty() {
+            return Err(AccountValidationError::EmptyHost);
+        }
+        if params.username.trim().is_empty() {
+            return Err(AccountValidationError::EmptyUsername);
+        }
+        if params.credential.trim().is_empty() {
+            return Err(AccountValidationError::EmptyCredential);
+        }
+
+        self.display_name = params.display_name;
+        self.protocol = params.protocol;
+        self.host = params.host;
+        self.port = params.port;
+        self.encryption = params.encryption;
+        self.auth_method = params.auth_method;
+        self.username = params.username;
+        self.credential = params.credential;
+        self.smtp = params.smtp;
+        Ok(())
     }
 }
 
@@ -264,5 +310,99 @@ mod tests {
         assert_eq!(a.id(), b.id());
         assert_eq!(a.display_name(), b.display_name());
         assert_eq!(a.host(), b.host());
+    }
+
+    fn valid_update_params() -> UpdateAccountParams {
+        UpdateAccountParams {
+            display_name: "Personal Email".into(),
+            protocol: Protocol::Pop3,
+            host: "pop.example.com".into(),
+            port: 995,
+            encryption: EncryptionMode::StartTls,
+            auth_method: AuthMethod::Login,
+            username: "new@example.com".into(),
+            credential: "new-secret".into(),
+            smtp: None,
+        }
+    }
+
+    #[test]
+    fn update_preserves_id() {
+        let mut a = valid_account();
+        let original_id = a.id();
+        a.update(valid_update_params()).unwrap();
+        assert_eq!(a.id(), original_id);
+    }
+
+    #[test]
+    fn update_changes_all_fields() {
+        let mut a = valid_account();
+        a.update(valid_update_params()).unwrap();
+        assert_eq!(a.display_name(), "Personal Email");
+        assert_eq!(a.protocol(), Protocol::Pop3);
+        assert_eq!(a.host(), "pop.example.com");
+        assert_eq!(a.port(), 995);
+        assert_eq!(a.encryption(), EncryptionMode::StartTls);
+        assert_eq!(a.auth_method(), AuthMethod::Login);
+        assert_eq!(a.username(), "new@example.com");
+        assert_eq!(a.credential(), "new-secret");
+    }
+
+    #[test]
+    fn update_rejects_empty_display_name() {
+        let mut a = valid_account();
+        let mut p = valid_update_params();
+        p.display_name = "  ".into();
+        assert!(matches!(
+            a.update(p),
+            Err(AccountValidationError::EmptyDisplayName)
+        ));
+        // Original fields unchanged after rejected update.
+        assert_eq!(a.display_name(), "Work Email");
+    }
+
+    #[test]
+    fn update_rejects_empty_host() {
+        let mut a = valid_account();
+        let mut p = valid_update_params();
+        p.host = "".into();
+        assert!(matches!(
+            a.update(p),
+            Err(AccountValidationError::EmptyHost)
+        ));
+    }
+
+    #[test]
+    fn update_rejects_empty_username() {
+        let mut a = valid_account();
+        let mut p = valid_update_params();
+        p.username = "".into();
+        assert!(matches!(
+            a.update(p),
+            Err(AccountValidationError::EmptyUsername)
+        ));
+    }
+
+    #[test]
+    fn update_rejects_empty_credential() {
+        let mut a = valid_account();
+        let mut p = valid_update_params();
+        p.credential = " ".into();
+        assert!(matches!(
+            a.update(p),
+            Err(AccountValidationError::EmptyCredential)
+        ));
+    }
+
+    #[test]
+    fn update_no_partial_mutation_on_validation_failure() {
+        let mut a = valid_account();
+        let original_host = a.host().to_string();
+        let mut p = valid_update_params();
+        p.credential = "".into(); // Will fail validation
+        let _ = a.update(p);
+        // No fields should have changed.
+        assert_eq!(a.host(), original_host);
+        assert_eq!(a.display_name(), "Work Email");
     }
 }

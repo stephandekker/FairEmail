@@ -2,6 +2,8 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use uuid::Uuid;
+
 use crate::core::Account;
 
 /// Errors from the account persistence layer.
@@ -11,6 +13,8 @@ pub enum StoreError {
     Io(#[from] std::io::Error),
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("account not found: {0}")]
+    NotFound(Uuid),
 }
 
 /// Persists accounts as a JSON array in a single file.
@@ -45,6 +49,18 @@ impl AccountStore {
     pub fn add(&self, account: Account) -> Result<(), StoreError> {
         let mut accounts = self.load_all()?;
         accounts.push(account);
+        self.write_all(&accounts)
+    }
+
+    /// Replace an existing account (matched by id) with the given updated account.
+    /// The full list is rewritten atomically (NFR-3).
+    pub fn update(&self, updated: Account) -> Result<(), StoreError> {
+        let mut accounts = self.load_all()?;
+        let pos = accounts
+            .iter()
+            .position(|a| a.id() == updated.id())
+            .ok_or(StoreError::NotFound(updated.id()))?;
+        accounts[pos] = updated;
         self.write_all(&accounts)
     }
 
@@ -123,6 +139,83 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = AccountStore::new(dir.path().join("accounts.json"));
         store.add(make_account("A")).unwrap();
+        assert!(!dir.path().join(".accounts.tmp").exists());
+    }
+
+    #[test]
+    fn update_persists_changed_account() {
+        use crate::core::UpdateAccountParams;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = AccountStore::new(dir.path().join("accounts.json"));
+        let acct = make_account("Original");
+        let id = acct.id();
+        store.add(acct).unwrap();
+
+        // Load, update, and persist.
+        let mut loaded = store.load_all().unwrap();
+        assert_eq!(loaded.len(), 1);
+        loaded[0]
+            .update(UpdateAccountParams {
+                display_name: "Updated".into(),
+                protocol: Protocol::Pop3,
+                host: "pop.example.com".into(),
+                port: 995,
+                encryption: EncryptionMode::StartTls,
+                auth_method: AuthMethod::Login,
+                username: "updated@example.com".into(),
+                credential: "new-secret".into(),
+                smtp: None,
+            })
+            .unwrap();
+        store.update(loaded[0].clone()).unwrap();
+
+        // Reload and verify.
+        let reloaded = store.load_all().unwrap();
+        assert_eq!(reloaded.len(), 1);
+        assert_eq!(reloaded[0].id(), id);
+        assert_eq!(reloaded[0].display_name(), "Updated");
+        assert_eq!(reloaded[0].host(), "pop.example.com");
+    }
+
+    #[test]
+    fn update_returns_not_found_for_missing_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AccountStore::new(dir.path().join("accounts.json"));
+        store.add(make_account("Existing")).unwrap();
+
+        // Try to update an account that was never stored.
+        let other = make_account("Other");
+        let result = store.update(other);
+        assert!(matches!(result, Err(StoreError::NotFound(_))));
+    }
+
+    #[test]
+    fn update_is_atomic() {
+        use crate::core::UpdateAccountParams;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = AccountStore::new(dir.path().join("accounts.json"));
+        let acct = make_account("A");
+        store.add(acct).unwrap();
+
+        let mut loaded = store.load_all().unwrap();
+        loaded[0]
+            .update(UpdateAccountParams {
+                display_name: "B".into(),
+                protocol: Protocol::Imap,
+                host: "imap.example.com".into(),
+                port: 993,
+                encryption: EncryptionMode::SslTls,
+                auth_method: AuthMethod::Plain,
+                username: "user@example.com".into(),
+                credential: "secret".into(),
+                smtp: None,
+            })
+            .unwrap();
+        store.update(loaded[0].clone()).unwrap();
+
+        // No temp file left behind.
         assert!(!dir.path().join(".accounts.tmp").exists());
     }
 }
