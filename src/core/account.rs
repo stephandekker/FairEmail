@@ -691,6 +691,58 @@ impl Account {
         })
     }
 
+    /// Create a new account with a specific UUID (used for importing accounts).
+    /// Validates required fields the same way `new()` does.
+    pub(crate) fn new_with_id(
+        id: Uuid,
+        params: NewAccountParams,
+    ) -> Result<Self, AccountValidationError> {
+        if params.display_name.trim().is_empty() {
+            return Err(AccountValidationError::EmptyDisplayName);
+        }
+        if params.host.trim().is_empty() {
+            return Err(AccountValidationError::EmptyHost);
+        }
+        if params.username.trim().is_empty() {
+            return Err(AccountValidationError::EmptyUsername);
+        }
+        if params.credential.trim().is_empty() {
+            return Err(AccountValidationError::EmptyCredential);
+        }
+
+        Ok(Self {
+            id,
+            display_name: params.display_name,
+            protocol: params.protocol,
+            host: params.host,
+            port: params.port,
+            encryption: params.encryption,
+            auth_method: params.auth_method,
+            username: params.username,
+            credential: params.credential,
+            smtp: params.smtp,
+            pop3_settings: params.pop3_settings,
+            color: params.color,
+            avatar_path: params.avatar_path,
+            category: params.category,
+            sync_enabled: params.sync_enabled,
+            on_demand: params.on_demand,
+            polling_interval_minutes: params.polling_interval_minutes,
+            unmetered_only: params.unmetered_only,
+            vpn_only: params.vpn_only,
+            schedule_exempt: params.schedule_exempt,
+            is_primary: false,
+            error_state: None,
+            system_folders: params.system_folders,
+            swipe_defaults: params.swipe_defaults,
+            notifications_enabled: params.notifications_enabled,
+            quota: None,
+            security_settings: params.security_settings,
+            fetch_settings: params.fetch_settings,
+            keep_alive_settings: params.keep_alive_settings,
+        })
+    }
+
     pub fn id(&self) -> Uuid {
         self.id
     }

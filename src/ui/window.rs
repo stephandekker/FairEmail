@@ -17,6 +17,7 @@ use crate::services::{AccountStore, AppSettings, OrderStore, SettingsStore};
 use crate::ui::add_account_dialog;
 use crate::ui::edit_account_dialog;
 use crate::ui::export_dialog;
+use crate::ui::import_dialog;
 
 /// Build the main application window with the account list and navigation pane.
 pub(crate) fn build(
@@ -50,6 +51,14 @@ pub(crate) fn build(
         .accessible_role(gtk::AccessibleRole::Button)
         .build();
     sidebar_header.pack_start(&export_btn);
+
+    // FR-49: import button for importing account configurations.
+    let import_btn = gtk::Button::builder()
+        .icon_name("document-open-symbolic")
+        .tooltip_text(gettextrs::gettext("Import accounts"))
+        .accessible_role(gtk::AccessibleRole::Button)
+        .build();
+    sidebar_header.pack_start(&import_btn);
 
     // FR-21: toggle button for category grouping in the navigation pane.
     let category_toggle = gtk::ToggleButton::builder()
@@ -548,6 +557,70 @@ pub(crate) fn build(
         move |_| {
             let accts = accounts.borrow().clone();
             export_dialog::show(&window, accts, |_success| {});
+        }
+    ));
+
+    // FR-49: import button handler — open import dialog.
+    import_btn.connect_clicked(clone!(
+        #[weak]
+        window,
+        #[strong]
+        store,
+        #[strong]
+        accounts,
+        #[strong]
+        settings,
+        #[strong]
+        custom_order,
+        #[strong]
+        order_store,
+        #[strong]
+        conn_state_mgr,
+        #[weak]
+        account_list,
+        move |_| {
+            let store = store.clone();
+            let accounts_rc = accounts.clone();
+            let settings = settings.clone();
+            let custom_order = custom_order.clone();
+            let order_store = order_store.clone();
+            let conn_state_mgr = conn_state_mgr.clone();
+            let account_list = account_list.clone();
+            let accts = accounts.borrow().clone();
+            import_dialog::show(&window, accts, move |result| {
+                if let Some(updated_accounts) = result {
+                    // Determine which accounts are new (not in the old list).
+                    let old_ids: Vec<uuid::Uuid> =
+                        accounts_rc.borrow().iter().map(|a| a.id()).collect();
+
+                    // Replace the accounts list with the updated one.
+                    *accounts_rc.borrow_mut() = updated_accounts.clone();
+
+                    // Persist all accounts.
+                    for acct in &updated_accounts {
+                        if old_ids.contains(&acct.id()) {
+                            let _ = store.update(acct.clone());
+                        } else {
+                            let _ = store.add(acct.clone());
+                            conn_state_mgr.borrow_mut().ensure_account(acct.id());
+                            // Add new account to custom order if one exists.
+                            let mut order = custom_order.borrow_mut();
+                            if let Some(ref mut o) = *order {
+                                o.push(acct.id());
+                                let _ = order_store.save(o);
+                            }
+                        }
+                    }
+
+                    rebuild_account_list(
+                        &account_list,
+                        &accounts_rc.borrow(),
+                        settings.borrow().category_display_enabled,
+                        custom_order.borrow().as_deref(),
+                        &conn_state_mgr.borrow(),
+                    );
+                }
+            });
         }
     ));
 

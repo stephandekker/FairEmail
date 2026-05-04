@@ -5,6 +5,7 @@ pub mod connection_test;
 pub mod delete_account;
 pub mod duplicate_account;
 pub mod export_accounts;
+pub mod import_accounts;
 pub mod navigation;
 pub mod primary;
 pub mod sync_conditions;
@@ -28,6 +29,10 @@ pub use duplicate_account::duplicate as duplicate_account;
 pub use export_accounts::{
     export_accounts, EncryptedEnvelope, ExportCategory, ExportEnvelope, ExportError, ExportOptions,
     ExportedAccount,
+};
+pub use import_accounts::{
+    import_accounts, parse_import_data, AccountImportOutcome, DuplicateStrategy, ImportError,
+    ImportOptions, ImportResult,
 };
 pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
 pub use primary::{
