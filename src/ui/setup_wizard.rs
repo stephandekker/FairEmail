@@ -5,6 +5,7 @@ use libadwaita::prelude::*;
 
 use glib::clone;
 
+use crate::core::privacy;
 use crate::core::wizard_validation::{
     validate_wizard_fields, WizardFieldError, WizardValidationResult,
 };
@@ -149,6 +150,52 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             }
         }
     ));
+
+    // -- Privacy policy links (FR-37, FR-38, AC-17) --
+    let privacy_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(4)
+        .margin_top(4)
+        .build();
+
+    // Security guarantee (FR-38).
+    let security_label = gtk::Label::builder()
+        .label(gettextrs::gettext(privacy::password_security_notice()))
+        .css_classes(["dim-label", "caption"])
+        .wrap(true)
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .build();
+    privacy_box.append(&security_label);
+
+    // Link row for both privacy policies.
+    let links_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .build();
+
+    let app_privacy_link = gtk::LinkButton::builder()
+        .label(gettextrs::gettext("Privacy Policy"))
+        .uri(privacy::APP_PRIVACY_POLICY_URL)
+        .build();
+    app_privacy_link.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Application privacy policy",
+    ))]);
+    links_box.append(&app_privacy_link);
+
+    let autoconfig_privacy_link = gtk::LinkButton::builder()
+        .label(gettextrs::gettext("Mozilla Privacy Policy"))
+        .uri(privacy::AUTOCONFIG_PRIVACY_POLICY_URL)
+        .build();
+    autoconfig_privacy_link.update_property(&[gtk::accessible::Property::Label(
+        &gettextrs::gettext("Mozilla autoconfig service privacy policy"),
+    )]);
+    links_box.append(&autoconfig_privacy_link);
+
+    privacy_box.append(&links_box);
+    vbox.append(&privacy_box);
 
     // -- Check button (FR-7) --
     let btn_box = gtk::Box::builder()
