@@ -28,6 +28,103 @@ pub enum AuthMethod {
     OAuth2,
 }
 
+/// System folder roles that can be assigned to server folders (FR-35, US-36).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FolderRole {
+    Drafts,
+    Sent,
+    Archive,
+    Trash,
+    Junk,
+}
+
+impl FolderRole {
+    /// Returns all defined folder roles.
+    pub fn all() -> &'static [FolderRole] {
+        &[
+            FolderRole::Drafts,
+            FolderRole::Sent,
+            FolderRole::Archive,
+            FolderRole::Trash,
+            FolderRole::Junk,
+        ]
+    }
+}
+
+impl std::fmt::Display for FolderRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Drafts => write!(f, "Drafts"),
+            Self::Sent => write!(f, "Sent"),
+            Self::Archive => write!(f, "Archive"),
+            Self::Trash => write!(f, "Trash"),
+            Self::Junk => write!(f, "Junk"),
+        }
+    }
+}
+
+/// Per-account mapping of system folder roles to server folder names (FR-35, FR-36, US-36).
+/// Each field is `None` when not assigned (or not auto-detected).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SystemFolders {
+    pub drafts: Option<String>,
+    pub sent: Option<String>,
+    pub archive: Option<String>,
+    pub trash: Option<String>,
+    pub junk: Option<String>,
+}
+
+impl SystemFolders {
+    /// Get the folder name assigned to a given role.
+    pub fn get(&self, role: FolderRole) -> Option<&str> {
+        match role {
+            FolderRole::Drafts => self.drafts.as_deref(),
+            FolderRole::Sent => self.sent.as_deref(),
+            FolderRole::Archive => self.archive.as_deref(),
+            FolderRole::Trash => self.trash.as_deref(),
+            FolderRole::Junk => self.junk.as_deref(),
+        }
+    }
+
+    /// Set the folder name for a given role.
+    pub fn set(&mut self, role: FolderRole, folder_name: Option<String>) {
+        match role {
+            FolderRole::Drafts => self.drafts = folder_name,
+            FolderRole::Sent => self.sent = folder_name,
+            FolderRole::Archive => self.archive = folder_name,
+            FolderRole::Trash => self.trash = folder_name,
+            FolderRole::Junk => self.junk = folder_name,
+        }
+    }
+
+    /// Returns true if all roles are unassigned.
+    pub fn is_empty(&self) -> bool {
+        self.drafts.is_none()
+            && self.sent.is_none()
+            && self.archive.is_none()
+            && self.trash.is_none()
+            && self.junk.is_none()
+    }
+}
+
+/// Auto-detect system folder assignments from IMAP SPECIAL-USE metadata (FR-36).
+/// Takes a list of `(folder_name, special_use_attribute)` pairs as reported by the server.
+/// Known SPECIAL-USE attributes: `\Drafts`, `\Sent`, `\Archive`, `\Trash`, `\Junk`.
+pub fn detect_system_folders(folder_attributes: &[(String, String)]) -> SystemFolders {
+    let mut result = SystemFolders::default();
+    for (name, attr) in folder_attributes {
+        match attr.as_str() {
+            "\\Drafts" => result.drafts = Some(name.clone()),
+            "\\Sent" => result.sent = Some(name.clone()),
+            "\\Archive" => result.archive = Some(name.clone()),
+            "\\Trash" => result.trash = Some(name.clone()),
+            "\\Junk" => result.junk = Some(name.clone()),
+            _ => {}
+        }
+    }
+    result
+}
+
 /// POP3-specific behaviour settings (US-31, US-32, US-33, US-34, FR-9).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pop3Settings {
@@ -131,6 +228,9 @@ pub struct NewAccountParams {
     pub vpn_only: bool,
     /// Exempt this account from the global sync schedule (FR-7, US-30).
     pub schedule_exempt: bool,
+    /// IMAP system folder designations (FR-35, FR-36, US-36).
+    /// Should be `None` for POP3 accounts.
+    pub system_folders: Option<SystemFolders>,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -166,6 +266,9 @@ pub struct UpdateAccountParams {
     pub vpn_only: bool,
     /// Exempt this account from the global sync schedule (FR-7, US-30).
     pub schedule_exempt: bool,
+    /// IMAP system folder designations (FR-35, FR-36, US-36).
+    /// Should be `None` for POP3 accounts.
+    pub system_folders: Option<SystemFolders>,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -221,6 +324,10 @@ pub struct Account {
     /// Cleared automatically when synchronization is disabled (FR-32, AC-11).
     #[serde(default)]
     error_state: Option<String>,
+    /// IMAP system folder designations (FR-35, FR-36, US-36).
+    /// `None` for POP3 accounts or when not yet configured.
+    #[serde(default)]
+    system_folders: Option<SystemFolders>,
 }
 
 /// A local folder associated with an account.
@@ -355,6 +462,7 @@ impl Account {
             schedule_exempt: params.schedule_exempt,
             is_primary: false,
             error_state: None,
+            system_folders: params.system_folders,
         })
     }
 
@@ -496,6 +604,16 @@ impl Account {
         self.is_primary = primary;
     }
 
+    /// IMAP system folder designations (FR-35, FR-36, US-36).
+    pub fn system_folders(&self) -> Option<&SystemFolders> {
+        self.system_folders.as_ref()
+    }
+
+    /// Set or clear the system folder designations (FR-35, FR-36, US-36).
+    pub fn set_system_folders(&mut self, folders: Option<SystemFolders>) {
+        self.system_folders = folders;
+    }
+
     /// Update all mutable fields on this account, preserving the unique identifier.
     /// Validates the new values the same way `new()` does.
     pub fn update(&mut self, params: UpdateAccountParams) -> Result<(), AccountValidationError> {
@@ -531,6 +649,7 @@ impl Account {
         self.unmetered_only = params.unmetered_only;
         self.vpn_only = params.vpn_only;
         self.schedule_exempt = params.schedule_exempt;
+        self.system_folders = params.system_folders;
         Ok(())
     }
 }
@@ -589,6 +708,7 @@ mod tests {
             unmetered_only: false,
             vpn_only: false,
             schedule_exempt: false,
+            system_folders: None,
         }
     }
 
@@ -686,6 +806,7 @@ mod tests {
             unmetered_only: false,
             vpn_only: false,
             schedule_exempt: false,
+            system_folders: None,
         }
     }
 
@@ -911,6 +1032,7 @@ mod tests {
             unmetered_only: false,
             vpn_only: false,
             schedule_exempt: false,
+            system_folders: None,
         };
         acct.update(up).unwrap();
         assert_eq!(acct.id(), original_id);
@@ -1598,5 +1720,200 @@ mod tests {
 
         let cats = collect_categories(&[a1, a2]);
         assert_eq!(cats, vec!["Personal"]);
+    }
+
+    // -- System folder designation tests (FR-35, FR-36, US-36) --
+
+    #[test]
+    fn system_folders_defaults_to_none() {
+        let acct = valid_account();
+        assert!(acct.system_folders().is_none());
+    }
+
+    #[test]
+    fn system_folders_can_be_set_on_creation() {
+        let mut p = valid_params();
+        p.system_folders = Some(SystemFolders {
+            drafts: Some("Drafts".into()),
+            sent: Some("Sent".into()),
+            archive: Some("Archive".into()),
+            trash: Some("Trash".into()),
+            junk: Some("Spam".into()),
+        });
+        let acct = Account::new(p).unwrap();
+        let sf = acct.system_folders().unwrap();
+        assert_eq!(sf.drafts.as_deref(), Some("Drafts"));
+        assert_eq!(sf.sent.as_deref(), Some("Sent"));
+        assert_eq!(sf.archive.as_deref(), Some("Archive"));
+        assert_eq!(sf.trash.as_deref(), Some("Trash"));
+        assert_eq!(sf.junk.as_deref(), Some("Spam"));
+    }
+
+    #[test]
+    fn system_folders_can_be_changed_via_update() {
+        let mut acct = valid_account();
+        assert!(acct.system_folders().is_none());
+        let mut up = valid_update_params();
+        up.system_folders = Some(SystemFolders {
+            drafts: Some("MyDrafts".into()),
+            sent: None,
+            archive: None,
+            trash: Some("Deleted Items".into()),
+            junk: None,
+        });
+        acct.update(up).unwrap();
+        let sf = acct.system_folders().unwrap();
+        assert_eq!(sf.drafts.as_deref(), Some("MyDrafts"));
+        assert_eq!(sf.trash.as_deref(), Some("Deleted Items"));
+        assert!(sf.sent.is_none());
+    }
+
+    #[test]
+    fn system_folders_can_be_cleared_via_update() {
+        let mut p = valid_params();
+        p.system_folders = Some(SystemFolders {
+            drafts: Some("Drafts".into()),
+            ..Default::default()
+        });
+        let mut acct = Account::new(p).unwrap();
+        assert!(acct.system_folders().is_some());
+        let mut up = valid_update_params();
+        up.system_folders = None;
+        acct.update(up).unwrap();
+        assert!(acct.system_folders().is_none());
+    }
+
+    #[test]
+    fn system_folders_set_and_get_by_role() {
+        let mut sf = SystemFolders::default();
+        assert!(sf.is_empty());
+        sf.set(FolderRole::Drafts, Some("Drafts".into()));
+        sf.set(FolderRole::Junk, Some("Bulk Mail".into()));
+        assert_eq!(sf.get(FolderRole::Drafts), Some("Drafts"));
+        assert_eq!(sf.get(FolderRole::Junk), Some("Bulk Mail"));
+        assert!(sf.get(FolderRole::Sent).is_none());
+        assert!(!sf.is_empty());
+    }
+
+    #[test]
+    fn system_folders_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.system_folders = Some(SystemFolders {
+            drafts: Some("Drafts".into()),
+            sent: Some("Sent Items".into()),
+            archive: None,
+            trash: Some("Deleted Items".into()),
+            junk: Some("Junk E-mail".into()),
+        });
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(acct.system_folders(), restored.system_folders());
+    }
+
+    #[test]
+    fn deserialize_account_without_system_folders_defaults_to_none() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("system_folders");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.system_folders().is_none());
+    }
+
+    #[test]
+    fn system_folders_override_auto_detected() {
+        // Simulate auto-detection then user override (FR-36).
+        let detected = detect_system_folders(&[
+            ("Drafts".into(), "\\Drafts".into()),
+            ("Sent".into(), "\\Sent".into()),
+            ("Trash".into(), "\\Trash".into()),
+        ]);
+        assert_eq!(detected.drafts.as_deref(), Some("Drafts"));
+        assert_eq!(detected.sent.as_deref(), Some("Sent"));
+        assert_eq!(detected.trash.as_deref(), Some("Trash"));
+
+        // User overrides Sent folder.
+        let mut overridden = detected.clone();
+        overridden.sent = Some("Sent Messages".into());
+        assert_eq!(overridden.sent.as_deref(), Some("Sent Messages"));
+        // Other auto-detected values remain.
+        assert_eq!(overridden.drafts.as_deref(), Some("Drafts"));
+    }
+
+    #[test]
+    fn detect_system_folders_from_special_use() {
+        let attrs = vec![
+            ("Drafts".into(), "\\Drafts".into()),
+            ("Sent".into(), "\\Sent".into()),
+            ("All Mail".into(), "\\Archive".into()),
+            ("Bin".into(), "\\Trash".into()),
+            ("Spam".into(), "\\Junk".into()),
+            ("INBOX".into(), "\\Inbox".into()), // Not a system folder role
+        ];
+        let sf = detect_system_folders(&attrs);
+        assert_eq!(sf.drafts.as_deref(), Some("Drafts"));
+        assert_eq!(sf.sent.as_deref(), Some("Sent"));
+        assert_eq!(sf.archive.as_deref(), Some("All Mail"));
+        assert_eq!(sf.trash.as_deref(), Some("Bin"));
+        assert_eq!(sf.junk.as_deref(), Some("Spam"));
+    }
+
+    #[test]
+    fn detect_system_folders_partial() {
+        let attrs = vec![("Sent".into(), "\\Sent".into())];
+        let sf = detect_system_folders(&attrs);
+        assert!(sf.drafts.is_none());
+        assert_eq!(sf.sent.as_deref(), Some("Sent"));
+        assert!(sf.archive.is_none());
+        assert!(sf.trash.is_none());
+        assert!(sf.junk.is_none());
+    }
+
+    #[test]
+    fn detect_system_folders_empty_input() {
+        let sf = detect_system_folders(&[]);
+        assert!(sf.is_empty());
+    }
+
+    #[test]
+    fn folder_role_all_returns_five_roles() {
+        assert_eq!(FolderRole::all().len(), 5);
+    }
+
+    #[test]
+    fn folder_role_display() {
+        assert_eq!(FolderRole::Drafts.to_string(), "Drafts");
+        assert_eq!(FolderRole::Sent.to_string(), "Sent");
+        assert_eq!(FolderRole::Archive.to_string(), "Archive");
+        assert_eq!(FolderRole::Trash.to_string(), "Trash");
+        assert_eq!(FolderRole::Junk.to_string(), "Junk");
+    }
+
+    #[test]
+    fn system_folders_set_via_setter_method() {
+        let mut acct = valid_account();
+        acct.set_system_folders(Some(SystemFolders {
+            drafts: Some("Drafts".into()),
+            ..Default::default()
+        }));
+        assert_eq!(
+            acct.system_folders().unwrap().drafts.as_deref(),
+            Some("Drafts")
+        );
+        acct.set_system_folders(None);
+        assert!(acct.system_folders().is_none());
+    }
+
+    #[test]
+    fn pop3_account_system_folders_not_applicable() {
+        // POP3 accounts have fixed local folders; system_folders should be None.
+        let mut p = valid_params();
+        p.protocol = Protocol::Pop3;
+        p.host = "pop.example.com".into();
+        p.port = 995;
+        p.pop3_settings = Some(Pop3Settings::default());
+        p.system_folders = None;
+        let acct = Account::new(p).unwrap();
+        assert!(acct.system_folders().is_none());
     }
 }

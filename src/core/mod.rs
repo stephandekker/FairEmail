@@ -6,9 +6,9 @@ pub mod primary;
 pub mod sync_conditions;
 
 pub use account::{
-    collect_categories, resolve_color, Account, AccountColor, AccountValidationError, AuthMethod,
-    EncryptionMode, Folder, NewAccountParams, Pop3Settings, Protocol, SmtpConfig,
-    UpdateAccountParams,
+    collect_categories, detect_system_folders, resolve_color, Account, AccountColor,
+    AccountValidationError, AuthMethod, EncryptionMode, Folder, FolderRole, NewAccountParams,
+    Pop3Settings, Protocol, SmtpConfig, SystemFolders, UpdateAccountParams,
 };
 pub use account_order::{apply_custom_order, default_order, move_account, order_from_accounts};
 pub use connection_test::{

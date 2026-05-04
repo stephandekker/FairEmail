@@ -10,7 +10,7 @@ use libadwaita::prelude::*;
 use crate::core::connection_test::{ConnectionTestRequest, ServerConnectionParams};
 use crate::core::{
     Account, AccountColor, AuthMethod, EncryptionMode, Pop3Settings, Protocol, SmtpConfig,
-    UpdateAccountParams,
+    SystemFolders, UpdateAccountParams,
 };
 use crate::services::connection_tester::{ConnectionTester, MockConnectionTester};
 
@@ -518,12 +518,69 @@ pub(crate) fn show(
 
     vbox.append(&pop3_group);
 
-    // Show/hide POP3 settings when protocol changes.
+    // -- IMAP system folder designation (FR-35, FR-36, US-36) --
+    let system_folders_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("System Folders"))
+        .description(gettextrs::gettext(
+            "Designate which server folder serves each role",
+        ))
+        .visible(account.protocol() == Protocol::Imap)
+        .build();
+
+    let existing_sf = account.system_folders();
+
+    let drafts_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Drafts"))
+        .build();
+    if let Some(v) = existing_sf.and_then(|sf| sf.drafts.as_deref()) {
+        drafts_row.set_text(v);
+    }
+    system_folders_group.add(&drafts_row);
+
+    let sent_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Sent"))
+        .build();
+    if let Some(v) = existing_sf.and_then(|sf| sf.sent.as_deref()) {
+        sent_row.set_text(v);
+    }
+    system_folders_group.add(&sent_row);
+
+    let archive_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Archive"))
+        .build();
+    if let Some(v) = existing_sf.and_then(|sf| sf.archive.as_deref()) {
+        archive_row.set_text(v);
+    }
+    system_folders_group.add(&archive_row);
+
+    let trash_folder_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Trash"))
+        .build();
+    if let Some(v) = existing_sf.and_then(|sf| sf.trash.as_deref()) {
+        trash_folder_row.set_text(v);
+    }
+    system_folders_group.add(&trash_folder_row);
+
+    let junk_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Junk"))
+        .build();
+    if let Some(v) = existing_sf.and_then(|sf| sf.junk.as_deref()) {
+        junk_row.set_text(v);
+    }
+    system_folders_group.add(&junk_row);
+
+    vbox.append(&system_folders_group);
+
+    // Show/hide POP3 settings and system folders when protocol changes.
     protocol_row.connect_selected_notify(clone!(
         #[weak]
         pop3_group,
+        #[weak]
+        system_folders_group,
         move |row| {
-            pop3_group.set_visible(row.selected() == 1);
+            let is_pop3 = row.selected() == 1;
+            pop3_group.set_visible(is_pop3);
+            system_folders_group.set_visible(!is_pop3);
         }
     ));
 
@@ -767,6 +824,16 @@ pub(crate) fn show(
         vpn_row,
         #[weak]
         schedule_exempt_row,
+        #[weak]
+        drafts_row,
+        #[weak]
+        sent_row,
+        #[weak]
+        archive_row,
+        #[weak]
+        trash_folder_row,
+        #[weak]
+        junk_row,
         #[strong]
         color_active,
         #[strong]
@@ -803,6 +870,23 @@ pub(crate) fn show(
                     keep_on_device_when_deleted_from_server: keep_on_device_row.is_active(),
                     max_messages_to_download: if max_val == 0 { None } else { Some(max_val) },
                 })
+            } else {
+                None
+            };
+
+            let system_folders = if protocol == Protocol::Imap {
+                let sf = SystemFolders {
+                    drafts: non_empty_text(&drafts_row),
+                    sent: non_empty_text(&sent_row),
+                    archive: non_empty_text(&archive_row),
+                    trash: non_empty_text(&trash_folder_row),
+                    junk: non_empty_text(&junk_row),
+                };
+                if sf.is_empty() {
+                    None
+                } else {
+                    Some(sf)
+                }
             } else {
                 None
             };
@@ -853,6 +937,7 @@ pub(crate) fn show(
                 unmetered_only: unmetered_row.is_active(),
                 vpn_only: vpn_row.is_active(),
                 schedule_exempt: schedule_exempt_row.is_active(),
+                system_folders,
             };
 
             let mut acct = account.borrow_mut();
@@ -912,5 +997,15 @@ fn auth_to_combo(a: AuthMethod) -> u32 {
         AuthMethod::Plain => 0,
         AuthMethod::Login => 1,
         AuthMethod::OAuth2 => 2,
+    }
+}
+
+fn non_empty_text(row: &adw::EntryRow) -> Option<String> {
+    let text = row.text().to_string();
+    let trimmed = text.trim().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
     }
 }

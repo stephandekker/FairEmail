@@ -105,6 +105,7 @@ mod tests {
             unmetered_only: false,
             vpn_only: false,
             schedule_exempt: false,
+            system_folders: None,
         })
         .unwrap()
     }
@@ -130,6 +131,7 @@ mod tests {
             unmetered_only: false,
             vpn_only: false,
             schedule_exempt: false,
+            system_folders: None,
         })
         .unwrap()
     }
@@ -249,6 +251,7 @@ mod tests {
                 unmetered_only: false,
                 vpn_only: false,
                 schedule_exempt: false,
+                system_folders: None,
             })
             .unwrap();
 

@@ -103,6 +103,7 @@ mod tests {
             unmetered_only,
             vpn_only,
             schedule_exempt,
+            system_folders: None,
         })
         .unwrap()
     }
