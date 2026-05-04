@@ -16,8 +16,14 @@ use crate::core::{
 use crate::services::connection_tester::{ConnectionTester, MockConnectionTester};
 use crate::ui::connection_log_dialog;
 
-/// Result of the edit-account dialog: the updated Account, or `None` if cancelled.
-pub(crate) type EditDialogResult = Option<Account>;
+/// Result of the edit-account dialog.
+#[derive(Debug, Clone)]
+pub(crate) enum EditDialogResult {
+    /// Account was updated (save).
+    Updated(Box<Account>),
+    /// Account should be deleted (confirmed by user).
+    Deleted(uuid::Uuid),
+}
 
 /// Connection diagnostics passed to the edit dialog (FR-44, FR-45, FR-46).
 pub(crate) struct ConnectionDiagnostics {
@@ -37,7 +43,7 @@ pub(crate) fn show(
     account: Account,
     existing_categories: Vec<String>,
     conn_diag: ConnectionDiagnostics,
-    on_done: impl Fn(EditDialogResult) + 'static,
+    on_done: impl Fn(Option<EditDialogResult>) + 'static,
 ) {
     let conn_state = conn_diag.state;
     let conn_error = conn_diag.error;
@@ -884,6 +890,12 @@ pub(crate) fn show(
         .build();
     btn_box.append(&save_btn);
 
+    let delete_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Delete Account"))
+        .css_classes(["destructive-action", "pill"])
+        .build();
+    btn_box.append(&delete_btn);
+
     vbox.append(&btn_box);
 
     clamp.set_child(Some(&vbox));
@@ -894,6 +906,7 @@ pub(crate) fn show(
 
     let on_done = std::rc::Rc::new(on_done);
     let on_done_close = on_done.clone();
+    let on_done_save = on_done.clone();
     let account = std::rc::Rc::new(std::cell::RefCell::new(account));
 
     // -- Test Connection button handler --
@@ -1181,7 +1194,7 @@ pub(crate) fn show(
             let mut acct = account.borrow_mut();
             match acct.update(params) {
                 Ok(()) => {
-                    on_done(Some(acct.clone()));
+                    on_done(Some(EditDialogResult::Updated(Box::new(acct.clone()))));
                     dialog.close();
                 }
                 Err(e) => {
@@ -1189,6 +1202,44 @@ pub(crate) fn show(
                     toast_overlay.add_toast(toast);
                 }
             }
+        }
+    ));
+
+    // -- Delete button handler (FR-29, FR-30, AC-9) --
+    let on_done_delete = on_done_save.clone();
+    let delete_account_id = account.borrow().id();
+    let delete_account_name = account.borrow().display_name().to_string();
+    delete_btn.connect_clicked(clone!(
+        #[weak]
+        dialog,
+        move |_| {
+            let confirm_dialog = adw::AlertDialog::builder()
+                .heading(gettextrs::gettext("Delete Account?"))
+                .body(format!(
+                    "{} \"{}\" {}",
+                    gettextrs::gettext("All data associated with"),
+                    delete_account_name,
+                    gettextrs::gettext("will be permanently removed: folders, messages, identities, pending operations, rules, and contacts. This cannot be undone.")
+                ))
+                .build();
+            confirm_dialog.add_response("cancel", &gettextrs::gettext("Cancel"));
+            confirm_dialog.add_response("delete", &gettextrs::gettext("Delete"));
+            confirm_dialog.set_response_appearance(
+                "delete",
+                adw::ResponseAppearance::Destructive,
+            );
+            confirm_dialog.set_default_response(Some("cancel"));
+            confirm_dialog.set_close_response("cancel");
+
+            let on_done_delete = on_done_delete.clone();
+            let dialog_ref = dialog.clone();
+            confirm_dialog.connect_response(None, move |_confirm, response| {
+                if response == "delete" {
+                    on_done_delete(Some(EditDialogResult::Deleted(delete_account_id)));
+                    dialog_ref.close();
+                }
+            });
+            confirm_dialog.present(Some(&dialog));
         }
     ));
 

@@ -64,6 +64,19 @@ impl AccountStore {
         self.write_all(&accounts)
     }
 
+    /// Remove an account by ID. The full list is rewritten atomically (NFR-3).
+    /// Returns the removed account, or `NotFound` if no account with that ID exists.
+    pub fn delete(&self, id: Uuid) -> Result<Account, StoreError> {
+        let mut accounts = self.load_all()?;
+        let pos = accounts
+            .iter()
+            .position(|a| a.id() == id)
+            .ok_or(StoreError::NotFound(id))?;
+        let removed = accounts.remove(pos);
+        self.write_all(&accounts)?;
+        Ok(removed)
+    }
+
     /// Atomically write the full account list to disk.
     fn write_all(&self, accounts: &[Account]) -> Result<(), StoreError> {
         let json = serde_json::to_string_pretty(accounts)?;
@@ -255,6 +268,45 @@ mod tests {
         store.update(loaded[0].clone()).unwrap();
 
         // No temp file left behind.
+        assert!(!dir.path().join(".accounts.tmp").exists());
+    }
+
+    #[test]
+    fn delete_removes_account() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AccountStore::new(dir.path().join("accounts.json"));
+        let acct1 = make_account("A");
+        let acct2 = make_account("B");
+        let id1 = acct1.id();
+        let id2 = acct2.id();
+        store.add(acct1).unwrap();
+        store.add(acct2).unwrap();
+
+        let removed = store.delete(id1).unwrap();
+        assert_eq!(removed.id(), id1);
+
+        let remaining = store.load_all().unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id(), id2);
+    }
+
+    #[test]
+    fn delete_returns_not_found_for_missing_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AccountStore::new(dir.path().join("accounts.json"));
+        store.add(make_account("A")).unwrap();
+        let result = store.delete(Uuid::new_v4());
+        assert!(matches!(result, Err(StoreError::NotFound(_))));
+    }
+
+    #[test]
+    fn delete_is_atomic() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AccountStore::new(dir.path().join("accounts.json"));
+        let acct = make_account("A");
+        let id = acct.id();
+        store.add(acct).unwrap();
+        store.delete(id).unwrap();
         assert!(!dir.path().join(".accounts.tmp").exists());
     }
 }

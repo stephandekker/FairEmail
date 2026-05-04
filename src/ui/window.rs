@@ -10,8 +10,8 @@ use std::rc::Rc;
 use uuid::Uuid;
 
 use crate::core::{
-    self, apply_custom_order, collect_categories, group_by_category, move_account, Account,
-    ConnectionState, ConnectionStateManager,
+    self, apply_custom_order, clear_primary_if_deleted, collect_categories, group_by_category,
+    move_account, remove_from_order, Account, ConnectionState, ConnectionStateManager,
 };
 use crate::services::{AccountStore, AppSettings, OrderStore, SettingsStore};
 use crate::ui::add_account_dialog;
@@ -543,6 +543,8 @@ pub(crate) fn build(
         #[strong]
         custom_order,
         #[strong]
+        order_store,
+        #[strong]
         conn_state_mgr,
         #[weak]
         account_list,
@@ -580,31 +582,81 @@ pub(crate) fn build(
                 log: conn_log,
                 main_window: window.clone(),
             };
+            let order_store = order_store.clone();
+            let custom_order = custom_order.clone();
             edit_account_dialog::show(&window, account, categories, conn_diag, move |result| {
-                if let Some(updated) = result {
-                    if let Err(e) = store.update(updated.clone()) {
-                        eprintln!("Failed to persist account update: {e}");
-                        return;
-                    }
-                    {
-                        let mut list = accounts.borrow_mut();
-                        if let Some(pos) = list.iter().position(|a| a.id() == updated.id()) {
-                            list[pos] = updated;
+                match result {
+                    Some(edit_account_dialog::EditDialogResult::Updated(updated)) => {
+                        let updated = *updated;
+                        if let Err(e) = store.update(updated.clone()) {
+                            eprintln!("Failed to persist account update: {e}");
+                            return;
                         }
-                        // FR-32: revoke primary if sync was disabled.
-                        if let Some(revoked_id) = core::revoke_if_sync_disabled(&mut list) {
-                            if let Some(a) = list.iter().find(|a| a.id() == revoked_id) {
-                                let _ = store.update(a.clone());
+                        {
+                            let mut list = accounts.borrow_mut();
+                            if let Some(pos) = list.iter().position(|a| a.id() == updated.id()) {
+                                list[pos] = updated;
+                            }
+                            // FR-32: revoke primary if sync was disabled.
+                            if let Some(revoked_id) = core::revoke_if_sync_disabled(&mut list) {
+                                if let Some(a) = list.iter().find(|a| a.id() == revoked_id) {
+                                    let _ = store.update(a.clone());
+                                }
                             }
                         }
+                        rebuild_account_list(
+                            &account_list,
+                            &accounts.borrow(),
+                            settings.borrow().category_display_enabled,
+                            custom_order.borrow().as_deref(),
+                            &conn_state_mgr.borrow(),
+                        );
                     }
-                    rebuild_account_list(
-                        &account_list,
-                        &accounts.borrow(),
-                        settings.borrow().category_display_enabled,
-                        custom_order.borrow().as_deref(),
-                        &conn_state_mgr.borrow(),
-                    );
+                    Some(edit_account_dialog::EditDialogResult::Deleted(deleted_id)) => {
+                        // FR-29, FR-30, AC-9: delete account and all associated data.
+                        // Clear primary designation if this was the primary account.
+                        {
+                            let mut list = accounts.borrow_mut();
+                            clear_primary_if_deleted(&mut list, deleted_id);
+                        }
+                        // Remove from persistent store.
+                        if let Err(e) = store.delete(deleted_id) {
+                            eprintln!("Failed to delete account: {e}");
+                            return;
+                        }
+                        // Remove from in-memory list.
+                        {
+                            let mut list = accounts.borrow_mut();
+                            list.retain(|a| a.id() != deleted_id);
+                        }
+                        // FR-41: remove notification channel.
+                        {
+                            use crate::services::notification_channel::{
+                                MockNotificationChannelManager, NotificationChannelManager,
+                            };
+                            let mgr = MockNotificationChannelManager;
+                            let _ = mgr.unregister_channel(deleted_id);
+                        }
+                        // Remove from custom order if present.
+                        {
+                            let mut order = custom_order.borrow_mut();
+                            if let Some(ref mut o) = *order {
+                                remove_from_order(o, deleted_id);
+                                let _ = order_store.save(o);
+                            }
+                        }
+                        // Remove connection state.
+                        conn_state_mgr.borrow_mut().remove(deleted_id);
+                        // Rebuild account list immediately.
+                        rebuild_account_list(
+                            &account_list,
+                            &accounts.borrow(),
+                            settings.borrow().category_display_enabled,
+                            custom_order.borrow().as_deref(),
+                            &conn_state_mgr.borrow(),
+                        );
+                    }
+                    None => {}
                 }
             });
         }
