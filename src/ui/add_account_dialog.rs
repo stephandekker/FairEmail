@@ -123,6 +123,106 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
     color_group.add(&color_row);
     vbox.append(&color_group);
 
+    // -- Account avatar (FR-5, FR-13, US-15, US-16) --
+    let avatar_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Account Avatar"))
+        .build();
+
+    let avatar_row = adw::ActionRow::builder()
+        .title(gettextrs::gettext("Avatar"))
+        .build();
+
+    let avatar_image = gtk::Image::builder()
+        .icon_name("avatar-default-symbolic")
+        .pixel_size(32)
+        .valign(gtk::Align::Center)
+        .build();
+    avatar_image.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Account avatar preview",
+    ))]);
+
+    let avatar_path: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
+    let choose_avatar_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Choose Image…"))
+        .valign(gtk::Align::Center)
+        .tooltip_text(gettextrs::gettext("Pick an avatar image for this account"))
+        .build();
+    choose_avatar_btn.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Choose avatar image",
+    ))]);
+
+    let clear_avatar_btn = gtk::Button::builder()
+        .icon_name("edit-clear-symbolic")
+        .tooltip_text(gettextrs::gettext("Clear account avatar"))
+        .valign(gtk::Align::Center)
+        .css_classes(["flat"])
+        .sensitive(false)
+        .build();
+    clear_avatar_btn.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Clear account avatar",
+    ))]);
+
+    choose_avatar_btn.connect_clicked(clone!(
+        #[strong]
+        avatar_path,
+        #[weak]
+        avatar_image,
+        #[weak]
+        clear_avatar_btn,
+        move |_| {
+            let file_dialog = gtk::FileDialog::builder()
+                .title(gettextrs::gettext("Choose Avatar Image"))
+                .modal(true)
+                .build();
+            let filter = gtk::FileFilter::new();
+            filter.set_name(Some(&gettextrs::gettext("Image files")));
+            filter.add_mime_type("image/png");
+            filter.add_mime_type("image/jpeg");
+            filter.add_mime_type("image/svg+xml");
+            filter.add_mime_type("image/webp");
+            let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
+            filters.append(&filter);
+            file_dialog.set_filters(Some(&filters));
+
+            let avatar_path = avatar_path.clone();
+            let avatar_image = avatar_image.clone();
+            let clear_avatar_btn = clear_avatar_btn.clone();
+            file_dialog.open(
+                None::<&gtk::Window>,
+                gtk::gio::Cancellable::NONE,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            let path_str = path.to_string_lossy().to_string();
+                            avatar_image.set_from_file(Some(&path_str));
+                            *avatar_path.borrow_mut() = Some(path_str);
+                            clear_avatar_btn.set_sensitive(true);
+                        }
+                    }
+                },
+            );
+        }
+    ));
+
+    clear_avatar_btn.connect_clicked(clone!(
+        #[strong]
+        avatar_path,
+        #[weak]
+        avatar_image,
+        move |btn| {
+            *avatar_path.borrow_mut() = None;
+            avatar_image.set_icon_name(Some("avatar-default-symbolic"));
+            btn.set_sensitive(false);
+        }
+    ));
+
+    avatar_row.add_prefix(&avatar_image);
+    avatar_row.add_suffix(&choose_avatar_btn);
+    avatar_row.add_suffix(&clear_avatar_btn);
+    avatar_group.add(&avatar_row);
+    vbox.append(&avatar_group);
+
     // -- Incoming server settings --
     let server_group = adw::PreferencesGroup::builder()
         .title(gettextrs::gettext("Incoming Server"))
@@ -457,6 +557,8 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
         color_btn,
         #[strong]
         color_active,
+        #[strong]
+        avatar_path,
         move |_| {
             let protocol = match protocol_row.selected() {
                 0 => Protocol::Imap,
@@ -498,6 +600,8 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
                 None
             };
 
+            let avatar = avatar_path.borrow().clone();
+
             match Account::new(NewAccountParams {
                 display_name: name_row.text().to_string(),
                 protocol,
@@ -510,6 +614,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(DialogResul
                 smtp,
                 pop3_settings,
                 color,
+                avatar_path: avatar,
             }) {
                 Ok(account) => {
                     on_done(Some(account));

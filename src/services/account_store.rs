@@ -101,6 +101,7 @@ mod tests {
             smtp: None,
             pop3_settings: None,
             color: None,
+            avatar_path: None,
         })
         .unwrap()
     }
@@ -170,6 +171,7 @@ mod tests {
                 smtp: None,
                 pop3_settings: None,
                 color: None,
+                avatar_path: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();
@@ -217,6 +219,7 @@ mod tests {
                 smtp: None,
                 pop3_settings: None,
                 color: None,
+                avatar_path: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();

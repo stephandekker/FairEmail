@@ -184,6 +184,16 @@ fn make_account_row(account: &Account) -> adw::ActionRow {
         .activatable(true)
         .build();
 
+    // FR-13, AC-6: display account avatar alongside the account name.
+    if let Some(path) = account.avatar_path() {
+        let avatar = gtk::Image::builder()
+            .pixel_size(32)
+            .valign(gtk::Align::Center)
+            .build();
+        avatar.set_from_file(Some(path));
+        row.add_prefix(&avatar);
+    }
+
     // FR-14: account colour stripe as a leading prefix indicator.
     if let Some(color) = account.color() {
         let hex = color.to_hex();

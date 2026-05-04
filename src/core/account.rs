@@ -110,6 +110,8 @@ pub struct NewAccountParams {
     pub pop3_settings: Option<Pop3Settings>,
     /// Optional account colour (FR-5, FR-12).
     pub color: Option<AccountColor>,
+    /// Optional avatar image path (FR-5, FR-13).
+    pub avatar_path: Option<String>,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -128,6 +130,8 @@ pub struct UpdateAccountParams {
     pub pop3_settings: Option<Pop3Settings>,
     /// Optional account colour (FR-5, FR-12).
     pub color: Option<AccountColor>,
+    /// Optional avatar image path (FR-5, FR-13).
+    pub avatar_path: Option<String>,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -151,6 +155,9 @@ pub struct Account {
     /// Optional account colour (FR-5, FR-12).
     #[serde(default)]
     color: Option<AccountColor>,
+    /// Optional avatar image path (FR-5, FR-13).
+    #[serde(default)]
+    avatar_path: Option<String>,
 }
 
 /// A local folder associated with an account.
@@ -260,6 +267,7 @@ impl Account {
             smtp: params.smtp,
             pop3_settings: params.pop3_settings,
             color: params.color,
+            avatar_path: params.avatar_path,
         })
     }
 
@@ -311,6 +319,10 @@ impl Account {
         self.color
     }
 
+    pub fn avatar_path(&self) -> Option<&str> {
+        self.avatar_path.as_deref()
+    }
+
     /// Update all mutable fields on this account, preserving the unique identifier.
     /// Validates the new values the same way `new()` does.
     pub fn update(&mut self, params: UpdateAccountParams) -> Result<(), AccountValidationError> {
@@ -338,6 +350,7 @@ impl Account {
         self.smtp = params.smtp;
         self.pop3_settings = params.pop3_settings;
         self.color = params.color;
+        self.avatar_path = params.avatar_path;
         Ok(())
     }
 }
@@ -388,6 +401,7 @@ mod tests {
             smtp: None,
             pop3_settings: None,
             color: None,
+            avatar_path: None,
         }
     }
 
@@ -477,6 +491,7 @@ mod tests {
             smtp: None,
             pop3_settings: None,
             color: None,
+            avatar_path: None,
         }
     }
 
@@ -694,6 +709,7 @@ mod tests {
                 max_messages_to_download: Some(100),
             }),
             color: None,
+            avatar_path: None,
         };
         acct.update(up).unwrap();
         assert_eq!(acct.id(), original_id);
@@ -841,5 +857,62 @@ mod tests {
         let ac = AccountColor::new(1.0, 0.0, 0.0);
         let ic = AccountColor::new(0.0, 0.0, 1.0);
         assert_eq!(resolve_color(Some(ac), None, Some(ic)), Some(ic));
+    }
+
+    // -- Account avatar tests (FR-5, FR-13, US-15, US-16) --
+
+    #[test]
+    fn account_avatar_defaults_to_none() {
+        let acct = valid_account();
+        assert!(acct.avatar_path().is_none());
+    }
+
+    #[test]
+    fn account_avatar_can_be_set_on_creation() {
+        let mut p = valid_params();
+        p.avatar_path = Some("/home/user/photo.png".into());
+        let acct = Account::new(p).unwrap();
+        assert_eq!(acct.avatar_path(), Some("/home/user/photo.png"));
+    }
+
+    #[test]
+    fn account_avatar_can_be_changed_via_update() {
+        let mut acct = valid_account();
+        assert!(acct.avatar_path().is_none());
+        let mut up = valid_update_params();
+        up.avatar_path = Some("/tmp/avatar.jpg".into());
+        acct.update(up).unwrap();
+        assert_eq!(acct.avatar_path(), Some("/tmp/avatar.jpg"));
+    }
+
+    #[test]
+    fn account_avatar_can_be_cleared_via_update() {
+        let mut p = valid_params();
+        p.avatar_path = Some("/tmp/avatar.png".into());
+        let mut acct = Account::new(p).unwrap();
+        assert!(acct.avatar_path().is_some());
+        let mut up = valid_update_params();
+        up.avatar_path = None;
+        acct.update(up).unwrap();
+        assert!(acct.avatar_path().is_none());
+    }
+
+    #[test]
+    fn account_avatar_serialization_roundtrip() {
+        let mut p = valid_params();
+        p.avatar_path = Some("/data/avatars/work.png".into());
+        let acct = Account::new(p).unwrap();
+        let json = serde_json::to_string(&acct).unwrap();
+        let restored: Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(acct.avatar_path(), restored.avatar_path());
+    }
+
+    #[test]
+    fn deserialize_account_without_avatar_defaults_to_none() {
+        let acct = valid_account();
+        let mut json: serde_json::Value = serde_json::to_value(&acct).unwrap();
+        json.as_object_mut().unwrap().remove("avatar_path");
+        let restored: Account = serde_json::from_value(json).unwrap();
+        assert!(restored.avatar_path().is_none());
     }
 }
