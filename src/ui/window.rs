@@ -7,13 +7,17 @@ use libadwaita::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::core::{self, collect_categories, Account};
-use crate::services::AccountStore;
+use crate::core::{self, collect_categories, group_by_category, sort_accounts_flat, Account};
+use crate::services::{AccountStore, AppSettings, SettingsStore};
 use crate::ui::add_account_dialog;
 use crate::ui::edit_account_dialog;
 
 /// Build the main application window with the account list and navigation pane.
-pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
+pub(crate) fn build(
+    app: &adw::Application,
+    store: Rc<AccountStore>,
+    settings_store: Rc<SettingsStore>,
+) {
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title(gettextrs::gettext("Alarm Clock – Accounts"))
@@ -31,6 +35,14 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
         .accessible_role(gtk::AccessibleRole::Button)
         .build();
     sidebar_header.pack_start(&add_btn);
+
+    // FR-21: toggle button for category grouping in the navigation pane.
+    let category_toggle = gtk::ToggleButton::builder()
+        .icon_name("view-list-symbolic")
+        .tooltip_text(gettextrs::gettext("Group by category"))
+        .accessible_role(gtk::AccessibleRole::ToggleButton)
+        .build();
+    sidebar_header.pack_end(&category_toggle);
 
     let account_list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::Single)
@@ -84,15 +96,42 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
     // Shared mutable list of accounts for the sidebar model.
     let accounts: Rc<RefCell<Vec<Account>>> = Rc::new(RefCell::new(Vec::new()));
 
+    // Load settings and initialise toggle state.
+    let settings: Rc<RefCell<AppSettings>> =
+        Rc::new(RefCell::new(settings_store.load().unwrap_or_default()));
+    category_toggle.set_active(settings.borrow().category_display_enabled);
+
     // Populate from store on startup.
     {
         let loaded = store.load_all().unwrap_or_default();
-        for acct in &loaded {
-            let row = make_account_row(acct);
-            account_list.append(&row);
-        }
         *accounts.borrow_mut() = loaded;
+        rebuild_account_list(
+            &account_list,
+            &accounts.borrow(),
+            settings.borrow().category_display_enabled,
+        );
     }
+
+    // FR-21: toggle category display on/off and persist the setting.
+    category_toggle.connect_toggled(clone!(
+        #[strong]
+        settings_store,
+        #[strong]
+        settings,
+        #[strong]
+        accounts,
+        #[weak]
+        account_list,
+        move |btn| {
+            let enabled = btn.is_active();
+            {
+                let mut s = settings.borrow_mut();
+                s.category_display_enabled = enabled;
+                let _ = settings_store.save(&s);
+            }
+            rebuild_account_list(&account_list, &accounts.borrow(), enabled);
+        }
+    ));
 
     // -- "Set as Primary" context menu on right-click (FR-24, FR-25) --
     let gesture = gtk::GestureClick::builder()
@@ -103,18 +142,18 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
         store,
         #[strong]
         accounts,
+        #[strong]
+        settings,
         #[weak]
         account_list,
         move |gesture, _, x, y| {
             let widget = gesture.widget();
             if let Some(row) = account_list.row_at_y(y as i32) {
-                let index = row.index() as usize;
-                let mut list = accounts.borrow_mut();
-                if let Some(acct) = list.get(index) {
-                    let id = acct.id();
-                    if let Ok(changed) = core::set_primary(&mut list, id) {
+                let acct_id = row_account_id(&row);
+                if let Some(acct_id) = acct_id {
+                    let mut list = accounts.borrow_mut();
+                    if let Ok(changed) = core::set_primary(&mut list, acct_id) {
                         if !changed.is_empty() {
-                            // Persist all changed accounts.
                             for changed_id in &changed {
                                 if let Some(a) = list.iter().find(|a| a.id() == *changed_id) {
                                     let _ = store.update(a.clone());
@@ -122,9 +161,13 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
                             }
                         }
                     }
+                    drop(list);
+                    rebuild_account_list(
+                        &account_list,
+                        &accounts.borrow(),
+                        settings.borrow().category_display_enabled,
+                    );
                 }
-                drop(list);
-                rebuild_account_list(&account_list, &accounts.borrow());
             }
             let _ = (widget, x);
         }
@@ -139,11 +182,14 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
         store,
         #[strong]
         accounts,
+        #[strong]
+        settings,
         #[weak]
         account_list,
         move |_| {
             let store = store.clone();
             let accounts = accounts.clone();
+            let settings = settings.clone();
             let account_list = account_list.clone();
             let categories = collect_categories(&accounts.borrow());
             add_account_dialog::show(&window, categories, move |result| {
@@ -167,8 +213,11 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
                             let _ = store.update(a.clone());
                         }
                     }
-                    // Rebuild all rows to reflect primary indicator changes.
-                    rebuild_account_list(&account_list, &accounts.borrow());
+                    rebuild_account_list(
+                        &account_list,
+                        &accounts.borrow(),
+                        settings.borrow().category_display_enabled,
+                    );
                 }
             });
         }
@@ -182,19 +231,22 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
         store,
         #[strong]
         accounts,
+        #[strong]
+        settings,
         #[weak]
         account_list,
         move |_, row| {
-            let index = row.index() as usize;
+            let acct_id = row_account_id(row);
             let account = {
                 let list = accounts.borrow();
-                match list.get(index) {
-                    Some(a) => a.clone(),
+                match acct_id.and_then(|id| list.iter().find(|a| a.id() == id).cloned()) {
+                    Some(a) => a,
                     None => return,
                 }
             };
             let store = store.clone();
             let accounts = accounts.clone();
+            let settings = settings.clone();
             let account_list = account_list.clone();
             let categories = collect_categories(&accounts.borrow());
             edit_account_dialog::show(&window, account, categories, move |result| {
@@ -215,8 +267,11 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
                             }
                         }
                     }
-                    // Rebuild all rows to reflect primary/colour changes.
-                    rebuild_account_list(&account_list, &accounts.borrow());
+                    rebuild_account_list(
+                        &account_list,
+                        &accounts.borrow(),
+                        settings.borrow().category_display_enabled,
+                    );
                 }
             });
         }
@@ -225,14 +280,56 @@ pub(crate) fn build(app: &adw::Application, store: Rc<AccountStore>) {
     window.present();
 }
 
+/// Retrieve the account UUID stored on a row widget via its `widget_name`.
+/// Returns `None` for non-account rows (e.g. category headers).
+fn row_account_id(row: &gtk::ListBoxRow) -> Option<uuid::Uuid> {
+    let name = row.widget_name();
+    uuid::Uuid::parse_str(name.as_str()).ok()
+}
+
 /// Remove all rows from the list box and rebuild from the accounts slice.
-fn rebuild_account_list(list_box: &gtk::ListBox, accounts: &[Account]) {
+/// When `category_display` is true, accounts are grouped under category headers (FR-18).
+/// When false, accounts are sorted flat: primary first, then alphabetically (FR-19).
+fn rebuild_account_list(list_box: &gtk::ListBox, accounts: &[Account], category_display: bool) {
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
     }
-    for acct in accounts {
-        let row = make_account_row(acct);
-        list_box.append(&row);
+
+    if category_display {
+        let groups = group_by_category(accounts);
+        for group in &groups {
+            // Category header row (non-activatable, non-selectable).
+            let header_label = match &group.category {
+                Some(name) => name.clone(),
+                None => gettextrs::gettext("Uncategorized"),
+            };
+            let header_row = gtk::ListBoxRow::builder()
+                .activatable(false)
+                .selectable(false)
+                .child(
+                    &gtk::Label::builder()
+                        .label(&header_label)
+                        .css_classes(["heading"])
+                        .halign(gtk::Align::Start)
+                        .margin_top(8)
+                        .margin_bottom(4)
+                        .margin_start(12)
+                        .build(),
+                )
+                .build();
+            list_box.append(&header_row);
+
+            for &idx in &group.accounts {
+                let row = make_account_row(&accounts[idx]);
+                list_box.append(&row);
+            }
+        }
+    } else {
+        let sorted = sort_accounts_flat(accounts);
+        for idx in sorted {
+            let row = make_account_row(&accounts[idx]);
+            list_box.append(&row);
+        }
     }
 }
 
@@ -250,6 +347,7 @@ fn make_account_row(account: &Account) -> adw::ActionRow {
         .title(account.display_name())
         .subtitle(&subtitle)
         .activatable(true)
+        .name(account.id().to_string())
         .build();
 
     // FR-13, AC-6: display account avatar alongside the account name.

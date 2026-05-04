@@ -1,5 +1,6 @@
 pub mod account;
 pub mod connection_test;
+pub mod navigation;
 pub mod primary;
 pub mod sync_conditions;
 
@@ -11,6 +12,7 @@ pub use account::{
 pub use connection_test::{
     ConnectionTestError, ConnectionTestRequest, ConnectionTestResult, ServerTestOutcome,
 };
+pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
 pub use primary::{
     auto_designate_on_add, revoke_if_sync_disabled, set_primary, PrimaryDesignationError,
 };
