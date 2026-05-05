@@ -5,7 +5,7 @@
 //! - Certificate fingerprint extraction on TLS failure
 //! - Connection logging via returned log records
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -336,6 +336,136 @@ impl ImapSession {
         }
     }
 
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), ImapClientError> {
+        match &mut self.stream {
+            StreamKind::Plain(r) => r.read_exact(buf),
+            StreamKind::Tls(r) => r.read_exact(buf),
+        }
+        .map_err(|e| map_io_error(&e))
+    }
+
+    fn do_select(
+        &mut self,
+        params: &ImapConnectParams,
+        folder_name: &str,
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<ImapSelectResult, ImapClientError> {
+        let quoted_name = imap_quote(folder_name);
+        let cmd = format!("SELECT {quoted_name}");
+        self.send_command("A004", &cmd)?;
+        let response = self.read_tagged_response("A004")?;
+
+        let tag_line = response
+            .lines()
+            .find(|l| l.starts_with("A004"))
+            .unwrap_or("");
+        if !tag_line.contains("OK") {
+            return Err(ImapClientError::FolderListFailed(format!(
+                "SELECT failed: {}",
+                tag_line.trim()
+            )));
+        }
+
+        let mut uidvalidity: u32 = 0;
+        let mut highestmodseq: Option<u64> = None;
+        let mut exists: u32 = 0;
+
+        for line in response.lines() {
+            // Parse "* N EXISTS"
+            if line.starts_with("* ") && line.to_uppercase().contains("EXISTS") {
+                if let Some(n) = line
+                    .trim_start_matches("* ")
+                    .split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse::<u32>().ok())
+                {
+                    exists = n;
+                }
+            }
+            // Parse "* OK [UIDVALIDITY N]"
+            let upper = line.to_uppercase();
+            if upper.contains("UIDVALIDITY") {
+                if let Some(val) = extract_bracket_value(line, "UIDVALIDITY") {
+                    uidvalidity = val as u32;
+                }
+            }
+            if upper.contains("HIGHESTMODSEQ") {
+                if let Some(val) = extract_bracket_value(line, "HIGHESTMODSEQ") {
+                    highestmodseq = Some(val);
+                }
+            }
+        }
+
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::ListFolders,
+            format!("Selected folder {folder_name}: {exists} messages, uidvalidity={uidvalidity}"),
+        ));
+
+        Ok(ImapSelectResult {
+            uidvalidity,
+            highestmodseq,
+            exists,
+        })
+    }
+
+    fn do_fetch_all(
+        &mut self,
+        params: &ImapConnectParams,
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<Vec<RawFetchedMessage>, ImapClientError> {
+        self.send_command("A005", "FETCH 1:* (UID FLAGS BODY.PEEK[])")?;
+
+        let mut messages = Vec::new();
+
+        loop {
+            let line = self.read_line()?;
+
+            // Check for tagged response (end of FETCH)
+            if line.starts_with("A005") {
+                if !line.to_uppercase().contains("OK") {
+                    return Err(ImapClientError::ConnectionFailed(format!(
+                        "FETCH failed: {}",
+                        line.trim()
+                    )));
+                }
+                break;
+            }
+
+            // Parse untagged FETCH response: * N FETCH (...)
+            if !line.starts_with("* ") || !line.to_uppercase().contains("FETCH") {
+                continue;
+            }
+
+            // Extract UID
+            let uid = extract_fetch_value(&line, "UID")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0);
+
+            // Extract FLAGS
+            let flags = extract_flags(&line).unwrap_or_default();
+
+            // Check for literal: {SIZE}
+            if let Some(literal_size) = extract_literal_size(&line) {
+                let mut data = vec![0u8; literal_size];
+                self.read_exact(&mut data)?;
+
+                // Read the closing line (contains ")")
+                let _closing = self.read_line()?;
+
+                messages.push(RawFetchedMessage { uid, flags, data });
+            }
+        }
+
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::ListFolders,
+            format!("Fetched {} messages", messages.len()),
+        ));
+
+        Ok(messages)
+    }
+
     fn do_list_folders(
         &mut self,
         params: &ImapConnectParams,
@@ -542,6 +672,57 @@ fn format_fingerprint(der: &[u8]) -> String {
         .join(":")
 }
 
+/// Extract a numeric value from an IMAP bracket response like `[UIDVALIDITY 12345]`.
+fn extract_bracket_value(line: &str, key: &str) -> Option<u64> {
+    let upper = line.to_uppercase();
+    let key_upper = key.to_uppercase();
+    let start = upper.find(&key_upper)?;
+    let rest = &line[start + key.len()..];
+    let rest = rest.trim_start();
+    // Value continues until ] or whitespace
+    let val_str: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    val_str.parse().ok()
+}
+
+/// Extract a value token after a key in a FETCH response (e.g., "UID 123").
+fn extract_fetch_value(line: &str, key: &str) -> Option<String> {
+    let upper = line.to_uppercase();
+    let key_upper = key.to_uppercase();
+    let start = upper.find(&key_upper)?;
+    let rest = &line[start + key.len()..];
+    let rest = rest.trim_start();
+    let val: String = rest
+        .chars()
+        .take_while(|c| !c.is_whitespace() && *c != ')')
+        .collect();
+    if val.is_empty() {
+        None
+    } else {
+        Some(val)
+    }
+}
+
+/// Extract FLAGS value from a FETCH response line.
+fn extract_flags(line: &str) -> Option<String> {
+    let upper = line.to_uppercase();
+    let idx = upper.find("FLAGS")?;
+    let rest = &line[idx + 5..];
+    let open = rest.find('(')?;
+    let close = rest.find(')')?;
+    Some(rest[open + 1..close].to_string())
+}
+
+/// Extract the literal size from a line ending with `{SIZE}`.
+fn extract_literal_size(line: &str) -> Option<usize> {
+    let trimmed = line.trim_end();
+    if !trimmed.ends_with('}') {
+        return None;
+    }
+    let open = trimmed.rfind('{')?;
+    let size_str = &trimmed[open + 1..trimmed.len() - 1];
+    size_str.parse().ok()
+}
+
 fn check_imap_greeting(greeting: &str) -> Result<(), ImapClientError> {
     let upper = greeting.to_uppercase();
     if upper.starts_with("* OK") || upper.starts_with("* PREAUTH") {
@@ -584,6 +765,121 @@ fn classify_connect_error(err: &str, host: &str, port: u16) -> ImapClientError {
     } else {
         ImapClientError::ConnectionFailed(err.to_string())
     }
+}
+
+/// Result of selecting a folder on the IMAP server.
+#[derive(Debug)]
+pub(crate) struct ImapSelectResult {
+    pub uidvalidity: u32,
+    pub highestmodseq: Option<u64>,
+    pub exists: u32,
+}
+
+/// A raw message fetched from the server.
+#[derive(Debug)]
+pub(crate) struct RawFetchedMessage {
+    pub uid: u32,
+    pub flags: String,
+    pub data: Vec<u8>,
+}
+
+/// Result of fetching messages from a folder.
+#[derive(Debug)]
+pub(crate) struct ImapFetchResult {
+    pub messages: Vec<RawFetchedMessage>,
+    pub select: ImapSelectResult,
+    #[allow(dead_code)]
+    pub logs: Vec<ConnectionLogRecord>,
+}
+
+/// Run an IMAP session that fetches all messages from a specific folder.
+pub(crate) fn fetch_folder_messages(
+    params: &ImapConnectParams,
+    folder_name: &str,
+) -> Result<ImapFetchResult, ImapClientError> {
+    let mut logs = Vec::new();
+
+    logs.push(ConnectionLogRecord::new(
+        params.account_id.clone(),
+        ConnectionLogEventType::ConnectAttempt,
+        format!(
+            "Connecting to {}:{} for folder fetch",
+            params.host, params.port
+        ),
+    ));
+
+    let addr = resolve_addr(&params.host, params.port)?;
+    let tcp_stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)
+        .map_err(|e| classify_connect_error(&e.to_string(), &params.host, params.port))?;
+
+    tcp_stream.set_read_timeout(Some(IO_TIMEOUT)).ok();
+    tcp_stream.set_write_timeout(Some(IO_TIMEOUT)).ok();
+
+    match params.encryption {
+        EncryptionMode::SslTls => {
+            let tls_stream = do_tls_connect(tcp_stream, params, &mut logs)?;
+            let mut session = ImapSession::new_tls(tls_stream);
+            run_fetch_session(&mut session, params, folder_name, &mut logs)
+        }
+        EncryptionMode::StartTls => {
+            let mut session = ImapSession::new_plain(tcp_stream);
+            let greeting = session.read_line()?;
+            check_imap_greeting(&greeting)?;
+            session.send_command("A000", "STARTTLS")?;
+            let response = session.read_tagged_response("A000")?;
+            if !response.to_uppercase().contains("OK") {
+                return Err(ImapClientError::TlsHandshake(
+                    "Server rejected STARTTLS".to_string(),
+                ));
+            }
+            let tcp = session.into_plain_stream();
+            let connector = build_tls_connector(params);
+            let tls_stream = connector
+                .connect(&params.host, tcp)
+                .map_err(|_| handle_tls_error(&params.host))?;
+            let mut session = ImapSession::new_tls(tls_stream);
+            session.do_capability(params, &mut logs)?;
+            session.do_login(params, &mut logs)?;
+            let select = session.do_select(params, folder_name, &mut logs)?;
+            let messages = session.do_fetch_all(params, &mut logs)?;
+            let _ = session.send_command("A099", "LOGOUT");
+            Ok(ImapFetchResult {
+                messages,
+                select,
+                logs,
+            })
+        }
+        EncryptionMode::None => {
+            let mut session = ImapSession::new_plain(tcp_stream);
+            run_fetch_session(&mut session, params, folder_name, &mut logs)
+        }
+    }
+}
+
+fn run_fetch_session(
+    session: &mut ImapSession,
+    params: &ImapConnectParams,
+    folder_name: &str,
+    logs: &mut Vec<ConnectionLogRecord>,
+) -> Result<ImapFetchResult, ImapClientError> {
+    let greeting = session.read_line()?;
+    check_imap_greeting(&greeting)?;
+
+    session.do_capability(params, logs)?;
+    session.do_login(params, logs)?;
+    let select = session.do_select(params, folder_name, logs)?;
+    let messages = if select.exists > 0 {
+        session.do_fetch_all(params, logs)?
+    } else {
+        Vec::new()
+    };
+    let _ = session.send_command("A099", "LOGOUT");
+
+    Ok(ImapFetchResult {
+        messages,
+        select,
+        logs: std::mem::take(logs),
+    })
 }
 
 fn map_io_error(e: &std::io::Error) -> ImapClientError {

@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 7;
+const CURRENT_VERSION: u32 = 8;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -59,10 +59,65 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 7 {
         migrate_v7(conn)?;
     }
+    if version < 8 {
+        migrate_v8(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v8: Create `messages` and `message_folders` tables (FR-4),
+/// and add `uidvalidity` / `highestmodseq` columns to `folders`.
+fn migrate_v8(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id TEXT NOT NULL,
+            uid INTEGER NOT NULL,
+            modseq INTEGER,
+            message_id TEXT,
+            in_reply_to TEXT,
+            references_header TEXT,
+            from_addresses TEXT,
+            to_addresses TEXT,
+            cc_addresses TEXT,
+            bcc_addresses TEXT,
+            subject TEXT,
+            date_received INTEGER,
+            date_sent INTEGER,
+            flags INTEGER NOT NULL DEFAULT 0,
+            size INTEGER NOT NULL DEFAULT 0,
+            content_hash TEXT NOT NULL,
+            body_text TEXT,
+            thread_id TEXT,
+            server_thread_id TEXT,
+            FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_messages_account
+            ON messages(account_id);
+        CREATE INDEX IF NOT EXISTS idx_messages_content_hash
+            ON messages(content_hash);
+        CREATE INDEX IF NOT EXISTS idx_messages_message_id
+            ON messages(message_id);
+
+        CREATE TABLE IF NOT EXISTS message_folders (
+            message_id INTEGER NOT NULL,
+            folder_id INTEGER NOT NULL,
+            PRIMARY KEY (message_id, folder_id),
+            FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+            FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_message_folders_folder
+            ON message_folders(folder_id);
+
+        ALTER TABLE folders ADD COLUMN uidvalidity INTEGER;
+        ALTER TABLE folders ADD COLUMN highestmodseq INTEGER;",
+    )?;
     Ok(())
 }
 

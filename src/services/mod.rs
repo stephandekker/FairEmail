@@ -5,13 +5,17 @@ pub(crate) mod database;
 pub mod export_service;
 pub mod folder_store;
 pub mod folder_sync;
+pub mod fs_content_store;
 pub mod identity_store;
 pub mod imap_checker;
 pub(crate) mod imap_client;
 pub mod import_service;
 pub mod inbound_tester;
 pub mod libsecret_credential_store;
+pub mod memory_content_store;
 pub mod memory_credential_store;
+pub mod message_fetch;
+pub mod message_store;
 pub mod network;
 pub mod notification_channel;
 pub mod order_store;
@@ -34,6 +38,7 @@ pub use connection_tester::{ConnectionTester, MockConnectionTester};
 pub use export_service::{export_to_file, ExportResult, ExportServiceError};
 pub use folder_store::{load_folders, replace_folders};
 pub use folder_sync::{perform_folder_setup, FolderSyncService, MockFolderSyncService};
+pub use fs_content_store::FsContentStore;
 pub use identity_store::{
     insert_identity, load_identities_for_account, update_max_message_size, IdentityRow,
 };
@@ -43,7 +48,13 @@ pub use import_service::{
 };
 pub use inbound_tester::{InboundTester, MockInboundTester};
 pub use libsecret_credential_store::LibsecretCredentialStore;
+pub use memory_content_store::MemoryContentStore;
 pub use memory_credential_store::MemoryCredentialStore;
+pub(crate) use message_fetch::fetch_and_store_folder;
+pub use message_store::{
+    count_messages, delete_message, find_folder_id, insert_message, load_message,
+    update_folder_sync_state,
+};
 pub use notification_channel::{MockNotificationChannelManager, NotificationChannelManager};
 pub use order_store::OrderStore;
 pub use real_connection_tester::RealConnectionTester;

@@ -5,6 +5,13 @@ mod ui;
 
 #[cfg(feature = "ui")]
 fn main() {
+    // Check for --dev-fetch before starting the UI.
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--dev-fetch") {
+        dev_fetch::run_dev_fetch(&args);
+        return;
+    }
+
     use glib::clone;
     use gtk4::prelude::*;
     use libadwaita as adw;
@@ -223,6 +230,95 @@ fn main() {
     }));
 
     app.run();
+}
+
+/// Dev-only fetch module for sanity-testing the message fetch pipeline.
+#[cfg(feature = "ui")]
+mod dev_fetch {
+    use crate::core::credential_store::{CredentialRole, CredentialStore};
+    use crate::services::imap_client::ImapConnectParams;
+    use crate::services::{
+        count_messages, database::open_and_migrate, fetch_and_store_folder, FsContentStore,
+        LibsecretCredentialStore,
+    };
+
+    pub fn run_dev_fetch(args: &[String]) {
+        // Usage: --dev-fetch <account_id> <folder_name>
+        let fetch_idx = args.iter().position(|a| a == "--dev-fetch").unwrap();
+        let account_id = args
+            .get(fetch_idx + 1)
+            .expect("Usage: --dev-fetch <account_id> <folder_name>");
+        let folder_name = args
+            .get(fetch_idx + 2)
+            .expect("Usage: --dev-fetch <account_id> <folder_name>");
+
+        let data_dir = if let Ok(custom) = std::env::var("FAIRMAIL_DATA_DIR") {
+            std::path::PathBuf::from(custom)
+        } else {
+            glib::user_data_dir().join("fairmail")
+        };
+
+        let db_path = data_dir.join("fairmail.db");
+        let conn = open_and_migrate(&db_path).expect("could not open database");
+
+        // Load account from database to get connection params.
+        let acct_store =
+            crate::services::AccountStore::new(db_path).expect("could not open account store");
+        let accounts = acct_store.load_all().expect("could not load accounts");
+        let account = accounts
+            .iter()
+            .find(|a| a.id().to_string() == *account_id)
+            .unwrap_or_else(|| panic!("Account not found: {account_id}"));
+
+        // Read IMAP credentials from keychain.
+        let cred_store = LibsecretCredentialStore::new();
+        let secret = cred_store
+            .read(account.id(), CredentialRole::ImapPassword)
+            .expect("could not read IMAP password from keychain");
+        let password = secret.expose();
+
+        let params = ImapConnectParams {
+            host: account.host().to_string(),
+            port: account.port(),
+            encryption: account.encryption(),
+            username: account.username().to_string(),
+            password: password.to_string(),
+            accepted_fingerprint: account
+                .security_settings()
+                .and_then(|s| s.certificate_fingerprint.clone()),
+            insecure: account
+                .security_settings()
+                .map(|s| s.insecure)
+                .unwrap_or(false),
+            account_id: account.id().to_string(),
+        };
+
+        let content_root = data_dir.join("messages");
+        let content_store = FsContentStore::new(content_root);
+
+        eprintln!("Fetching folder '{folder_name}' for account {account_id}...");
+
+        match fetch_and_store_folder(&conn, &content_store, &params, folder_name) {
+            Ok(result) => {
+                let total = count_messages(&conn, account_id).unwrap_or(0);
+                eprintln!("Fetch complete:");
+                eprintln!("  Messages fetched: {}", result.messages_fetched);
+                eprintln!("  UIDVALIDITY: {}", result.uidvalidity);
+                eprintln!(
+                    "  HIGHESTMODSEQ: {}",
+                    result
+                        .highestmodseq
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "N/A".to_string())
+                );
+                eprintln!("  Total messages in DB for account: {total}");
+            }
+            Err(e) => {
+                eprintln!("Fetch failed: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
 }
 
 #[cfg(not(feature = "ui"))]

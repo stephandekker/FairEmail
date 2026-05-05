@@ -7,6 +7,7 @@ pub mod certificate;
 pub mod connection_log;
 pub mod connection_state;
 pub mod connection_test;
+pub mod content_store;
 pub mod credential_store;
 pub mod delete_account;
 pub(crate) mod detection_failure;
@@ -22,6 +23,7 @@ pub mod inbound_test;
 pub mod inbound_test_diagnostics;
 #[allow(dead_code)]
 pub(crate) mod ispdb_discovery;
+pub mod message;
 pub mod navigation;
 pub(crate) mod oauth_signin;
 pub mod port_autofill;
@@ -66,6 +68,7 @@ pub use connection_state::{
 pub use connection_test::{
     ConnectionTestError, ConnectionTestRequest, ConnectionTestResult, ServerTestOutcome,
 };
+pub use content_store::{ContentStore, ContentStoreError};
 pub use credential_store::{CredentialError, CredentialRole, CredentialStore, SecretValue};
 pub use delete_account::{clear_primary_if_deleted, remove_from_order};
 pub use dns_discovery::{discover_by_dns, DnsDiscoveryResult, DnsError, DnsResolver, SrvRecord};
@@ -93,6 +96,10 @@ pub use inbound_test::{
 };
 pub use inbound_test_diagnostics::{diagnose_error, ConnectionDiagnostic};
 pub use ispdb_discovery::AutoconfigError;
+pub use message::{
+    derive_body_text, flags_from_imap, parse_raw_message, Message, NewMessage, FLAG_ANSWERED,
+    FLAG_DELETED, FLAG_DRAFT, FLAG_FLAGGED, FLAG_SEEN,
+};
 pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
 pub use oauth_signin::{
     determine_auth_options, is_oauth_provider, resolve_auth_from_choice, AuthChoice, AuthOptions,
