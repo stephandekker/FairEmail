@@ -909,6 +909,17 @@ pub(crate) fn show(
         .build();
     security_expander.add_row(&insecure_row);
 
+    // FR-11/FR-12: enabling insecure automatically disables DANE (incompatible).
+    insecure_row.connect_active_notify(clone!(
+        #[weak]
+        dane_row,
+        move |row| {
+            if row.is_active() {
+                dane_row.set_active(false);
+            }
+        }
+    ));
+
     let cert_fingerprint_row = adw::EntryRow::builder()
         .title(gettextrs::gettext("Certificate fingerprint (SHA-256)"))
         .build();
@@ -1137,6 +1148,8 @@ pub(crate) fn show(
         duplicate_btn,
         #[weak]
         delete_btn,
+        #[weak]
+        insecure_row,
         move |_| {
             let params = InboundTestParams {
                 host: host_row.text().to_string(),
@@ -1149,6 +1162,7 @@ pub(crate) fn show(
                     0 => Protocol::Imap,
                     _ => Protocol::Pop3,
                 },
+                insecure: insecure_row.is_active(),
             };
 
             // Disable all input fields and buttons during test.
@@ -1676,6 +1690,10 @@ pub(crate) fn show(
                     username: params.username.clone(),
                     credential: params.credential.clone(),
                     protocol: params.protocol,
+                    insecure: params
+                        .security_settings
+                        .as_ref()
+                        .is_some_and(|s| s.insecure),
                 };
                 let tester = MockInboundTester;
                 let result = tester.test_inbound(&test_params);

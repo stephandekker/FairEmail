@@ -784,6 +784,7 @@ fn show_inner(
                     0 => Protocol::Imap,
                     _ => Protocol::Pop3,
                 },
+                insecure: false,
             };
 
             // Disable all input fields and buttons during test.
@@ -1078,7 +1079,7 @@ fn show_inner(
             let raw_password = password_row.text().to_string();
 
             // FR-17 through FR-22: validate fields before save.
-            let validation = validate_manual_fields(&raw_host, &raw_username, &raw_password);
+            let validation = validate_manual_fields(&raw_host, &raw_username, &raw_password, false);
 
             if !validation.is_valid() {
                 use crate::core::field_validation::ManualFieldError;
@@ -1219,6 +1220,7 @@ fn show_inner(
                     username: username.clone(),
                     credential: raw_password.clone(),
                     protocol,
+                    insecure: false,
                 };
                 let tester = MockInboundTester;
                 let result = tester.test_inbound(&test_params);

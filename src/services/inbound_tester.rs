@@ -124,6 +124,7 @@ mod tests {
             username: "user@example.com".into(),
             credential: "secret".into(),
             protocol: Protocol::Imap,
+            insecure: false,
         }
     }
 

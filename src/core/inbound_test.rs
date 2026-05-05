@@ -16,6 +16,9 @@ pub struct InboundTestParams {
     pub username: String,
     pub credential: String,
     pub protocol: Protocol,
+    /// When true, skip certificate verification (FR-11, FR-12).
+    /// Also relaxes username/credential requirements (FR-18, FR-19).
+    pub insecure: bool,
 }
 
 /// The result of a successful inbound connection test.
@@ -59,15 +62,19 @@ pub type InboundTestResult = Result<InboundTestSuccess, InboundTestError>;
 
 impl InboundTestParams {
     /// Validate that the parameters are sufficient to attempt a connection.
+    ///
+    /// When `insecure` is true, username and credential are not required (FR-18, FR-19).
     pub fn validate(&self) -> Result<(), InboundTestError> {
         if self.host.trim().is_empty() {
             return Err(InboundTestError::EmptyHost);
         }
-        if self.username.trim().is_empty() {
-            return Err(InboundTestError::EmptyUsername);
-        }
-        if self.credential.trim().is_empty() {
-            return Err(InboundTestError::EmptyCredential);
+        if !self.insecure {
+            if self.username.trim().is_empty() {
+                return Err(InboundTestError::EmptyUsername);
+            }
+            if self.credential.trim().is_empty() {
+                return Err(InboundTestError::EmptyCredential);
+            }
         }
         Ok(())
     }
@@ -133,6 +140,7 @@ mod tests {
             username: "user@example.com".into(),
             credential: "password".into(),
             protocol: Protocol::Imap,
+            insecure: false,
         }
     }
 
@@ -226,6 +234,33 @@ mod tests {
         let caps = success.format_capabilities();
         assert!(caps.contains("IDLE: supported"));
         assert!(caps.contains("UTF-8: supported"));
+    }
+
+    #[test]
+    fn validate_insecure_allows_empty_username() {
+        let mut params = valid_params();
+        params.insecure = true;
+        params.username = "".into();
+        assert!(params.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_insecure_allows_empty_credential() {
+        let mut params = valid_params();
+        params.insecure = true;
+        params.credential = "".into();
+        assert!(params.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_insecure_still_requires_host() {
+        let mut params = valid_params();
+        params.insecure = true;
+        params.host = "".into();
+        assert!(matches!(
+            params.validate(),
+            Err(InboundTestError::EmptyHost)
+        ));
     }
 
     #[test]

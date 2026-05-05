@@ -60,10 +60,12 @@ impl ManualValidationResult {
 /// - `hostname` and `username` are trimmed before checking (FR-21).
 /// - `password` is checked for emptiness and warned about whitespace/control chars (FR-19, FR-20).
 /// - `port` is validated as numeric with at most 5 digits (FR-22).
+/// - When `insecure` is true, username and password are not required (FR-18, FR-19).
 pub fn validate_manual_fields(
     hostname: &str,
     username: &str,
     password: &str,
+    insecure: bool,
 ) -> ManualValidationResult {
     let mut errors = Vec::new();
 
@@ -72,14 +74,16 @@ pub fn validate_manual_fields(
         errors.push(ManualFieldError::EmptyHostname);
     }
 
-    // FR-18: username is required after trimming (strict default).
-    if username.trim().is_empty() {
-        errors.push(ManualFieldError::EmptyUsername);
-    }
+    if !insecure {
+        // FR-18: username is required after trimming (strict default).
+        if username.trim().is_empty() {
+            errors.push(ManualFieldError::EmptyUsername);
+        }
 
-    // FR-19: password is required (strict default).
-    if password.is_empty() {
-        errors.push(ManualFieldError::EmptyPassword);
+        // FR-19: password is required (strict default).
+        if password.is_empty() {
+            errors.push(ManualFieldError::EmptyPassword);
+        }
     }
 
     // FR-20: password warnings (non-blocking).
@@ -140,19 +144,19 @@ mod tests {
 
     #[test]
     fn empty_hostname_produces_error() {
-        let result = validate_manual_fields("", "user", "pass");
+        let result = validate_manual_fields("", "user", "pass", false);
         assert!(result.errors.contains(&ManualFieldError::EmptyHostname));
     }
 
     #[test]
     fn whitespace_only_hostname_produces_error() {
-        let result = validate_manual_fields("   ", "user", "pass");
+        let result = validate_manual_fields("   ", "user", "pass", false);
         assert!(result.errors.contains(&ManualFieldError::EmptyHostname));
     }
 
     #[test]
     fn valid_hostname_no_error() {
-        let result = validate_manual_fields("imap.example.com", "user", "pass");
+        let result = validate_manual_fields("imap.example.com", "user", "pass", false);
         assert!(!result.errors.contains(&ManualFieldError::EmptyHostname));
     }
 
@@ -160,19 +164,19 @@ mod tests {
 
     #[test]
     fn empty_username_produces_error() {
-        let result = validate_manual_fields("host.com", "", "pass");
+        let result = validate_manual_fields("host.com", "", "pass", false);
         assert!(result.errors.contains(&ManualFieldError::EmptyUsername));
     }
 
     #[test]
     fn whitespace_only_username_produces_error() {
-        let result = validate_manual_fields("host.com", "  \t  ", "pass");
+        let result = validate_manual_fields("host.com", "  \t  ", "pass", false);
         assert!(result.errors.contains(&ManualFieldError::EmptyUsername));
     }
 
     #[test]
     fn valid_username_no_error() {
-        let result = validate_manual_fields("host.com", "alice", "pass");
+        let result = validate_manual_fields("host.com", "alice", "pass", false);
         assert!(!result.errors.contains(&ManualFieldError::EmptyUsername));
     }
 
@@ -180,13 +184,13 @@ mod tests {
 
     #[test]
     fn empty_password_produces_error() {
-        let result = validate_manual_fields("host.com", "user", "");
+        let result = validate_manual_fields("host.com", "user", "", false);
         assert!(result.errors.contains(&ManualFieldError::EmptyPassword));
     }
 
     #[test]
     fn non_empty_password_no_error() {
-        let result = validate_manual_fields("host.com", "user", "secret");
+        let result = validate_manual_fields("host.com", "user", "secret", false);
         assert!(!result.errors.contains(&ManualFieldError::EmptyPassword));
     }
 
@@ -194,7 +198,7 @@ mod tests {
 
     #[test]
     fn password_leading_whitespace_warning() {
-        let result = validate_manual_fields("host.com", "user", " secret");
+        let result = validate_manual_fields("host.com", "user", " secret", false);
         assert!(result
             .password_warnings
             .contains(&PasswordWarning::LeadingTrailingWhitespace));
@@ -202,7 +206,7 @@ mod tests {
 
     #[test]
     fn password_trailing_whitespace_warning() {
-        let result = validate_manual_fields("host.com", "user", "secret ");
+        let result = validate_manual_fields("host.com", "user", "secret ", false);
         assert!(result
             .password_warnings
             .contains(&PasswordWarning::LeadingTrailingWhitespace));
@@ -210,7 +214,7 @@ mod tests {
 
     #[test]
     fn password_control_character_warning() {
-        let result = validate_manual_fields("host.com", "user", "sec\x01ret");
+        let result = validate_manual_fields("host.com", "user", "sec\x01ret", false);
         assert!(result
             .password_warnings
             .contains(&PasswordWarning::ControlCharacters));
@@ -218,13 +222,13 @@ mod tests {
 
     #[test]
     fn clean_password_no_warnings() {
-        let result = validate_manual_fields("host.com", "user", "secret");
+        let result = validate_manual_fields("host.com", "user", "secret", false);
         assert!(result.password_warnings.is_empty());
     }
 
     #[test]
     fn password_warnings_are_non_blocking() {
-        let result = validate_manual_fields("host.com", "user", " secret\t");
+        let result = validate_manual_fields("host.com", "user", " secret\t", false);
         assert!(result.is_valid());
         assert!(!result.password_warnings.is_empty());
     }
@@ -244,7 +248,7 @@ mod tests {
     #[test]
     fn hostname_with_leading_whitespace_passes_validation_after_trim() {
         // The field has whitespace but the actual value is non-empty
-        let result = validate_manual_fields("  imap.example.com  ", "user", "pass");
+        let result = validate_manual_fields("  imap.example.com  ", "user", "pass", false);
         assert!(result.is_valid());
     }
 
@@ -284,14 +288,41 @@ mod tests {
 
     #[test]
     fn all_empty_produces_all_errors() {
-        let result = validate_manual_fields("", "", "");
+        let result = validate_manual_fields("", "", "", false);
         assert_eq!(result.errors.len(), 3);
     }
 
     #[test]
     fn all_valid_no_errors() {
-        let result = validate_manual_fields("host.com", "user", "pass");
+        let result = validate_manual_fields("host.com", "user", "pass", false);
         assert!(result.is_valid());
         assert!(result.password_warnings.is_empty());
+    }
+
+    // -- Insecure mode relaxation (FR-18, FR-19) --
+
+    #[test]
+    fn insecure_allows_empty_username() {
+        let result = validate_manual_fields("host.com", "", "pass", true);
+        assert!(!result.errors.contains(&ManualFieldError::EmptyUsername));
+    }
+
+    #[test]
+    fn insecure_allows_empty_password() {
+        let result = validate_manual_fields("host.com", "user", "", true);
+        assert!(!result.errors.contains(&ManualFieldError::EmptyPassword));
+    }
+
+    #[test]
+    fn insecure_still_requires_hostname() {
+        let result = validate_manual_fields("", "", "", true);
+        assert!(result.errors.contains(&ManualFieldError::EmptyHostname));
+        assert_eq!(result.errors.len(), 1);
+    }
+
+    #[test]
+    fn insecure_with_all_fields_valid() {
+        let result = validate_manual_fields("host.com", "user", "pass", true);
+        assert!(result.is_valid());
     }
 }
