@@ -39,6 +39,8 @@ pub(crate) struct ImapConnectParams {
     pub accepted_fingerprint: Option<String>,
     pub insecure: bool,
     pub account_id: String,
+    /// Path to a PKCS#12 client certificate file for mutual TLS (FR-9).
+    pub client_certificate: Option<String>,
 }
 
 /// Errors from the real IMAP client.
@@ -885,6 +887,15 @@ fn build_tls_connector(params: &ImapConnectParams) -> TlsConnector {
     if params.insecure || params.accepted_fingerprint.is_some() {
         builder.danger_accept_invalid_certs(true);
         builder.danger_accept_invalid_hostnames(true);
+    }
+    // Load client certificate for mutual TLS if configured (FR-9).
+    if let Some(ref cert_path) = params.client_certificate {
+        if let Ok(pkcs12_data) = std::fs::read(cert_path) {
+            // Try with empty password first (most common for exported certs).
+            if let Ok(identity) = native_tls::Identity::from_pkcs12(&pkcs12_data, "") {
+                builder.identity(identity);
+            }
+        }
     }
     builder.build().unwrap_or_else(|_| {
         TlsConnector::builder()

@@ -330,6 +330,9 @@ mod dev_fetch {
                 .map(|s| s.insecure)
                 .unwrap_or(false),
             account_id: account.id().to_string(),
+            client_certificate: account
+                .security_settings()
+                .and_then(|s| s.client_certificate.clone()),
         };
 
         let content_root = data_dir.join("messages");

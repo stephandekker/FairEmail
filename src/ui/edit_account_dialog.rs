@@ -928,13 +928,112 @@ pub(crate) fn show(
     }
     security_expander.add_row(&cert_fingerprint_row);
 
-    let client_cert_row = adw::EntryRow::builder()
+    // Client certificate selector (FR-9, FR-19).
+    let client_cert_path: std::rc::Rc<std::cell::RefCell<Option<String>>> = std::rc::Rc::new(
+        std::cell::RefCell::new(existing_sec.and_then(|s| s.client_certificate.clone())),
+    );
+
+    let client_cert_label = gtk::Label::builder()
+        .label(
+            client_cert_path
+                .borrow()
+                .as_deref()
+                .and_then(|p| std::path::Path::new(p).file_name().and_then(|n| n.to_str()))
+                .unwrap_or(&gettextrs::gettext("None")),
+        )
+        .xalign(0.0)
+        .hexpand(true)
+        .ellipsize(gtk::pango::EllipsizeMode::Middle)
+        .build();
+
+    let cert_select_btn = gtk::Button::builder()
+        .icon_name("document-open-symbolic")
+        .tooltip_text(gettextrs::gettext("Select certificate"))
+        .valign(gtk::Align::Center)
+        .build();
+
+    let cert_clear_btn = gtk::Button::builder()
+        .icon_name("edit-clear-symbolic")
+        .tooltip_text(gettextrs::gettext("Clear certificate"))
+        .valign(gtk::Align::Center)
+        .sensitive(client_cert_path.borrow().is_some())
+        .build();
+
+    let client_cert_row = adw::ActionRow::builder()
         .title(gettextrs::gettext("Client certificate"))
         .build();
-    if let Some(cc) = existing_sec.and_then(|s| s.client_certificate.as_deref()) {
-        client_cert_row.set_text(cc);
-    }
+    client_cert_row.add_suffix(&cert_select_btn);
+    client_cert_row.add_suffix(&cert_clear_btn);
+    client_cert_row.add_suffix(&client_cert_label);
     security_expander.add_row(&client_cert_row);
+
+    // Wire up Select button to open file chooser.
+    cert_select_btn.connect_clicked(clone!(
+        #[strong]
+        client_cert_path,
+        #[weak]
+        client_cert_label,
+        #[weak]
+        cert_clear_btn,
+        #[weak]
+        password_row,
+        move |btn| {
+            let dialog = gtk::FileDialog::builder()
+                .title(gettextrs::gettext("Select Client Certificate"))
+                .modal(true)
+                .build();
+
+            let filter = gtk::FileFilter::new();
+            filter.add_pattern("*.p12");
+            filter.add_pattern("*.pfx");
+            filter.add_pattern("*.pem");
+            filter.set_name(Some(&gettextrs::gettext(
+                "Certificate files (*.p12, *.pfx, *.pem)",
+            )));
+            let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
+            filters.append(&filter);
+            dialog.set_filters(Some(&filters));
+
+            let window = btn.root().and_then(|r| r.downcast::<gtk::Window>().ok());
+            let path_ref = client_cert_path.clone();
+            let label_ref = client_cert_label.clone();
+            let clear_ref = cert_clear_btn.clone();
+            let pw_ref = password_row.clone();
+            dialog.open(
+                window.as_ref(),
+                gtk::gio::Cancellable::NONE,
+                move |result| {
+                    if let Ok(file) = result {
+                        if let Some(path) = file.path() {
+                            let path_str = path.to_string_lossy().to_string();
+                            let name = path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or(&path_str);
+                            label_ref.set_label(name);
+                            *path_ref.borrow_mut() = Some(path_str);
+                            clear_ref.set_sensitive(true);
+                            // FR-19: password not required when client cert selected.
+                            pw_ref.set_css_classes(&[]);
+                        }
+                    }
+                },
+            );
+        }
+    ));
+
+    // Wire up Clear button.
+    cert_clear_btn.connect_clicked(clone!(
+        #[strong]
+        client_cert_path,
+        #[weak]
+        client_cert_label,
+        move |btn| {
+            *client_cert_path.borrow_mut() = None;
+            client_cert_label.set_label(&gettextrs::gettext("None"));
+            btn.set_sensitive(false);
+        }
+    ));
 
     let auth_realm_row = adw::EntryRow::builder()
         .title(gettextrs::gettext("Authentication realm"))
@@ -1166,6 +1265,8 @@ pub(crate) fn show(
         cert_fingerprint_row,
         #[weak]
         trust_cert_btn,
+        #[strong]
+        client_cert_path,
         move |_| {
             let params = InboundTestParams {
                 host: host_row.text().to_string(),
@@ -1187,6 +1288,7 @@ pub(crate) fn show(
                         Some(fp)
                     }
                 },
+                client_certificate: client_cert_path.borrow().clone(),
             };
 
             // Disable all input fields and buttons during test.
@@ -1523,8 +1625,8 @@ pub(crate) fn show(
         insecure_row,
         #[weak]
         cert_fingerprint_row,
-        #[weak]
-        client_cert_row,
+        #[strong]
+        client_cert_path,
         #[weak]
         auth_realm_row,
         #[weak]
@@ -1670,12 +1772,7 @@ pub(crate) fn show(
                     } else {
                         Some(fp_text)
                     };
-                    let cc_text = client_cert_row.text().trim().to_string();
-                    let client_cert = if cc_text.is_empty() {
-                        None
-                    } else {
-                        Some(cc_text)
-                    };
+                    let client_cert = client_cert_path.borrow().clone();
                     let realm_text = auth_realm_row.text().trim().to_string();
                     let realm = if realm_text.is_empty() {
                         None
@@ -1765,6 +1862,10 @@ pub(crate) fn show(
                         .security_settings
                         .as_ref()
                         .and_then(|s| s.certificate_fingerprint.clone()),
+                    client_certificate: params
+                        .security_settings
+                        .as_ref()
+                        .and_then(|s| s.client_certificate.clone()),
                 };
                 let tester = MockInboundTester;
                 let result = tester.test_inbound(&test_params);

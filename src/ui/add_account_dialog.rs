@@ -786,6 +786,7 @@ fn show_inner(
                 },
                 insecure: false,
                 accepted_fingerprint: None,
+                client_certificate: None,
             };
 
             // Disable all input fields and buttons during test.
@@ -1223,6 +1224,7 @@ fn show_inner(
                     protocol,
                     insecure: false,
                     accepted_fingerprint: None,
+                    client_certificate: None,
                 };
                 let tester = MockInboundTester;
                 let result = tester.test_inbound(&test_params);

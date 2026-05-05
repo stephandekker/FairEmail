@@ -1783,6 +1783,7 @@ mod tests {
             accepted_fingerprint: None,
             insecure: false,
             account_id: "acct-1".to_string(),
+            client_certificate: None,
         }
     }
 

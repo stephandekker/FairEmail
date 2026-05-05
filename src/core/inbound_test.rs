@@ -22,6 +22,9 @@ pub struct InboundTestParams {
     /// Pinned certificate fingerprint (SHA-256). When set, the connection
     /// accepts the server certificate only if its fingerprint matches (FR-15).
     pub accepted_fingerprint: Option<String>,
+    /// Path to a client certificate file (PKCS#12) for mutual TLS (FR-9, FR-19).
+    /// When set, the password/credential field is no longer required.
+    pub client_certificate: Option<String>,
 }
 
 /// The result of a successful inbound connection test.
@@ -79,7 +82,8 @@ impl InboundTestParams {
             if self.username.trim().is_empty() {
                 return Err(InboundTestError::EmptyUsername);
             }
-            if self.credential.trim().is_empty() {
+            // Password is not required when a client certificate is selected (FR-19).
+            if self.credential.trim().is_empty() && self.client_certificate.is_none() {
                 return Err(InboundTestError::EmptyCredential);
             }
         }
@@ -149,6 +153,7 @@ mod tests {
             protocol: Protocol::Imap,
             insecure: false,
             accepted_fingerprint: None,
+            client_certificate: None,
         }
     }
 
@@ -268,6 +273,25 @@ mod tests {
         assert!(matches!(
             params.validate(),
             Err(InboundTestError::EmptyHost)
+        ));
+    }
+
+    #[test]
+    fn validate_client_certificate_allows_empty_credential() {
+        let mut params = valid_params();
+        params.credential = "".into();
+        params.client_certificate = Some("/path/to/cert.p12".into());
+        assert!(params.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_client_certificate_still_requires_username() {
+        let mut params = valid_params();
+        params.username = "".into();
+        params.client_certificate = Some("/path/to/cert.p12".into());
+        assert!(matches!(
+            params.validate(),
+            Err(InboundTestError::EmptyUsername)
         ));
     }
 

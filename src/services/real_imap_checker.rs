@@ -36,6 +36,7 @@ impl ImapChecker for RealImapChecker {
                 accepted_fingerprint: accepted_fingerprint.map(|s| s.to_string()),
                 insecure: accepted_fingerprint.is_some(),
                 account_id: String::new(),
+                client_certificate: None,
             };
 
             match run_imap_session(&connect_params) {

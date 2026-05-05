@@ -43,6 +43,7 @@ impl InboundTester for RealInboundTester {
             accepted_fingerprint: params.accepted_fingerprint.clone(),
             insecure: params.insecure,
             account_id: String::new(),
+            client_certificate: params.client_certificate.clone(),
         };
 
         match run_imap_session(&connect_params) {
@@ -90,6 +91,7 @@ impl RealInboundTester {
             accepted_fingerprint: params.accepted_fingerprint.clone(),
             insecure: params.insecure,
             account_id: account_id.to_string(),
+            client_certificate: params.client_certificate.clone(),
         };
 
         match run_imap_session(&connect_params) {

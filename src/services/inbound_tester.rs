@@ -139,6 +139,7 @@ mod tests {
             protocol: Protocol::Imap,
             insecure: false,
             accepted_fingerprint: None,
+            client_certificate: None,
         }
     }
 

@@ -44,6 +44,7 @@ fn test_incoming_server(request: &ConnectionTestRequest) -> ServerTestOutcome {
         accepted_fingerprint: None,
         insecure: false,
         account_id: String::new(),
+        client_certificate: None,
     };
 
     match run_imap_session(&connect_params) {
