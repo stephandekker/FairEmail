@@ -27,6 +27,7 @@ pub mod real_connection_tester;
 pub mod real_imap_checker;
 pub mod real_inbound_tester;
 pub mod real_smtp_checker;
+pub mod rebuild_index;
 pub mod settings_store;
 pub mod smtp_checker;
 pub(crate) mod smtp_client;

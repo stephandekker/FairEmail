@@ -5,10 +5,14 @@ mod ui;
 
 #[cfg(feature = "ui")]
 fn main() {
-    // Check for --dev-fetch before starting the UI.
+    // Check for CLI flags before starting the UI.
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--dev-fetch") {
         dev_fetch::run_dev_fetch(&args);
+        return;
+    }
+    if args.iter().any(|a| a == "--rebuild-index") {
+        rebuild_index_cli::run_rebuild_index();
         return;
     }
 
@@ -230,6 +234,41 @@ fn main() {
     }));
 
     app.run();
+}
+
+/// Rebuild-index CLI handler: reconstructs the SQLite index from on-disk `.eml` files.
+#[cfg(feature = "ui")]
+mod rebuild_index_cli {
+    use crate::services::database::open_and_migrate;
+    use crate::services::rebuild_index::rebuild_index;
+
+    pub fn run_rebuild_index() {
+        let data_dir = if let Ok(custom) = std::env::var("FAIRMAIL_DATA_DIR") {
+            std::path::PathBuf::from(custom)
+        } else {
+            glib::user_data_dir().join("fairmail")
+        };
+
+        let db_path = data_dir.join("fairmail.db");
+        let conn = open_and_migrate(&db_path).expect("could not open database");
+
+        let content_root = data_dir.join("messages");
+        eprintln!("Rebuilding index from {}", content_root.display());
+
+        match rebuild_index(&conn, &content_root) {
+            Ok(result) => {
+                eprintln!("Rebuild complete:");
+                eprintln!("  Files scanned:     {}", result.files_scanned);
+                eprintln!("  Messages inserted: {}", result.messages_inserted);
+                eprintln!("  Skipped (existing):{}", result.skipped_existing);
+                eprintln!("  Skipped (errors):  {}", result.skipped_errors);
+            }
+            Err(e) => {
+                eprintln!("Rebuild failed: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
 }
 
 /// Dev-only fetch module for sanity-testing the message fetch pipeline.
