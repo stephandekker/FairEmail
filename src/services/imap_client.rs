@@ -466,6 +466,238 @@ impl ImapSession {
         Ok(messages)
     }
 
+    /// SELECT a folder with CONDSTORE enabled.
+    fn do_select_condstore(
+        &mut self,
+        params: &ImapConnectParams,
+        folder_name: &str,
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<ImapSelectResult, ImapClientError> {
+        let quoted_name = imap_quote(folder_name);
+        let cmd = format!("SELECT {quoted_name} (CONDSTORE)");
+        self.send_command("A004", &cmd)?;
+        let response = self.read_tagged_response("A004")?;
+
+        let tag_line = response
+            .lines()
+            .find(|l| l.starts_with("A004"))
+            .unwrap_or("");
+        if !tag_line.contains("OK") {
+            return Err(ImapClientError::FolderListFailed(format!(
+                "SELECT CONDSTORE failed: {}",
+                tag_line.trim()
+            )));
+        }
+
+        let mut uidvalidity: u32 = 0;
+        let mut highestmodseq: Option<u64> = None;
+        let mut exists: u32 = 0;
+
+        for line in response.lines() {
+            if line.starts_with("* ") && line.to_uppercase().contains("EXISTS") {
+                if let Some(n) = line
+                    .trim_start_matches("* ")
+                    .split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse::<u32>().ok())
+                {
+                    exists = n;
+                }
+            }
+            let upper = line.to_uppercase();
+            if upper.contains("UIDVALIDITY") {
+                if let Some(val) = extract_bracket_value(line, "UIDVALIDITY") {
+                    uidvalidity = val as u32;
+                }
+            }
+            if upper.contains("HIGHESTMODSEQ") {
+                if let Some(val) = extract_bracket_value(line, "HIGHESTMODSEQ") {
+                    highestmodseq = Some(val);
+                }
+            }
+        }
+
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::ListFolders,
+            format!(
+                "Selected folder {folder_name} (CONDSTORE): {exists} messages, uidvalidity={uidvalidity}"
+            ),
+        ));
+
+        Ok(ImapSelectResult {
+            uidvalidity,
+            highestmodseq,
+            exists,
+        })
+    }
+
+    /// Fetch messages changed since a given modseq.
+    /// Returns only flags for unchanged-body messages; full BODY[] for new ones.
+    fn do_fetch_changed_since(
+        &mut self,
+        params: &ImapConnectParams,
+        modseq: u64,
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<Vec<ChangedMessage>, ImapClientError> {
+        let cmd = format!("UID FETCH 1:* (UID FLAGS MODSEQ BODY.PEEK[]) (CHANGEDSINCE {modseq})");
+        self.send_command("A006", &cmd)?;
+
+        let mut messages = Vec::new();
+
+        loop {
+            let line = self.read_line()?;
+
+            if line.starts_with("A006") {
+                if !line.to_uppercase().contains("OK") {
+                    return Err(ImapClientError::ConnectionFailed(format!(
+                        "FETCH CHANGEDSINCE failed: {}",
+                        line.trim()
+                    )));
+                }
+                break;
+            }
+
+            if !line.starts_with("* ") || !line.to_uppercase().contains("FETCH") {
+                continue;
+            }
+
+            let uid = extract_fetch_value(&line, "UID")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0);
+            let flags = extract_flags(&line).unwrap_or_default();
+            let msg_modseq = extract_fetch_value(&line, "MODSEQ (")
+                .or_else(|| extract_modseq_value(&line))
+                .and_then(|s| s.parse::<u64>().ok());
+
+            // Check for literal body data
+            let body = if let Some(literal_size) = extract_literal_size(&line) {
+                let mut data = vec![0u8; literal_size];
+                self.read_exact(&mut data)?;
+                let _closing = self.read_line()?;
+                Some(data)
+            } else {
+                None
+            };
+
+            messages.push(ChangedMessage {
+                uid,
+                flags,
+                modseq: msg_modseq,
+                body,
+            });
+        }
+
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::ListFolders,
+            format!("CHANGEDSINCE {modseq}: {} changed messages", messages.len()),
+        ));
+
+        Ok(messages)
+    }
+
+    /// UID SEARCH ALL — returns the set of UIDs currently in the folder.
+    fn do_uid_search_all(
+        &mut self,
+        params: &ImapConnectParams,
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<Vec<u32>, ImapClientError> {
+        self.send_command("A007", "UID SEARCH ALL")?;
+        let response = self.read_tagged_response("A007")?;
+
+        let tag_line = response
+            .lines()
+            .find(|l| l.starts_with("A007"))
+            .unwrap_or("");
+        if !tag_line.contains("OK") {
+            return Err(ImapClientError::ConnectionFailed(format!(
+                "UID SEARCH failed: {}",
+                tag_line.trim()
+            )));
+        }
+
+        let mut uids = Vec::new();
+        for line in response.lines() {
+            if line.starts_with("* SEARCH") {
+                let rest = line.trim_start_matches("* SEARCH").trim();
+                for token in rest.split_whitespace() {
+                    if let Ok(uid) = token.parse::<u32>() {
+                        uids.push(uid);
+                    }
+                }
+            }
+        }
+
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::ListFolders,
+            format!("UID SEARCH ALL: {} UIDs", uids.len()),
+        ));
+
+        Ok(uids)
+    }
+
+    /// UID FETCH specific UIDs — fetch full messages for a set of UIDs.
+    fn do_fetch_uids(
+        &mut self,
+        params: &ImapConnectParams,
+        uids: &[u32],
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<Vec<RawFetchedMessage>, ImapClientError> {
+        if uids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let uid_set: String = uids
+            .iter()
+            .map(|u| u.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let cmd = format!("UID FETCH {uid_set} (UID FLAGS BODY.PEEK[])");
+        self.send_command("A008", &cmd)?;
+
+        let mut messages = Vec::new();
+
+        loop {
+            let line = self.read_line()?;
+
+            if line.starts_with("A008") {
+                if !line.to_uppercase().contains("OK") {
+                    return Err(ImapClientError::ConnectionFailed(format!(
+                        "UID FETCH failed: {}",
+                        line.trim()
+                    )));
+                }
+                break;
+            }
+
+            if !line.starts_with("* ") || !line.to_uppercase().contains("FETCH") {
+                continue;
+            }
+
+            let uid = extract_fetch_value(&line, "UID")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0);
+            let flags = extract_flags(&line).unwrap_or_default();
+
+            if let Some(literal_size) = extract_literal_size(&line) {
+                let mut data = vec![0u8; literal_size];
+                self.read_exact(&mut data)?;
+                let _closing = self.read_line()?;
+                messages.push(RawFetchedMessage { uid, flags, data });
+            }
+        }
+
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::ListFolders,
+            format!("UID FETCH {}: {} messages", uid_set, messages.len()),
+        ));
+
+        Ok(messages)
+    }
+
     fn do_list_folders(
         &mut self,
         params: &ImapConnectParams,
@@ -712,6 +944,21 @@ fn extract_flags(line: &str) -> Option<String> {
     Some(rest[open + 1..close].to_string())
 }
 
+/// Extract MODSEQ value from a FETCH response line like `MODSEQ (12345)`.
+fn extract_modseq_value(line: &str) -> Option<String> {
+    let upper = line.to_uppercase();
+    let idx = upper.find("MODSEQ")?;
+    let rest = &line[idx + 6..];
+    let open = rest.find('(')?;
+    let close = rest.find(')')?;
+    let val = rest[open + 1..close].trim().to_string();
+    if val.is_empty() {
+        None
+    } else {
+        Some(val)
+    }
+}
+
 /// Extract the literal size from a line ending with `{SIZE}`.
 fn extract_literal_size(line: &str) -> Option<usize> {
     let trimmed = line.trim_end();
@@ -783,10 +1030,38 @@ pub(crate) struct RawFetchedMessage {
     pub data: Vec<u8>,
 }
 
+/// A message returned by FETCH CHANGEDSINCE — may have body (new) or just flags (changed).
+#[derive(Debug)]
+pub(crate) struct ChangedMessage {
+    pub uid: u32,
+    pub flags: String,
+    pub modseq: Option<u64>,
+    pub body: Option<Vec<u8>>,
+}
+
 /// Result of fetching messages from a folder.
 #[derive(Debug)]
 pub(crate) struct ImapFetchResult {
     pub messages: Vec<RawFetchedMessage>,
+    pub select: ImapSelectResult,
+    #[allow(dead_code)]
+    pub logs: Vec<ConnectionLogRecord>,
+}
+
+/// Result of a CONDSTORE incremental fetch.
+#[derive(Debug)]
+pub(crate) struct IncrementalFetchResult {
+    pub changed: Vec<ChangedMessage>,
+    pub select: ImapSelectResult,
+    #[allow(dead_code)]
+    pub logs: Vec<ConnectionLogRecord>,
+}
+
+/// Result of a UID-set-diff fetch (no CONDSTORE).
+#[derive(Debug)]
+pub(crate) struct UidDiffFetchResult {
+    pub server_uids: Vec<u32>,
+    pub new_messages: Vec<RawFetchedMessage>,
     pub select: ImapSelectResult,
     #[allow(dead_code)]
     pub logs: Vec<ConnectionLogRecord>,
@@ -852,6 +1127,120 @@ pub(crate) fn fetch_folder_messages(
         EncryptionMode::None => {
             let mut session = ImapSession::new_plain(tcp_stream);
             run_fetch_session(&mut session, params, folder_name, &mut logs)
+        }
+    }
+}
+
+/// Run an IMAP session that does a CONDSTORE incremental fetch.
+pub(crate) fn fetch_changed_since(
+    params: &ImapConnectParams,
+    folder_name: &str,
+    modseq: u64,
+) -> Result<IncrementalFetchResult, ImapClientError> {
+    let mut logs = Vec::new();
+    let mut session = connect_and_login(params, &mut logs)?;
+
+    let select = session.do_select_condstore(params, folder_name, &mut logs)?;
+    let changed = if select.exists > 0 {
+        session.do_fetch_changed_since(params, modseq, &mut logs)?
+    } else {
+        Vec::new()
+    };
+    let _ = session.send_command("A099", "LOGOUT");
+
+    Ok(IncrementalFetchResult {
+        changed,
+        select,
+        logs,
+    })
+}
+
+/// Run an IMAP session that does a UID-set diff (no CONDSTORE).
+pub(crate) fn fetch_uid_diff(
+    params: &ImapConnectParams,
+    folder_name: &str,
+    new_uids: &[u32],
+) -> Result<UidDiffFetchResult, ImapClientError> {
+    let mut logs = Vec::new();
+    let mut session = connect_and_login(params, &mut logs)?;
+
+    let select = session.do_select(params, folder_name, &mut logs)?;
+    let server_uids = if select.exists > 0 {
+        session.do_uid_search_all(params, &mut logs)?
+    } else {
+        Vec::new()
+    };
+    let new_messages = if !new_uids.is_empty() {
+        session.do_fetch_uids(params, new_uids, &mut logs)?
+    } else {
+        Vec::new()
+    };
+    let _ = session.send_command("A099", "LOGOUT");
+
+    Ok(UidDiffFetchResult {
+        server_uids,
+        new_messages,
+        select,
+        logs,
+    })
+}
+
+/// Connect and login (shared helper for all fetch session types).
+fn connect_and_login(
+    params: &ImapConnectParams,
+    logs: &mut Vec<ConnectionLogRecord>,
+) -> Result<ImapSession, ImapClientError> {
+    logs.push(ConnectionLogRecord::new(
+        params.account_id.clone(),
+        ConnectionLogEventType::ConnectAttempt,
+        format!("Connecting to {}:{}", params.host, params.port),
+    ));
+
+    let addr = resolve_addr(&params.host, params.port)?;
+    let tcp_stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)
+        .map_err(|e| classify_connect_error(&e.to_string(), &params.host, params.port))?;
+
+    tcp_stream.set_read_timeout(Some(IO_TIMEOUT)).ok();
+    tcp_stream.set_write_timeout(Some(IO_TIMEOUT)).ok();
+
+    match params.encryption {
+        EncryptionMode::SslTls => {
+            let tls_stream = do_tls_connect(tcp_stream, params, logs)?;
+            let mut session = ImapSession::new_tls(tls_stream);
+            let greeting = session.read_line()?;
+            check_imap_greeting(&greeting)?;
+            session.do_capability(params, logs)?;
+            session.do_login(params, logs)?;
+            Ok(session)
+        }
+        EncryptionMode::StartTls => {
+            let mut session = ImapSession::new_plain(tcp_stream);
+            let greeting = session.read_line()?;
+            check_imap_greeting(&greeting)?;
+            session.send_command("A000", "STARTTLS")?;
+            let response = session.read_tagged_response("A000")?;
+            if !response.to_uppercase().contains("OK") {
+                return Err(ImapClientError::TlsHandshake(
+                    "Server rejected STARTTLS".to_string(),
+                ));
+            }
+            let tcp = session.into_plain_stream();
+            let connector = build_tls_connector(params);
+            let tls_stream = connector
+                .connect(&params.host, tcp)
+                .map_err(|_| handle_tls_error(&params.host))?;
+            let mut session = ImapSession::new_tls(tls_stream);
+            session.do_capability(params, logs)?;
+            session.do_login(params, logs)?;
+            Ok(session)
+        }
+        EncryptionMode::None => {
+            let mut session = ImapSession::new_plain(tcp_stream);
+            let greeting = session.read_line()?;
+            check_imap_greeting(&greeting)?;
+            session.do_capability(params, logs)?;
+            session.do_login(params, logs)?;
+            Ok(session)
         }
     }
 }
@@ -1016,5 +1405,30 @@ mod tests {
         let line = r#"* LIST (\Trash) "/" "Trash""#;
         let folder = parse_list_response(line).unwrap();
         assert_eq!(folder.role, Some(crate::core::account::FolderRole::Trash));
+    }
+
+    #[test]
+    fn extract_modseq_from_fetch_response() {
+        let line = "* 1 FETCH (UID 42 FLAGS (\\Seen) MODSEQ (12345))";
+        let val = extract_modseq_value(line);
+        assert_eq!(val, Some("12345".to_string()));
+    }
+
+    #[test]
+    fn extract_modseq_missing() {
+        let line = "* 1 FETCH (UID 42 FLAGS (\\Seen))";
+        assert!(extract_modseq_value(line).is_none());
+    }
+
+    #[test]
+    fn extract_bracket_value_uidvalidity() {
+        let line = "* OK [UIDVALIDITY 12345]";
+        assert_eq!(extract_bracket_value(line, "UIDVALIDITY"), Some(12345));
+    }
+
+    #[test]
+    fn extract_bracket_value_highestmodseq() {
+        let line = "* OK [HIGHESTMODSEQ 67890]";
+        assert_eq!(extract_bracket_value(line, "HIGHESTMODSEQ"), Some(67890));
     }
 }

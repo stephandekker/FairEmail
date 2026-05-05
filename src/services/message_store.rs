@@ -187,6 +187,106 @@ pub fn find_folder_id(
     }
 }
 
+/// Load the cached uidvalidity and highestmodseq for a folder.
+pub fn load_folder_sync_state(
+    conn: &Connection,
+    folder_id: i64,
+) -> Result<(Option<u32>, Option<u64>), DatabaseError> {
+    let result = conn.query_row(
+        "SELECT uidvalidity, highestmodseq FROM folders WHERE id = ?1",
+        rusqlite::params![folder_id],
+        |row| {
+            let uv: Option<u32> = row.get(0)?;
+            let hm: Option<i64> = row.get(1)?;
+            Ok((uv, hm.map(|v| v as u64)))
+        },
+    );
+    match result {
+        Ok(pair) => Ok(pair),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok((None, None)),
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
+/// Load all UIDs for messages in a specific folder.
+pub fn load_uids_for_folder(
+    conn: &Connection,
+    account_id: &str,
+    folder_id: i64,
+) -> Result<Vec<u32>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT m.uid FROM messages m
+         JOIN message_folders mf ON mf.message_id = m.id
+         WHERE m.account_id = ?1 AND mf.folder_id = ?2
+         ORDER BY m.uid",
+    )?;
+    let uids = stmt
+        .query_map(rusqlite::params![account_id, folder_id], |row| row.get(0))?
+        .collect::<Result<Vec<u32>, _>>()?;
+    Ok(uids)
+}
+
+/// Delete all messages for a folder, returning content hashes that should be
+/// deleted from the content store (those with no remaining references).
+pub fn delete_messages_for_folder(
+    conn: &Connection,
+    account_id: &str,
+    folder_id: i64,
+) -> Result<Vec<String>, DatabaseError> {
+    // Find message IDs and content hashes for this folder.
+    let mut stmt = conn.prepare(
+        "SELECT m.id, m.content_hash FROM messages m
+         JOIN message_folders mf ON mf.message_id = m.id
+         WHERE m.account_id = ?1 AND mf.folder_id = ?2",
+    )?;
+    let rows: Vec<(i64, String)> = stmt
+        .query_map(rusqlite::params![account_id, folder_id], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut orphaned_hashes = Vec::new();
+    for (msg_id, hash) in &rows {
+        // Delete message_folders link first, then message row.
+        conn.execute(
+            "DELETE FROM message_folders WHERE message_id = ?1 AND folder_id = ?2",
+            rusqlite::params![msg_id, folder_id],
+        )?;
+        conn.execute(
+            "DELETE FROM messages WHERE id = ?1",
+            rusqlite::params![msg_id],
+        )?;
+        // Check if any other rows still reference the same hash.
+        let remaining = count_by_content_hash(conn, hash)?;
+        if remaining == 0 {
+            orphaned_hashes.push(hash.clone());
+        }
+    }
+
+    Ok(orphaned_hashes)
+}
+
+/// Find a message by UID and folder, returning (message_id, current_flags).
+pub fn find_message_by_uid_in_folder(
+    conn: &Connection,
+    account_id: &str,
+    uid: u32,
+    folder_id: i64,
+) -> Result<Option<(i64, u32)>, DatabaseError> {
+    let result = conn.query_row(
+        "SELECT m.id, m.flags FROM messages m
+         JOIN message_folders mf ON mf.message_id = m.id
+         WHERE m.account_id = ?1 AND m.uid = ?2 AND mf.folder_id = ?3",
+        rusqlite::params![account_id, uid, folder_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    );
+    match result {
+        Ok(pair) => Ok(Some(pair)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
 /// Helper to make `query_row` return `Option` on no rows.
 trait OptionalRow {
     fn optional(self) -> Result<Option<String>, rusqlite::Error>;
@@ -435,5 +535,126 @@ mod tests {
             )
             .unwrap();
         assert_eq!(matched_id, id1);
+    }
+
+    #[test]
+    fn load_folder_sync_state_returns_cached_values() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+
+        // Initially no sync state.
+        let (uv, hm) = load_folder_sync_state(&conn, fid).unwrap();
+        assert!(uv.is_none());
+        assert!(hm.is_none());
+
+        // Set sync state.
+        update_folder_sync_state(&conn, fid, 42, Some(100)).unwrap();
+        let (uv, hm) = load_folder_sync_state(&conn, fid).unwrap();
+        assert_eq!(uv, Some(42));
+        assert_eq!(hm, Some(100));
+    }
+
+    #[test]
+    fn load_uids_for_folder_returns_sorted() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+
+        let mut msg1 = make_message("h1");
+        msg1.uid = 5;
+        insert_message(&conn, &msg1, fid).unwrap();
+
+        let mut msg2 = make_message("h2");
+        msg2.uid = 2;
+        insert_message(&conn, &msg2, fid).unwrap();
+
+        let mut msg3 = make_message("h3");
+        msg3.uid = 10;
+        insert_message(&conn, &msg3, fid).unwrap();
+
+        let uids = load_uids_for_folder(&conn, "acct-1", fid).unwrap();
+        assert_eq!(uids, vec![2, 5, 10]);
+    }
+
+    #[test]
+    fn delete_messages_for_folder_returns_orphaned_hashes() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+
+        // Insert two messages with unique hashes.
+        let msg1 = make_message("unique_h1");
+        insert_message(&conn, &msg1, fid).unwrap();
+
+        let mut msg2 = make_message("unique_h2");
+        msg2.uid = 2;
+        insert_message(&conn, &msg2, fid).unwrap();
+
+        let orphaned = delete_messages_for_folder(&conn, "acct-1", fid).unwrap();
+        assert_eq!(orphaned.len(), 2);
+        assert!(orphaned.contains(&"unique_h1".to_string()));
+        assert!(orphaned.contains(&"unique_h2".to_string()));
+
+        // No messages should remain.
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 0);
+    }
+
+    #[test]
+    fn delete_messages_for_folder_keeps_shared_hashes() {
+        let (_dir, conn) = setup_db();
+
+        // Create both folders at once (replace_folders replaces all).
+        let folders = vec![
+            ImapFolder {
+                name: "INBOX".to_string(),
+                attributes: "".to_string(),
+                role: None,
+            },
+            ImapFolder {
+                name: "Archive".to_string(),
+                attributes: "".to_string(),
+                role: None,
+            },
+        ];
+        replace_folders(&conn, "acct-1", &folders).unwrap();
+        let fid = find_folder_id(&conn, "acct-1", "INBOX").unwrap().unwrap();
+        let fid2 = find_folder_id(&conn, "acct-1", "Archive").unwrap().unwrap();
+
+        // Insert same hash in both folders.
+        let msg1 = make_message("shared_hash");
+        insert_message(&conn, &msg1, fid).unwrap();
+
+        let mut msg2 = make_message("shared_hash");
+        msg2.uid = 2;
+        insert_message(&conn, &msg2, fid2).unwrap();
+
+        // Delete messages from first folder only.
+        let orphaned = delete_messages_for_folder(&conn, "acct-1", fid).unwrap();
+        // Hash still referenced by msg in Archive — should NOT be orphaned.
+        assert!(orphaned.is_empty());
+    }
+
+    #[test]
+    fn find_message_by_uid_in_folder_found() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+
+        let mut msg = make_message("h1");
+        msg.uid = 42;
+        msg.flags = 1; // SEEN
+        let _id = insert_message(&conn, &msg, fid).unwrap();
+
+        let found = find_message_by_uid_in_folder(&conn, "acct-1", 42, fid).unwrap();
+        assert!(found.is_some());
+        let (mid, flags) = found.unwrap();
+        assert!(mid > 0);
+        assert_eq!(flags, 1);
+    }
+
+    #[test]
+    fn find_message_by_uid_in_folder_not_found() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+
+        let found = find_message_by_uid_in_folder(&conn, "acct-1", 999, fid).unwrap();
+        assert!(found.is_none());
     }
 }

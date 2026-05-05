@@ -53,10 +53,14 @@ pub use inbound_tester::{InboundTester, MockInboundTester};
 pub use libsecret_credential_store::LibsecretCredentialStore;
 pub use memory_content_store::MemoryContentStore;
 pub use memory_credential_store::MemoryCredentialStore;
-pub(crate) use message_fetch::fetch_and_store_folder;
+#[allow(unused_imports)]
+pub(crate) use message_fetch::{
+    fetch_and_store_folder, incremental_sync_folder, IncrementalSyncResult,
+};
 pub use message_store::{
-    count_messages, delete_message, find_folder_id, insert_message, load_message,
-    update_folder_sync_state, update_message_flags,
+    count_messages, delete_message, delete_messages_for_folder, find_folder_id,
+    find_message_by_uid_in_folder, insert_message, load_folder_sync_state, load_message,
+    load_uids_for_folder, update_folder_sync_state, update_message_flags,
 };
 pub use notification_channel::{MockNotificationChannelManager, NotificationChannelManager};
 pub use order_store::OrderStore;

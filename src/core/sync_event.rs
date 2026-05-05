@@ -15,4 +15,10 @@ pub enum SyncEvent {
         operation_id: i64,
         error: String,
     },
+    /// A server-side flag change was detected during incremental sync.
+    ServerFlagChange {
+        account_id: String,
+        message_id: i64,
+        new_flags: u32,
+    },
 }

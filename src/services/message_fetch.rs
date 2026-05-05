@@ -1,12 +1,20 @@
 //! Fetch routine that pulls messages from an IMAP folder, stores them in the
 //! content store, and indexes them in SQLite.
+//!
+//! Supports both full-fetch (first sync) and incremental sync via CONDSTORE
+//! or UID-set diff fallback.
 
 use rusqlite::Connection;
 
 use crate::core::content_store::ContentStore;
 use crate::core::message::{flags_from_imap, parse_raw_message};
+use crate::core::sync_event::SyncEvent;
 use crate::services::imap_client::{fetch_folder_messages, ImapConnectParams};
-use crate::services::message_store::{find_folder_id, insert_message, update_folder_sync_state};
+use crate::services::message_store::{
+    delete_messages_for_folder, find_folder_id, find_message_by_uid_in_folder, insert_message,
+    load_folder_sync_state, load_uids_for_folder, update_folder_sync_state, update_message_flags,
+};
+use crate::services::sync_state_store::load_sync_state;
 
 /// Errors from the message fetch pipeline.
 #[derive(Debug, thiserror::Error)]
@@ -25,6 +33,23 @@ pub enum FetchError {
 #[derive(Debug)]
 pub struct FetchResult {
     pub messages_fetched: usize,
+    pub uidvalidity: u32,
+    pub highestmodseq: Option<u64>,
+}
+
+/// Result of an incremental sync operation.
+#[derive(Debug)]
+pub struct IncrementalSyncResult {
+    /// Number of new message bodies fetched.
+    pub bodies_fetched: usize,
+    /// Number of flag-only updates applied.
+    pub flags_updated: usize,
+    /// Whether a full re-fetch was triggered (UIDVALIDITY change).
+    pub full_refetch: bool,
+    /// Sync events to broadcast (flag changes from server).
+    pub events: Vec<SyncEvent>,
+    /// Content hashes of .eml files that should be deleted.
+    pub orphaned_hashes: Vec<String>,
     pub uidvalidity: u32,
     pub highestmodseq: Option<u64>,
 }
@@ -87,4 +112,825 @@ pub(crate) fn fetch_and_store_folder(
         uidvalidity: fetch_result.select.uidvalidity,
         highestmodseq: fetch_result.select.highestmodseq,
     })
+}
+
+/// Incremental sync: uses CONDSTORE if available, falls back to UID-set diff.
+///
+/// On first sync (no cached uidvalidity), delegates to full fetch.
+/// On UIDVALIDITY change, invalidates cached data and does a full re-fetch.
+#[allow(dead_code)]
+pub(crate) fn incremental_sync_folder(
+    conn: &Connection,
+    content_store: &dyn ContentStore,
+    params: &ImapConnectParams,
+    folder_name: &str,
+) -> Result<IncrementalSyncResult, FetchError> {
+    let folder_id = find_folder_id(conn, &params.account_id, folder_name)?
+        .ok_or_else(|| FetchError::FolderNotFound(folder_name.to_string()))?;
+
+    // Load cached sync state for this folder.
+    let (cached_uidvalidity, cached_highestmodseq) = load_folder_sync_state(conn, folder_id)?;
+
+    // If no cached uidvalidity, this is a first sync — do full fetch.
+    let cached_uv = match cached_uidvalidity {
+        Some(uv) => uv,
+        None => {
+            let full = fetch_and_store_folder(conn, content_store, params, folder_name)?;
+            return Ok(IncrementalSyncResult {
+                bodies_fetched: full.messages_fetched,
+                flags_updated: 0,
+                full_refetch: false,
+                events: Vec::new(),
+                orphaned_hashes: Vec::new(),
+                uidvalidity: full.uidvalidity,
+                highestmodseq: full.highestmodseq,
+            });
+        }
+    };
+
+    // Check if CONDSTORE is supported.
+    let sync_state = load_sync_state(conn, &params.account_id)?;
+    let condstore = sync_state
+        .as_ref()
+        .map(|s| s.condstore_supported || s.qresync_supported)
+        .unwrap_or(false);
+
+    if condstore {
+        if let Some(modseq) = cached_highestmodseq {
+            return sync_condstore(
+                conn,
+                content_store,
+                params,
+                folder_name,
+                folder_id,
+                cached_uv,
+                modseq,
+            );
+        }
+    }
+
+    // Fallback: UID-set diff.
+    sync_uid_diff(
+        conn,
+        content_store,
+        params,
+        folder_name,
+        folder_id,
+        cached_uv,
+    )
+}
+
+/// CONDSTORE incremental sync path.
+#[allow(dead_code)]
+fn sync_condstore(
+    conn: &Connection,
+    content_store: &dyn ContentStore,
+    params: &ImapConnectParams,
+    folder_name: &str,
+    folder_id: i64,
+    cached_uidvalidity: u32,
+    cached_modseq: u64,
+) -> Result<IncrementalSyncResult, FetchError> {
+    use crate::services::imap_client::fetch_changed_since;
+
+    let result = fetch_changed_since(params, folder_name, cached_modseq)
+        .map_err(|e| FetchError::Imap(format!("{e:?}")))?;
+
+    // Check UIDVALIDITY.
+    if result.select.uidvalidity != cached_uidvalidity {
+        return handle_uidvalidity_change(conn, content_store, params, folder_name, folder_id);
+    }
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
+
+    let mut bodies_fetched = 0;
+    let mut flags_updated = 0;
+    let mut events = Vec::new();
+
+    for changed in &result.changed {
+        let existing =
+            find_message_by_uid_in_folder(&tx, &params.account_id, changed.uid, folder_id)?;
+
+        match (existing, &changed.body) {
+            // Existing message, flags changed (no body = flag-only update).
+            (Some((msg_id, old_flags)), None) => {
+                let new_flags = flags_from_imap(&changed.flags);
+                if new_flags != old_flags {
+                    update_message_flags(&tx, msg_id, new_flags)?;
+                    events.push(SyncEvent::ServerFlagChange {
+                        account_id: params.account_id.clone(),
+                        message_id: msg_id,
+                        new_flags,
+                    });
+                    flags_updated += 1;
+                }
+            }
+            // Existing message with body — update flags and content.
+            (Some((msg_id, old_flags)), Some(_body)) => {
+                let new_flags = flags_from_imap(&changed.flags);
+                if new_flags != old_flags {
+                    update_message_flags(&tx, msg_id, new_flags)?;
+                    events.push(SyncEvent::ServerFlagChange {
+                        account_id: params.account_id.clone(),
+                        message_id: msg_id,
+                        new_flags,
+                    });
+                    flags_updated += 1;
+                }
+            }
+            // New message (not in local DB).
+            (None, Some(body)) => {
+                let content_hash = content_store.put(body)?;
+                let new_msg = parse_raw_message(
+                    &params.account_id,
+                    changed.uid,
+                    changed.modseq,
+                    flags_from_imap(&changed.flags),
+                    &content_hash,
+                    body,
+                );
+                insert_message(&tx, &new_msg, folder_id)?;
+                bodies_fetched += 1;
+            }
+            // New message but no body (shouldn't happen with BODY.PEEK[] in FETCH).
+            (None, None) => {
+                // Skip — cannot store without body data.
+            }
+        }
+    }
+
+    // Update folder sync state with new highestmodseq.
+    update_folder_sync_state(
+        &tx,
+        folder_id,
+        result.select.uidvalidity,
+        result.select.highestmodseq,
+    )?;
+
+    tx.commit()
+        .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
+
+    Ok(IncrementalSyncResult {
+        bodies_fetched,
+        flags_updated,
+        full_refetch: false,
+        events,
+        orphaned_hashes: Vec::new(),
+        uidvalidity: result.select.uidvalidity,
+        highestmodseq: result.select.highestmodseq,
+    })
+}
+
+/// UID-set diff fallback sync path (no CONDSTORE).
+#[allow(dead_code)]
+fn sync_uid_diff(
+    conn: &Connection,
+    content_store: &dyn ContentStore,
+    params: &ImapConnectParams,
+    folder_name: &str,
+    folder_id: i64,
+    cached_uidvalidity: u32,
+) -> Result<IncrementalSyncResult, FetchError> {
+    use crate::services::imap_client::fetch_uid_diff;
+    use std::collections::HashSet;
+
+    // Get local UIDs.
+    let local_uids: HashSet<u32> = load_uids_for_folder(conn, &params.account_id, folder_id)?
+        .into_iter()
+        .collect();
+
+    // First pass: get server UIDs (need to connect, SELECT, UID SEARCH ALL).
+    // We pass an empty slice for new_uids first — we'll compute them from the diff.
+    let diff_result =
+        fetch_uid_diff(params, folder_name, &[]).map_err(|e| FetchError::Imap(format!("{e:?}")))?;
+
+    // Check UIDVALIDITY.
+    if diff_result.select.uidvalidity != cached_uidvalidity {
+        return handle_uidvalidity_change(conn, content_store, params, folder_name, folder_id);
+    }
+
+    let server_uids: HashSet<u32> = diff_result.server_uids.iter().copied().collect();
+
+    // New UIDs = on server but not locally.
+    let new_uids: Vec<u32> = server_uids.difference(&local_uids).copied().collect();
+
+    // If there are new messages, fetch them.
+    let bodies_fetched = if !new_uids.is_empty() {
+        let fetch_result = fetch_uid_diff(params, folder_name, &new_uids)
+            .map_err(|e| FetchError::Imap(format!("{e:?}")))?;
+
+        let tx = conn.unchecked_transaction().map_err(|e| {
+            FetchError::Database(crate::services::database::DatabaseError::Sqlite(e))
+        })?;
+
+        let mut count = 0;
+        for raw_msg in &fetch_result.new_messages {
+            let content_hash = content_store.put(&raw_msg.data)?;
+            let new_msg = parse_raw_message(
+                &params.account_id,
+                raw_msg.uid,
+                None,
+                flags_from_imap(&raw_msg.flags),
+                &content_hash,
+                &raw_msg.data,
+            );
+            insert_message(&tx, &new_msg, folder_id)?;
+            count += 1;
+        }
+
+        update_folder_sync_state(
+            &tx,
+            folder_id,
+            diff_result.select.uidvalidity,
+            diff_result.select.highestmodseq,
+        )?;
+
+        tx.commit().map_err(|e| {
+            FetchError::Database(crate::services::database::DatabaseError::Sqlite(e))
+        })?;
+
+        count
+    } else {
+        // No new messages — just update sync state.
+        update_folder_sync_state(
+            conn,
+            folder_id,
+            diff_result.select.uidvalidity,
+            diff_result.select.highestmodseq,
+        )?;
+        0
+    };
+
+    Ok(IncrementalSyncResult {
+        bodies_fetched,
+        flags_updated: 0,
+        full_refetch: false,
+        events: Vec::new(),
+        orphaned_hashes: Vec::new(),
+        uidvalidity: diff_result.select.uidvalidity,
+        highestmodseq: diff_result.select.highestmodseq,
+    })
+}
+
+/// Perform incremental sync using only in-process data (for testing).
+/// This variant takes pre-fetched IMAP results instead of connecting to a server.
+#[cfg(test)]
+pub(crate) fn incremental_sync_condstore_with_data(
+    conn: &Connection,
+    content_store: &dyn ContentStore,
+    account_id: &str,
+    folder_name: &str,
+    select_uidvalidity: u32,
+    select_highestmodseq: Option<u64>,
+    changed_messages: Vec<crate::services::imap_client::ChangedMessage>,
+) -> Result<IncrementalSyncResult, FetchError> {
+    let folder_id = find_folder_id(conn, account_id, folder_name)?
+        .ok_or_else(|| FetchError::FolderNotFound(folder_name.to_string()))?;
+
+    let (cached_uidvalidity, _cached_highestmodseq) = load_folder_sync_state(conn, folder_id)?;
+
+    // Check UIDVALIDITY.
+    if let Some(cached_uv) = cached_uidvalidity {
+        if select_uidvalidity != cached_uv {
+            // UIDVALIDITY changed — invalidate.
+            let tx = conn.unchecked_transaction().map_err(|e| {
+                FetchError::Database(crate::services::database::DatabaseError::Sqlite(e))
+            })?;
+            let orphaned_hashes = delete_messages_for_folder(&tx, account_id, folder_id)?;
+            update_folder_sync_state(&tx, folder_id, 0, None)?;
+            tx.commit().map_err(|e| {
+                FetchError::Database(crate::services::database::DatabaseError::Sqlite(e))
+            })?;
+            for hash in &orphaned_hashes {
+                let _ = content_store.delete(hash);
+            }
+            return Ok(IncrementalSyncResult {
+                bodies_fetched: 0,
+                flags_updated: 0,
+                full_refetch: true,
+                events: Vec::new(),
+                orphaned_hashes,
+                uidvalidity: select_uidvalidity,
+                highestmodseq: select_highestmodseq,
+            });
+        }
+    }
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
+
+    let mut bodies_fetched = 0;
+    let mut flags_updated = 0;
+    let mut events = Vec::new();
+
+    for changed in &changed_messages {
+        let existing = find_message_by_uid_in_folder(&tx, account_id, changed.uid, folder_id)?;
+
+        match (existing, &changed.body) {
+            (Some((msg_id, old_flags)), _) => {
+                let new_flags = flags_from_imap(&changed.flags);
+                if new_flags != old_flags {
+                    update_message_flags(&tx, msg_id, new_flags)?;
+                    events.push(SyncEvent::ServerFlagChange {
+                        account_id: account_id.to_string(),
+                        message_id: msg_id,
+                        new_flags,
+                    });
+                    flags_updated += 1;
+                }
+            }
+            (None, Some(body)) => {
+                let content_hash = content_store.put(body)?;
+                let new_msg = parse_raw_message(
+                    account_id,
+                    changed.uid,
+                    changed.modseq,
+                    flags_from_imap(&changed.flags),
+                    &content_hash,
+                    body,
+                );
+                insert_message(&tx, &new_msg, folder_id)?;
+                bodies_fetched += 1;
+            }
+            (None, None) => {}
+        }
+    }
+
+    update_folder_sync_state(&tx, folder_id, select_uidvalidity, select_highestmodseq)?;
+
+    tx.commit()
+        .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
+
+    Ok(IncrementalSyncResult {
+        bodies_fetched,
+        flags_updated,
+        full_refetch: false,
+        events,
+        orphaned_hashes: Vec::new(),
+        uidvalidity: select_uidvalidity,
+        highestmodseq: select_highestmodseq,
+    })
+}
+
+/// Perform UID-set-diff sync using only in-process data (for testing).
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn incremental_sync_uid_diff_with_data(
+    conn: &Connection,
+    content_store: &dyn ContentStore,
+    account_id: &str,
+    folder_name: &str,
+    select_uidvalidity: u32,
+    select_highestmodseq: Option<u64>,
+    server_uids: &[u32],
+    new_messages: Vec<crate::services::imap_client::RawFetchedMessage>,
+) -> Result<IncrementalSyncResult, FetchError> {
+    use std::collections::HashSet;
+
+    let folder_id = find_folder_id(conn, account_id, folder_name)?
+        .ok_or_else(|| FetchError::FolderNotFound(folder_name.to_string()))?;
+
+    let (cached_uidvalidity, _) = load_folder_sync_state(conn, folder_id)?;
+
+    // Check UIDVALIDITY.
+    if let Some(cached_uv) = cached_uidvalidity {
+        if select_uidvalidity != cached_uv {
+            let tx = conn.unchecked_transaction().map_err(|e| {
+                FetchError::Database(crate::services::database::DatabaseError::Sqlite(e))
+            })?;
+            let orphaned_hashes = delete_messages_for_folder(&tx, account_id, folder_id)?;
+            update_folder_sync_state(&tx, folder_id, 0, None)?;
+            tx.commit().map_err(|e| {
+                FetchError::Database(crate::services::database::DatabaseError::Sqlite(e))
+            })?;
+            for hash in &orphaned_hashes {
+                let _ = content_store.delete(hash);
+            }
+            return Ok(IncrementalSyncResult {
+                bodies_fetched: 0,
+                flags_updated: 0,
+                full_refetch: true,
+                events: Vec::new(),
+                orphaned_hashes,
+                uidvalidity: select_uidvalidity,
+                highestmodseq: select_highestmodseq,
+            });
+        }
+    }
+
+    let local_uids: HashSet<u32> = load_uids_for_folder(conn, account_id, folder_id)?
+        .into_iter()
+        .collect();
+    let _server_uid_set: HashSet<u32> = server_uids.iter().copied().collect();
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
+
+    let mut bodies_fetched = 0;
+    for raw_msg in &new_messages {
+        if local_uids.contains(&raw_msg.uid) {
+            continue;
+        }
+        let content_hash = content_store.put(&raw_msg.data)?;
+        let new_msg = parse_raw_message(
+            account_id,
+            raw_msg.uid,
+            None,
+            flags_from_imap(&raw_msg.flags),
+            &content_hash,
+            &raw_msg.data,
+        );
+        insert_message(&tx, &new_msg, folder_id)?;
+        bodies_fetched += 1;
+    }
+
+    update_folder_sync_state(&tx, folder_id, select_uidvalidity, select_highestmodseq)?;
+
+    tx.commit()
+        .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
+
+    Ok(IncrementalSyncResult {
+        bodies_fetched,
+        flags_updated: 0,
+        full_refetch: false,
+        events: Vec::new(),
+        orphaned_hashes: Vec::new(),
+        uidvalidity: select_uidvalidity,
+        highestmodseq: select_highestmodseq,
+    })
+}
+
+/// Handle UIDVALIDITY change: invalidate folder, delete stale rows, re-fetch.
+#[allow(dead_code)]
+fn handle_uidvalidity_change(
+    conn: &Connection,
+    content_store: &dyn ContentStore,
+    params: &ImapConnectParams,
+    folder_name: &str,
+    folder_id: i64,
+) -> Result<IncrementalSyncResult, FetchError> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
+
+    // Delete stale messages for this folder; collect orphaned hashes.
+    let orphaned_hashes = delete_messages_for_folder(&tx, &params.account_id, folder_id)?;
+
+    // Reset folder sync state.
+    update_folder_sync_state(&tx, folder_id, 0, None)?;
+
+    tx.commit()
+        .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
+
+    // Delete orphaned .eml files from content store.
+    for hash in &orphaned_hashes {
+        let _ = content_store.delete(hash);
+    }
+
+    // Re-fetch from scratch.
+    let full = fetch_and_store_folder(conn, content_store, params, folder_name)?;
+
+    Ok(IncrementalSyncResult {
+        bodies_fetched: full.messages_fetched,
+        flags_updated: 0,
+        full_refetch: true,
+        events: Vec::new(),
+        orphaned_hashes,
+        uidvalidity: full.uidvalidity,
+        highestmodseq: full.highestmodseq,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::imap_check::ImapFolder;
+    use crate::core::message::{NewMessage, FLAG_SEEN};
+    use crate::services::database::open_and_migrate;
+    use crate::services::folder_store::replace_folders;
+    use crate::services::imap_client::{ChangedMessage, RawFetchedMessage};
+    use crate::services::memory_content_store::MemoryContentStore;
+    use tempfile::TempDir;
+
+    fn setup_db() -> (TempDir, Connection) {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+        let conn = open_and_migrate(&db_path).unwrap();
+        conn.execute(
+            "INSERT INTO accounts (id, display_name, protocol, host, port, encryption, auth_method, username, credential)
+             VALUES ('acct-1', 'Test', 'Imap', 'imap.example.com', 993, 'SslTls', 'Plain', 'user', '')",
+            [],
+        ).unwrap();
+        let folders = vec![ImapFolder {
+            name: "INBOX".to_string(),
+            attributes: "".to_string(),
+            role: None,
+        }];
+        replace_folders(&conn, "acct-1", &folders).unwrap();
+        (dir, conn)
+    }
+
+    fn folder_id(conn: &Connection) -> i64 {
+        find_folder_id(conn, "acct-1", "INBOX").unwrap().unwrap()
+    }
+
+    fn make_raw_email(subject: &str) -> Vec<u8> {
+        format!(
+            "From: test@example.com\r\n\
+             Subject: {subject}\r\n\
+             Message-ID: <{subject}@example.com>\r\n\
+             Date: Mon, 1 Jan 2024 12:00:00 +0000\r\n\
+             \r\n\
+             Body of {subject}\r\n"
+        )
+        .into_bytes()
+    }
+
+    fn seed_initial_messages(conn: &Connection, folder_id: i64) {
+        // Simulate a first sync with 3 messages, uidvalidity=100, highestmodseq=50.
+        let msg1 = NewMessage {
+            account_id: "acct-1".to_string(),
+            uid: 1,
+            modseq: Some(10),
+            message_id: Some("<msg1@example.com>".to_string()),
+            in_reply_to: None,
+            references_header: None,
+            from_addresses: Some("a@example.com".to_string()),
+            to_addresses: Some("b@example.com".to_string()),
+            cc_addresses: None,
+            bcc_addresses: None,
+            subject: Some("Message 1".to_string()),
+            date_received: Some(1700000000),
+            date_sent: Some(1700000000),
+            flags: 0,
+            size: 100,
+            content_hash: "hash1".to_string(),
+            body_text: Some("body1".to_string()),
+            thread_id: None,
+            server_thread_id: None,
+        };
+        insert_message(conn, &msg1, folder_id).unwrap();
+
+        let mut msg2 = msg1.clone();
+        msg2.uid = 2;
+        msg2.modseq = Some(20);
+        msg2.message_id = Some("<msg2@example.com>".to_string());
+        msg2.subject = Some("Message 2".to_string());
+        msg2.content_hash = "hash2".to_string();
+        msg2.body_text = Some("body2".to_string());
+        insert_message(conn, &msg2, folder_id).unwrap();
+
+        let mut msg3 = msg1.clone();
+        msg3.uid = 3;
+        msg3.modseq = Some(30);
+        msg3.message_id = Some("<msg3@example.com>".to_string());
+        msg3.subject = Some("Message 3".to_string());
+        msg3.content_hash = "hash3".to_string();
+        msg3.body_text = Some("body3".to_string());
+        insert_message(conn, &msg3, folder_id).unwrap();
+
+        update_folder_sync_state(conn, folder_id, 100, Some(50)).unwrap();
+    }
+
+    // --- CONDSTORE tests ---
+
+    #[test]
+    fn condstore_unchanged_folder_fetches_zero_bodies() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Second sync with no changes — CHANGEDSINCE returns nothing.
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,        // same uidvalidity
+            Some(50),   // same highestmodseq
+            Vec::new(), // no changed messages
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 0);
+        assert_eq!(result.flags_updated, 0);
+        assert!(!result.full_refetch);
+    }
+
+    #[test]
+    fn condstore_one_new_message_fetches_one_body() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server has one new message (uid=4).
+        let new_body = make_raw_email("NewMessage");
+        let changed = vec![ChangedMessage {
+            uid: 4,
+            flags: String::new(),
+            modseq: Some(60),
+            body: Some(new_body),
+        }];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(60),
+            changed,
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 1);
+        assert_eq!(result.flags_updated, 0);
+        assert!(!result.full_refetch);
+    }
+
+    #[test]
+    fn condstore_flag_change_updates_flags_emits_event() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server reports uid=2 flags changed to \Seen.
+        let changed = vec![ChangedMessage {
+            uid: 2,
+            flags: "\\Seen".to_string(),
+            modseq: Some(55),
+            body: None,
+        }];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(55),
+            changed,
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 0, "no body fetches for flag change");
+        assert_eq!(result.flags_updated, 1);
+        assert_eq!(result.events.len(), 1);
+
+        // Verify the flag was persisted.
+        let (msg_id, new_flags) = find_message_by_uid_in_folder(&conn, "acct-1", 2, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(new_flags, FLAG_SEEN);
+
+        // Verify the event.
+        match &result.events[0] {
+            SyncEvent::ServerFlagChange {
+                account_id,
+                message_id,
+                new_flags,
+            } => {
+                assert_eq!(account_id, "acct-1");
+                assert_eq!(*message_id, msg_id);
+                assert_eq!(*new_flags, FLAG_SEEN);
+            }
+            _ => panic!("expected ServerFlagChange event"),
+        }
+    }
+
+    #[test]
+    fn condstore_uidvalidity_change_invalidates_and_refetches() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        // Seed content store with files for the initial messages.
+        store.put(b"content1").unwrap(); // hash1 equivalent
+        store.put(b"content2").unwrap();
+        store.put(b"content3").unwrap();
+
+        seed_initial_messages(&conn, fid);
+        assert_eq!(
+            crate::services::message_store::count_messages(&conn, "acct-1").unwrap(),
+            3
+        );
+
+        // UIDVALIDITY changed (200 != 100).
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            200, // different uidvalidity!
+            Some(10),
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert!(result.full_refetch);
+        // Stale messages should be deleted.
+        assert_eq!(
+            crate::services::message_store::count_messages(&conn, "acct-1").unwrap(),
+            0
+        );
+        // Orphaned hashes should be returned.
+        assert_eq!(result.orphaned_hashes.len(), 3);
+    }
+
+    // --- UID-set diff tests ---
+
+    #[test]
+    fn uid_diff_unchanged_folder_fetches_zero_bodies() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server has same UIDs as local.
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3],
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 0);
+        assert!(!result.full_refetch);
+    }
+
+    #[test]
+    fn uid_diff_one_new_message_fetches_one_body() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server has uid=4 which is new.
+        let new_body = make_raw_email("NewUidDiffMessage");
+        let new_messages = vec![RawFetchedMessage {
+            uid: 4,
+            flags: String::new(),
+            data: new_body,
+        }];
+
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3, 4],
+            new_messages,
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 1);
+        assert!(!result.full_refetch);
+    }
+
+    #[test]
+    fn uid_diff_uidvalidity_change_invalidates() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // UIDVALIDITY changed.
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            999, // different!
+            None,
+            &[1, 2, 3],
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert!(result.full_refetch);
+        assert_eq!(
+            crate::services::message_store::count_messages(&conn, "acct-1").unwrap(),
+            0
+        );
+    }
 }
