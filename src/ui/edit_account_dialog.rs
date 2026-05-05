@@ -725,7 +725,7 @@ pub(crate) fn show(
 
     // -- Swipe and move defaults (FR-37, FR-38, US-37) --
     let swipe_group = adw::PreferencesGroup::builder()
-        .title(gettextrs::gettext("Swipe & Move Defaults"))
+        .title(gettextrs::gettext("Swipe &amp; Move Defaults"))
         .description(gettextrs::gettext(
             "Configure default swipe actions and move-to folder",
         ))
