@@ -484,7 +484,28 @@ pub(crate) fn build(
     add_btn.connect_clicked(clone!(
         #[weak]
         window,
+        #[strong]
+        store,
+        #[strong]
+        accounts,
+        #[strong]
+        settings,
+        #[strong]
+        custom_order,
+        #[strong]
+        order_store,
+        #[strong]
+        conn_state_mgr,
+        #[weak]
+        account_list,
         move |_| {
+            let store = store.clone();
+            let accounts = accounts.clone();
+            let settings = settings.clone();
+            let custom_order = custom_order.clone();
+            let order_store = order_store.clone();
+            let conn_state_mgr = conn_state_mgr.clone();
+            let account_list = account_list.clone();
             setup_wizard::show(
                 &window,
                 clone!(
@@ -492,16 +513,49 @@ pub(crate) fn build(
                     window,
                     move |result| {
                         if let Some(setup_wizard::WizardAction::ManualSetup(data)) = result {
+                            let store = store.clone();
+                            let accounts = accounts.clone();
+                            let settings = settings.clone();
+                            let custom_order = custom_order.clone();
+                            let order_store = order_store.clone();
+                            let conn_state_mgr = conn_state_mgr.clone();
+                            let account_list = account_list.clone();
+                            let categories = collect_categories(&accounts.borrow());
                             add_account_dialog::show_with_prefill(
                                 &window,
-                                Vec::new(),
+                                categories,
                                 add_account_dialog::PrefillData {
                                     display_name: data.display_name,
                                     email: data.email,
                                     password: data.password,
                                 },
-                                |_account| {
-                                    // Future slices will wire this to account persistence.
+                                move |result| {
+                                    if let Some(account) = result {
+                                        if let Err(e) = store.add(account.clone()) {
+                                            eprintln!("Failed to persist new account: {e}");
+                                            return;
+                                        }
+                                        let new_id = account.id();
+                                        conn_state_mgr.borrow_mut().ensure_account(new_id);
+                                        {
+                                            let mut list = accounts.borrow_mut();
+                                            list.push(account);
+                                        }
+                                        {
+                                            let mut order = custom_order.borrow_mut();
+                                            if let Some(ref mut o) = *order {
+                                                o.push(new_id);
+                                                let _ = order_store.save(o);
+                                            }
+                                        }
+                                        rebuild_account_list(
+                                            &account_list,
+                                            &accounts.borrow(),
+                                            settings.borrow().category_display_enabled,
+                                            custom_order.borrow().as_deref(),
+                                            &conn_state_mgr.borrow(),
+                                        );
+                                    }
                                 },
                             );
                         }
@@ -754,6 +808,13 @@ pub(crate) fn build(
 
     // FR-1: on first launch with zero accounts, present the setup wizard automatically.
     if accounts.borrow().is_empty() {
+        let store = store.clone();
+        let accounts_first = accounts.clone();
+        let settings_first = settings.clone();
+        let custom_order_first = custom_order.clone();
+        let order_store_first = order_store.clone();
+        let conn_state_mgr_first = conn_state_mgr.clone();
+        let account_list_first = account_list.clone();
         setup_wizard::show(
             &window,
             clone!(
@@ -761,16 +822,49 @@ pub(crate) fn build(
                 window,
                 move |result| {
                     if let Some(setup_wizard::WizardAction::ManualSetup(data)) = result {
+                        let store = store.clone();
+                        let accounts = accounts_first.clone();
+                        let settings = settings_first.clone();
+                        let custom_order = custom_order_first.clone();
+                        let order_store = order_store_first.clone();
+                        let conn_state_mgr = conn_state_mgr_first.clone();
+                        let account_list = account_list_first.clone();
+                        let categories = collect_categories(&accounts.borrow());
                         add_account_dialog::show_with_prefill(
                             &window,
-                            Vec::new(),
+                            categories,
                             add_account_dialog::PrefillData {
                                 display_name: data.display_name,
                                 email: data.email,
                                 password: data.password,
                             },
-                            |_account| {
-                                // Future slices will wire this to account persistence.
+                            move |result| {
+                                if let Some(account) = result {
+                                    if let Err(e) = store.add(account.clone()) {
+                                        eprintln!("Failed to persist new account: {e}");
+                                        return;
+                                    }
+                                    let new_id = account.id();
+                                    conn_state_mgr.borrow_mut().ensure_account(new_id);
+                                    {
+                                        let mut list = accounts.borrow_mut();
+                                        list.push(account);
+                                    }
+                                    {
+                                        let mut order = custom_order.borrow_mut();
+                                        if let Some(ref mut o) = *order {
+                                            o.push(new_id);
+                                            let _ = order_store.save(o);
+                                        }
+                                    }
+                                    rebuild_account_list(
+                                        &account_list,
+                                        &accounts.borrow(),
+                                        settings.borrow().category_display_enabled,
+                                        custom_order.borrow().as_deref(),
+                                        &conn_state_mgr.borrow(),
+                                    );
+                                }
                             },
                         );
                     }

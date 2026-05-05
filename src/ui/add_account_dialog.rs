@@ -359,6 +359,25 @@ fn show_inner(
         .build();
     server_group.add(&encryption_row);
 
+    // -- FR-16: prominent warning when "None" encryption is selected --
+    let no_encryption_banner = adw::Banner::builder()
+        .title(gettextrs::gettext(
+            "⚠ No encryption: credentials and messages will be sent in plain text. This is insecure and not recommended.",
+        ))
+        .revealed(false)
+        .build();
+    no_encryption_banner.add_css_class("error");
+    vbox.append(&no_encryption_banner);
+
+    encryption_row.connect_selected_notify(clone!(
+        #[weak]
+        no_encryption_banner,
+        move |row| {
+            // Index 2 = "None"
+            no_encryption_banner.set_revealed(row.selected() == 2);
+        }
+    ));
+
     // -- POP3 limitations banner (US-35, FR-10) --
     let pop3_banner = adw::Banner::builder()
         .title(gettextrs::gettext(
@@ -867,8 +886,18 @@ fn show_inner(
                 }
             };
 
+            // FR-58: default display name to username/email if left blank.
+            let display_name = {
+                let name = name_row.text().to_string();
+                if name.trim().is_empty() {
+                    username_row.text().to_string()
+                } else {
+                    name
+                }
+            };
+
             match Account::new(NewAccountParams {
-                display_name: name_row.text().to_string(),
+                display_name,
                 protocol,
                 host: host_row.text().to_string(),
                 port: port_row.value() as u16,
