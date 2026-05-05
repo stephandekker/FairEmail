@@ -17,6 +17,7 @@ pub mod folder_setup;
 pub mod imap_check;
 pub mod import_accounts;
 pub mod inbound_test;
+pub mod inbound_test_diagnostics;
 #[allow(dead_code)]
 pub(crate) mod ispdb_discovery;
 pub mod navigation;
@@ -85,6 +86,7 @@ pub use inbound_test::{
     InboundTestError, InboundTestParams, InboundTestResult, InboundTestSuccess,
     INBOUND_TEST_TIMEOUT,
 };
+pub use inbound_test_diagnostics::{diagnose_error, ConnectionDiagnostic};
 pub use ispdb_discovery::AutoconfigError;
 pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
 pub use oauth_signin::{

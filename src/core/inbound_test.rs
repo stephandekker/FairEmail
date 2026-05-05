@@ -44,6 +44,14 @@ pub enum InboundTestError {
     ConnectionFailed(String),
     #[error("authentication failed")]
     AuthenticationFailed,
+    #[error("DNS resolution failed for host: {0}")]
+    DnsResolutionFailed(String),
+    #[error("connection refused by {host}:{port}")]
+    ConnectionRefused { host: String, port: u16 },
+    #[error("TLS/SSL handshake failed: {0}")]
+    TlsHandshakeFailed(String),
+    #[error("protocol mismatch: {0}")]
+    ProtocolMismatch(String),
 }
 
 /// The result type for inbound connection tests.

@@ -9,7 +9,9 @@ use libadwaita::prelude::*;
 
 use crate::core::field_validation::{trim_hostname, trim_username, validate_manual_fields};
 use crate::core::inbound_test::InboundTestParams;
+use crate::core::inbound_test_diagnostics::diagnose_error;
 use crate::core::port_autofill::{default_port, should_autofill};
+use crate::core::provider::ProviderDatabase;
 use crate::core::{
     Account, AccountColor, AuthMethod, EncryptionMode, NewAccountParams, Pop3Settings, Protocol,
     SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
@@ -900,8 +902,28 @@ fn show_inner(
                                 toast_overlay.add_toast(toast);
                             }
                             Err(e) => {
-                                test_results_group.set_visible(false);
-                                let toast = adw::Toast::new(&e.to_string());
+                                let provider_db = ProviderDatabase::bundled();
+                                let hostname = host_row.text().to_string();
+                                let hostname_ref = if hostname.trim().is_empty() {
+                                    None
+                                } else {
+                                    Some(hostname.as_str())
+                                };
+                                let diagnostic = diagnose_error(&e, hostname_ref, &provider_db);
+
+                                let mut error_text = diagnostic.display_text();
+                                if let Some(ref url) = diagnostic.documentation_url {
+                                    error_text.push_str(&format!(
+                                        "\n\n{} {}",
+                                        gettextrs::gettext("Provider setup guide:"),
+                                        url
+                                    ));
+                                }
+
+                                test_results_label.set_text(&error_text);
+                                test_results_group.set_visible(true);
+
+                                let toast = adw::Toast::new(&diagnostic.message);
                                 toast_overlay.add_toast(toast);
                             }
                         }

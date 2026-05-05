@@ -22,8 +22,22 @@ impl InboundTester for MockInboundTester {
         let host_lower = params.host.to_lowercase();
 
         // Simulate various failure modes.
+        if host_lower.contains("dnsfail") {
+            return Err(InboundTestError::DnsResolutionFailed(params.host.clone()));
+        }
+        if host_lower.contains("refused") {
+            return Err(InboundTestError::ConnectionRefused {
+                host: params.host.clone(),
+                port: params.port,
+            });
+        }
         if host_lower.contains("timeout") {
             return Err(InboundTestError::Timeout);
+        }
+        if host_lower.contains("tlsfail") {
+            return Err(InboundTestError::TlsHandshakeFailed(
+                "certificate verification failed: self-signed certificate".into(),
+            ));
         }
         if host_lower.contains("unreachable") {
             return Err(InboundTestError::ConnectionFailed(
@@ -32,6 +46,11 @@ impl InboundTester for MockInboundTester {
         }
         if host_lower.contains("authfail") {
             return Err(InboundTestError::AuthenticationFailed);
+        }
+        if host_lower.contains("protomismatch") {
+            return Err(InboundTestError::ProtocolMismatch(
+                "expected IMAP greeting, got POP3 banner".into(),
+            ));
         }
 
         match params.protocol {
