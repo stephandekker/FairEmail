@@ -15,6 +15,8 @@ pub enum StoreError {
     Serialization(#[from] serde_json::Error),
     #[error("account not found: {0}")]
     NotFound(Uuid),
+    #[error("database error: {0}")]
+    Database(#[from] rusqlite::Error),
 }
 
 /// Persists accounts as a JSON array in a single file.
