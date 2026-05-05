@@ -188,7 +188,12 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             tls13,
             true,
             Some("https://help.yahoo.com/kb/imap-server-settings-sln4075.html"),
-            None,
+            Some(OAuthConfig {
+                auth_url: "https://api.login.yahoo.com/oauth2/request_auth".to_string(),
+                token_url: "https://api.login.yahoo.com/oauth2/get_token".to_string(),
+                scopes: vec!["mail-w".to_string()],
+                client_id: None,
+            }),
             3,
         ),
         // 4. Apple iCloud
@@ -232,7 +237,12 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             tls13,
             true,
             None,
-            None,
+            Some(OAuthConfig {
+                auth_url: "https://api.login.aol.com/oauth2/request_auth".to_string(),
+                token_url: "https://api.login.aol.com/oauth2/get_token".to_string(),
+                scopes: vec!["mail-w".to_string()],
+                client_id: None,
+            }),
             5,
         ),
         // 6. Mail.ru
@@ -254,7 +264,12 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             tls13,
             true,
             None,
-            None,
+            Some(OAuthConfig {
+                auth_url: "https://oauth.mail.ru/login".to_string(),
+                token_url: "https://oauth.mail.ru/token".to_string(),
+                scopes: vec!["mail.imap".to_string()],
+                client_id: None,
+            }),
             6,
         ),
         // 7. Yandex
@@ -284,7 +299,12 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             tls13,
             true,
             None,
-            None,
+            Some(OAuthConfig {
+                auth_url: "https://oauth.yandex.com/authorize".to_string(),
+                token_url: "https://oauth.yandex.com/token".to_string(),
+                scopes: vec!["mail:imap_full".to_string()],
+                client_id: None,
+            }),
             7,
         ),
         // 8. Proton Mail
@@ -1157,12 +1177,33 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             "smtp.tutanota.com",
             66,
         ),
-        ssl_provider(
+        p(
             "fastmail",
             "Fastmail",
             &["fastmail.com", "fastmail.fm", "messagingengine.com"],
+            &[],
             "imap.fastmail.com",
+            993,
+            ssl,
             "smtp.fastmail.com",
+            465,
+            ssl,
+            e,
+            15,
+            false,
+            true,
+            tls13,
+            false,
+            None,
+            Some(OAuthConfig {
+                auth_url: "https://api.fastmail.com/oauth/authorize".to_string(),
+                token_url: "https://api.fastmail.com/oauth/refresh".to_string(),
+                scopes: vec![
+                    "urn:ietf:params:jmap:mail".to_string(),
+                    "urn:ietf:params:jmap:submission".to_string(),
+                ],
+                client_id: None,
+            }),
             67,
         ),
         ssl_provider(
