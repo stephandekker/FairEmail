@@ -8,6 +8,7 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 
 use crate::core::connection_test::{ConnectionTestRequest, ServerConnectionParams};
+use crate::core::field_validation::{trim_hostname, trim_username, validate_manual_fields};
 use crate::core::{
     Account, AccountColor, AuthMethod, EncryptionMode, NewAccountParams, Pop3Settings, Protocol,
     SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
@@ -802,6 +803,51 @@ fn show_inner(
         #[strong]
         avatar_path,
         move |_| {
+            // Clear previous inline error styling.
+            host_row.remove_css_class("error");
+            username_row.remove_css_class("error");
+            password_row.remove_css_class("error");
+
+            let raw_host = host_row.text().to_string();
+            let raw_username = username_row.text().to_string();
+            let raw_password = password_row.text().to_string();
+
+            // FR-17 through FR-22: validate fields before save.
+            let validation = validate_manual_fields(&raw_host, &raw_username, &raw_password);
+
+            if !validation.is_valid() {
+                use crate::core::field_validation::ManualFieldError;
+                for err in &validation.errors {
+                    match err {
+                        ManualFieldError::EmptyHostname => {
+                            host_row.add_css_class("error");
+                        }
+                        ManualFieldError::EmptyUsername => {
+                            username_row.add_css_class("error");
+                        }
+                        ManualFieldError::EmptyPassword => {
+                            password_row.add_css_class("error");
+                        }
+                    }
+                }
+                // Show the first error as a toast for additional clarity.
+                if let Some(first_err) = validation.errors.first() {
+                    let toast = adw::Toast::new(&gettextrs::gettext(first_err.message()));
+                    toast_overlay.add_toast(toast);
+                }
+                return;
+            }
+
+            // FR-20: show non-blocking password warnings (do not prevent save).
+            for warning in &validation.password_warnings {
+                let toast = adw::Toast::new(&gettextrs::gettext(warning.message()));
+                toast_overlay.add_toast(toast);
+            }
+
+            // FR-21: trim hostname and username before use.
+            let host = trim_hostname(&raw_host);
+            let username = trim_username(&raw_username);
+
             let protocol = match protocol_row.selected() {
                 0 => Protocol::Imap,
                 _ => Protocol::Pop3,
@@ -890,7 +936,7 @@ fn show_inner(
             let display_name = {
                 let name = name_row.text().to_string();
                 if name.trim().is_empty() {
-                    username_row.text().to_string()
+                    username.clone()
                 } else {
                     name
                 }
@@ -899,12 +945,12 @@ fn show_inner(
             match Account::new(NewAccountParams {
                 display_name,
                 protocol,
-                host: host_row.text().to_string(),
+                host,
                 port: port_row.value() as u16,
                 encryption,
                 auth_method: auth,
-                username: username_row.text().to_string(),
-                credential: password_row.text().to_string(),
+                username,
+                credential: raw_password,
                 smtp,
                 pop3_settings,
                 color,

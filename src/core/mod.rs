@@ -12,6 +12,7 @@ pub(crate) mod detection_progress;
 pub mod dns_discovery;
 pub mod duplicate_account;
 pub mod export_accounts;
+pub mod field_validation;
 pub mod folder_setup;
 pub mod imap_check;
 pub mod import_accounts;
