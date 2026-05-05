@@ -90,7 +90,7 @@ pub fn discover_by_dns(
 
 /// FR-10.2: Look up NS records and match against known provider patterns.
 /// If a match is found, attempt SRV discovery first, falling back to the matched provider entry.
-fn discover_by_ns(
+pub(crate) fn discover_by_ns(
     domain: &str,
     resolver: &dyn DnsResolver,
     provider_db: &ProviderDatabase,
@@ -123,7 +123,7 @@ fn discover_by_ns(
 }
 
 /// FR-10.3: Look up MX records and match against known provider MX patterns.
-fn discover_by_mx(
+pub(crate) fn discover_by_mx(
     domain: &str,
     resolver: &dyn DnsResolver,
     provider_db: &ProviderDatabase,
@@ -169,7 +169,10 @@ fn matches_mx_pattern(exchange: &str, pattern: &str) -> bool {
 
 /// FR-10.4: RFC 6186 SRV record discovery.
 /// Queries _imaps._tcp, _imap._tcp, _submissions._tcp, _submission._tcp.
-fn discover_by_srv(domain: &str, resolver: &dyn DnsResolver) -> Option<ProviderCandidate> {
+pub(crate) fn discover_by_srv(
+    domain: &str,
+    resolver: &dyn DnsResolver,
+) -> Option<ProviderCandidate> {
     let incoming = resolve_imap_srv(domain, resolver)?;
     let outgoing = resolve_smtp_srv(domain, resolver).unwrap_or(ServerConfig {
         hostname: format!("smtp.{domain}"),

@@ -3,6 +3,7 @@ pub mod account_creation;
 pub mod account_order;
 pub mod account_review;
 pub mod auth_error;
+pub mod auto_config;
 pub mod certificate;
 pub mod connection_log;
 pub mod connection_state;
