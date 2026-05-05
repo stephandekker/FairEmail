@@ -29,6 +29,7 @@ pub(crate) mod provider_data;
 pub mod reauth;
 pub mod smtp_check;
 pub mod sync_conditions;
+pub mod user_provider_file;
 #[allow(dead_code)]
 pub(crate) mod vendor_discovery;
 pub mod wizard_validation;
@@ -97,4 +98,8 @@ pub use smtp_check::{
 };
 pub use sync_conditions::{
     evaluate as evaluate_sync_conditions, EnvironmentStatus, SyncEligibility, SyncPauseReason,
+};
+pub use user_provider_file::{
+    build_merged_database, merge_user_providers, parse_user_provider_file, UserProviderFileError,
+    APP_CONFIG_DIR, USER_PROVIDER_FILENAME,
 };
