@@ -7,14 +7,14 @@ use gtk4::prelude::*;
 use libadwaita as adw;
 use libadwaita::prelude::*;
 
-use crate::core::connection_test::{ConnectionTestRequest, ServerConnectionParams};
 use crate::core::field_validation::{trim_hostname, trim_username, validate_manual_fields};
+use crate::core::inbound_test::InboundTestParams;
 use crate::core::port_autofill::{default_port, should_autofill};
 use crate::core::{
     Account, AccountColor, AuthMethod, EncryptionMode, NewAccountParams, Pop3Settings, Protocol,
     SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
 };
-use crate::services::connection_tester::{ConnectionTester, MockConnectionTester};
+use crate::services::inbound_tester::{InboundTester, MockInboundTester};
 
 /// Result of the add-account dialog: either a validated Account or the user cancelled.
 pub(crate) type DialogResult = Option<Account>;
@@ -694,7 +694,32 @@ fn show_inner(
     let on_done = std::rc::Rc::new(on_done);
     let on_done_close = on_done.clone();
 
+    // -- Test results area (hidden until test completes) --
+    let test_results_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Test Results"))
+        .visible(false)
+        .build();
+    let test_results_label = gtk::Label::builder()
+        .wrap(true)
+        .xalign(0.0)
+        .css_classes(["body"])
+        .selectable(true)
+        .build();
+    test_results_group.add(&adw::ActionRow::builder().child(&test_results_label).build());
+    vbox.append(&test_results_group);
+
+    // -- Progress spinner (hidden until test starts) --
+    let test_spinner = gtk::Spinner::builder()
+        .spinning(false)
+        .visible(false)
+        .halign(gtk::Align::Center)
+        .margin_top(6)
+        .margin_bottom(6)
+        .build();
+    vbox.append(&test_spinner);
+
     // -- Test Connection button handler --
+    // Collect all input widgets to disable/enable during the test.
     test_btn.connect_clicked(clone!(
         #[weak]
         host_row,
@@ -711,6 +736,14 @@ fn show_inner(
         #[weak]
         protocol_row,
         #[weak]
+        toast_overlay,
+        #[weak]
+        test_btn,
+        #[weak]
+        save_btn,
+        #[weak]
+        name_row,
+        #[weak]
         smtp_host_row,
         #[weak]
         smtp_port_row,
@@ -723,53 +756,158 @@ fn show_inner(
         #[weak]
         smtp_password_row,
         #[weak]
-        toast_overlay,
+        test_spinner,
+        #[weak]
+        test_results_group,
+        #[weak]
+        test_results_label,
         move |_| {
-            let incoming_protocol = match protocol_row.selected() {
-                0 => Protocol::Imap,
-                _ => Protocol::Pop3,
-            };
-
-            let incoming = ServerConnectionParams {
+            let params = InboundTestParams {
                 host: host_row.text().to_string(),
                 port: port_row.value() as u16,
                 encryption: combo_to_encryption(encryption_row.selected()),
                 auth_method: combo_to_auth(auth_method_row.selected()),
                 username: username_row.text().to_string(),
                 credential: password_row.text().to_string(),
+                protocol: match protocol_row.selected() {
+                    0 => Protocol::Imap,
+                    _ => Protocol::Pop3,
+                },
             };
 
-            let smtp_host = smtp_host_row.text().to_string();
-            let outgoing = if smtp_host.trim().is_empty() {
-                None
-            } else {
-                Some(ServerConnectionParams {
-                    host: smtp_host,
-                    port: smtp_port_row.value() as u16,
-                    encryption: combo_to_encryption(smtp_encryption_row.selected()),
-                    auth_method: combo_to_auth(smtp_auth_row.selected()),
-                    username: smtp_username_row.text().to_string(),
-                    credential: smtp_password_row.text().to_string(),
-                })
-            };
+            // Disable all input fields and buttons during test.
+            set_form_sensitive(
+                &name_row,
+                &host_row,
+                &port_row,
+                &encryption_row,
+                &auth_method_row,
+                &username_row,
+                &password_row,
+                &protocol_row,
+                &smtp_host_row,
+                &smtp_port_row,
+                &smtp_encryption_row,
+                &smtp_auth_row,
+                &smtp_username_row,
+                &smtp_password_row,
+                &test_btn,
+                &save_btn,
+                false,
+            );
 
-            let request = ConnectionTestRequest {
-                incoming,
-                incoming_protocol,
-                outgoing,
-            };
+            // Show spinner.
+            test_spinner.set_visible(true);
+            test_spinner.set_spinning(true);
+            test_results_group.set_visible(false);
 
-            let tester = MockConnectionTester;
-            match tester.test_connection(&request) {
-                Ok(result) => {
-                    let toast = adw::Toast::new(&result.summary());
-                    toast_overlay.add_toast(toast);
-                }
-                Err(e) => {
-                    let toast = adw::Toast::new(&e.to_string());
-                    toast_overlay.add_toast(toast);
-                }
-            }
+            // Run the test asynchronously (simulated with a short delay).
+            glib::timeout_add_local_once(
+                std::time::Duration::from_millis(200),
+                clone!(
+                    #[weak]
+                    host_row,
+                    #[weak]
+                    port_row,
+                    #[weak]
+                    encryption_row,
+                    #[weak]
+                    auth_method_row,
+                    #[weak]
+                    username_row,
+                    #[weak]
+                    password_row,
+                    #[weak]
+                    protocol_row,
+                    #[weak]
+                    toast_overlay,
+                    #[weak]
+                    test_btn,
+                    #[weak]
+                    save_btn,
+                    #[weak]
+                    name_row,
+                    #[weak]
+                    smtp_host_row,
+                    #[weak]
+                    smtp_port_row,
+                    #[weak]
+                    smtp_encryption_row,
+                    #[weak]
+                    smtp_auth_row,
+                    #[weak]
+                    smtp_username_row,
+                    #[weak]
+                    smtp_password_row,
+                    #[weak]
+                    test_spinner,
+                    #[weak]
+                    test_results_group,
+                    #[weak]
+                    test_results_label,
+                    move || {
+                        let tester = MockInboundTester;
+                        let result = tester.test_inbound(&params);
+
+                        // Stop spinner.
+                        test_spinner.set_spinning(false);
+                        test_spinner.set_visible(false);
+
+                        // Re-enable form.
+                        set_form_sensitive(
+                            &name_row,
+                            &host_row,
+                            &port_row,
+                            &encryption_row,
+                            &auth_method_row,
+                            &username_row,
+                            &password_row,
+                            &protocol_row,
+                            &smtp_host_row,
+                            &smtp_port_row,
+                            &smtp_encryption_row,
+                            &smtp_auth_row,
+                            &smtp_username_row,
+                            &smtp_password_row,
+                            &test_btn,
+                            &save_btn,
+                            true,
+                        );
+
+                        match result {
+                            Ok(success) => {
+                                let mut text = String::new();
+                                if !success.folders.is_empty() {
+                                    text.push_str(&gettextrs::gettext("Folders:"));
+                                    text.push('\n');
+                                    text.push_str(&success.format_folder_list());
+                                    text.push_str("\n\n");
+                                }
+                                text.push_str(&success.format_capabilities());
+
+                                if !success.idle_supported {
+                                    let warning_toast = adw::Toast::new(&gettextrs::gettext(
+                                    "Server does not support IDLE — polling fallback will be used",
+                                ));
+                                    toast_overlay.add_toast(warning_toast);
+                                }
+
+                                test_results_label.set_text(&text);
+                                test_results_group.set_visible(true);
+
+                                let toast =
+                                    adw::Toast::new(&gettextrs::gettext("Connection successful"));
+                                toast_overlay.add_toast(toast);
+                            }
+                            Err(e) => {
+                                test_results_group.set_visible(false);
+                                let toast = adw::Toast::new(&e.to_string());
+                                toast_overlay.add_toast(toast);
+                            }
+                        }
+                    }
+                ),
+            );
         }
     ));
 
@@ -1098,4 +1236,43 @@ fn combo_to_swipe_action(selected: u32, folder_row: &adw::EntryRow) -> SwipeActi
         }
         _ => SwipeAction::None,
     }
+}
+
+/// Enable or disable the main form widgets during a connection test.
+#[allow(clippy::too_many_arguments)]
+fn set_form_sensitive(
+    name_row: &adw::EntryRow,
+    host_row: &adw::EntryRow,
+    port_row: &adw::SpinRow,
+    encryption_row: &adw::ComboRow,
+    auth_method_row: &adw::ComboRow,
+    username_row: &adw::EntryRow,
+    password_row: &adw::PasswordEntryRow,
+    protocol_row: &adw::ComboRow,
+    smtp_host_row: &adw::EntryRow,
+    smtp_port_row: &adw::SpinRow,
+    smtp_encryption_row: &adw::ComboRow,
+    smtp_auth_row: &adw::ComboRow,
+    smtp_username_row: &adw::EntryRow,
+    smtp_password_row: &adw::PasswordEntryRow,
+    test_btn: &gtk::Button,
+    save_btn: &gtk::Button,
+    sensitive: bool,
+) {
+    name_row.set_sensitive(sensitive);
+    host_row.set_sensitive(sensitive);
+    port_row.set_sensitive(sensitive);
+    encryption_row.set_sensitive(sensitive);
+    auth_method_row.set_sensitive(sensitive);
+    username_row.set_sensitive(sensitive);
+    password_row.set_sensitive(sensitive);
+    protocol_row.set_sensitive(sensitive);
+    smtp_host_row.set_sensitive(sensitive);
+    smtp_port_row.set_sensitive(sensitive);
+    smtp_encryption_row.set_sensitive(sensitive);
+    smtp_auth_row.set_sensitive(sensitive);
+    smtp_username_row.set_sensitive(sensitive);
+    smtp_password_row.set_sensitive(sensitive);
+    test_btn.set_sensitive(sensitive);
+    save_btn.set_sensitive(sensitive);
 }

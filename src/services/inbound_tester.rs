@@ -1,0 +1,194 @@
+use crate::core::account::{FolderRole, Protocol};
+use crate::core::imap_check::ImapFolder;
+use crate::core::inbound_test::{
+    InboundTestError, InboundTestParams, InboundTestResult, InboundTestSuccess,
+};
+
+/// Trait for testing inbound mail server connections.
+/// Implementations handle the actual network I/O.
+pub trait InboundTester {
+    fn test_inbound(&self, params: &InboundTestParams) -> InboundTestResult;
+}
+
+/// Mock implementation that simulates an inbound connection test.
+/// Returns a realistic folder list for IMAP, reports IDLE and UTF-8 support.
+/// Simulates failures for hosts containing "unreachable", "authfail", or "timeout".
+pub struct MockInboundTester;
+
+impl InboundTester for MockInboundTester {
+    fn test_inbound(&self, params: &InboundTestParams) -> InboundTestResult {
+        params.validate()?;
+
+        let host_lower = params.host.to_lowercase();
+
+        // Simulate various failure modes.
+        if host_lower.contains("timeout") {
+            return Err(InboundTestError::Timeout);
+        }
+        if host_lower.contains("unreachable") {
+            return Err(InboundTestError::ConnectionFailed(
+                "could not connect to host".into(),
+            ));
+        }
+        if host_lower.contains("authfail") {
+            return Err(InboundTestError::AuthenticationFailed);
+        }
+
+        match params.protocol {
+            Protocol::Imap => Ok(mock_imap_success(&host_lower)),
+            Protocol::Pop3 => Ok(InboundTestSuccess {
+                folders: vec![],
+                idle_supported: false,
+                utf8_supported: false,
+            }),
+        }
+    }
+}
+
+fn mock_imap_success(host_lower: &str) -> InboundTestSuccess {
+    let folders = vec![
+        ImapFolder {
+            name: "INBOX".into(),
+            attributes: "".into(),
+            role: None,
+        },
+        ImapFolder {
+            name: "Drafts".into(),
+            attributes: "\\Drafts".into(),
+            role: Some(FolderRole::Drafts),
+        },
+        ImapFolder {
+            name: "Sent".into(),
+            attributes: "\\Sent".into(),
+            role: Some(FolderRole::Sent),
+        },
+        ImapFolder {
+            name: "Trash".into(),
+            attributes: "\\Trash".into(),
+            role: Some(FolderRole::Trash),
+        },
+        ImapFolder {
+            name: "Spam".into(),
+            attributes: "\\Junk".into(),
+            role: Some(FolderRole::Junk),
+        },
+        ImapFolder {
+            name: "Archive".into(),
+            attributes: "\\Archive".into(),
+            role: Some(FolderRole::Archive),
+        },
+    ];
+
+    // Simulate: hosts containing "noidle" don't support IDLE.
+    let idle_supported = !host_lower.contains("noidle");
+    // Simulate: hosts containing "noutf8" don't support UTF-8.
+    let utf8_supported = !host_lower.contains("noutf8");
+
+    InboundTestSuccess {
+        folders,
+        idle_supported,
+        utf8_supported,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::account::{AuthMethod, EncryptionMode};
+
+    fn valid_params() -> InboundTestParams {
+        InboundTestParams {
+            host: "imap.example.com".into(),
+            port: 993,
+            encryption: EncryptionMode::SslTls,
+            auth_method: AuthMethod::Plain,
+            username: "user@example.com".into(),
+            credential: "secret".into(),
+            protocol: Protocol::Imap,
+        }
+    }
+
+    #[test]
+    fn mock_imap_returns_folders() {
+        let tester = MockInboundTester;
+        let result = tester.test_inbound(&valid_params()).unwrap();
+        assert!(!result.folders.is_empty());
+        assert!(result.idle_supported);
+        assert!(result.utf8_supported);
+        // Should contain INBOX
+        assert!(result.folders.iter().any(|f| f.name == "INBOX"));
+        // Should detect Sent role
+        assert!(result
+            .folders
+            .iter()
+            .any(|f| f.role == Some(FolderRole::Sent)));
+    }
+
+    #[test]
+    fn mock_pop3_returns_empty_folders() {
+        let tester = MockInboundTester;
+        let mut params = valid_params();
+        params.protocol = Protocol::Pop3;
+        let result = tester.test_inbound(&params).unwrap();
+        assert!(result.folders.is_empty());
+        assert!(!result.idle_supported);
+    }
+
+    #[test]
+    fn mock_timeout_host() {
+        let tester = MockInboundTester;
+        let mut params = valid_params();
+        params.host = "timeout.example.com".into();
+        let err = tester.test_inbound(&params).unwrap_err();
+        assert!(matches!(err, InboundTestError::Timeout));
+    }
+
+    #[test]
+    fn mock_unreachable_host() {
+        let tester = MockInboundTester;
+        let mut params = valid_params();
+        params.host = "unreachable.example.com".into();
+        let err = tester.test_inbound(&params).unwrap_err();
+        assert!(matches!(err, InboundTestError::ConnectionFailed(_)));
+    }
+
+    #[test]
+    fn mock_authfail_host() {
+        let tester = MockInboundTester;
+        let mut params = valid_params();
+        params.host = "authfail.example.com".into();
+        let err = tester.test_inbound(&params).unwrap_err();
+        assert!(matches!(err, InboundTestError::AuthenticationFailed));
+    }
+
+    #[test]
+    fn mock_noidle_host() {
+        let tester = MockInboundTester;
+        let mut params = valid_params();
+        params.host = "noidle.example.com".into();
+        let result = tester.test_inbound(&params).unwrap();
+        assert!(!result.idle_supported);
+        assert!(result.utf8_supported);
+    }
+
+    #[test]
+    fn mock_noutf8_host() {
+        let tester = MockInboundTester;
+        let mut params = valid_params();
+        params.host = "noutf8.example.com".into();
+        let result = tester.test_inbound(&params).unwrap();
+        assert!(result.idle_supported);
+        assert!(!result.utf8_supported);
+    }
+
+    #[test]
+    fn mock_validates_params() {
+        let tester = MockInboundTester;
+        let mut params = valid_params();
+        params.host = "".into();
+        assert!(matches!(
+            tester.test_inbound(&params),
+            Err(InboundTestError::EmptyHost)
+        ));
+    }
+}

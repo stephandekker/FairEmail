@@ -16,6 +16,7 @@ pub mod field_validation;
 pub mod folder_setup;
 pub mod imap_check;
 pub mod import_accounts;
+pub mod inbound_test;
 #[allow(dead_code)]
 pub(crate) mod ispdb_discovery;
 pub mod navigation;
@@ -79,6 +80,10 @@ pub use imap_check::{
 pub use import_accounts::{
     import_accounts, parse_import_data, AccountImportOutcome, DuplicateStrategy, ImportError,
     ImportOptions, ImportResult,
+};
+pub use inbound_test::{
+    InboundTestError, InboundTestParams, InboundTestResult, InboundTestSuccess,
+    INBOUND_TEST_TIMEOUT,
 };
 pub use ispdb_discovery::AutoconfigError;
 pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
