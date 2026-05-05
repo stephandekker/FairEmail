@@ -110,6 +110,8 @@ impl MatchScore {
     pub const ISPDB: Self = Self(0.30);
     /// Score for vendor-specific autodiscovery (FR-10.6).
     pub const VENDOR_AUTODISCOVERY: Self = Self(0.25);
+    /// Score for port-scanning fallback (FR-10.7) — lowest confidence of all strategies.
+    pub const PORT_SCAN: Self = Self(0.10);
 
     pub fn value(&self) -> f64 {
         self.0

@@ -18,6 +18,8 @@ pub mod import_accounts;
 #[allow(dead_code)]
 pub(crate) mod ispdb_discovery;
 pub mod navigation;
+#[allow(dead_code)]
+pub(crate) mod port_scanning;
 pub mod primary;
 pub(crate) mod privacy;
 pub mod proprietary_provider;
