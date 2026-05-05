@@ -15,6 +15,8 @@ pub mod export_accounts;
 pub mod folder_setup;
 pub mod imap_check;
 pub mod import_accounts;
+#[allow(dead_code)]
+pub(crate) mod ispdb_discovery;
 pub mod navigation;
 pub mod primary;
 pub(crate) mod privacy;
@@ -23,6 +25,8 @@ pub mod provider;
 pub(crate) mod provider_data;
 pub mod smtp_check;
 pub mod sync_conditions;
+#[allow(dead_code)]
+pub(crate) mod vendor_discovery;
 pub mod wizard_validation;
 
 pub use account::{
@@ -69,6 +73,7 @@ pub use import_accounts::{
     import_accounts, parse_import_data, AccountImportOutcome, DuplicateStrategy, ImportError,
     ImportOptions, ImportResult,
 };
+pub use ispdb_discovery::AutoconfigError;
 pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
 pub use primary::{
     auto_designate_on_add, revoke_if_sync_disabled, set_primary, PrimaryDesignationError,

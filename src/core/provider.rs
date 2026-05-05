@@ -106,6 +106,10 @@ impl MatchScore {
     pub const DNS_MX: Self = Self(0.40);
     /// Score for RFC 6186 SRV record discovery (FR-10.4).
     pub const DNS_SRV: Self = Self(0.35);
+    /// Score for Thunderbird ISPDB autoconfig (FR-10.5).
+    pub const ISPDB: Self = Self(0.30);
+    /// Score for vendor-specific autodiscovery (FR-10.6).
+    pub const VENDOR_AUTODISCOVERY: Self = Self(0.25);
 
     pub fn value(&self) -> f64 {
         self.0
