@@ -30,6 +30,7 @@ sha2 = "0.10"
 hex = "0.4"
 mail-parser = "0.9"
 html2text = "0.12"
+notify-rust = "4"
 
 [dev-dependencies]
 tempfile = "3"

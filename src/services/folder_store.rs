@@ -112,6 +112,40 @@ pub fn folder_name_by_id(
     }
 }
 
+/// Check whether notifications are enabled for a specific folder.
+/// Returns `true` if the folder has `notifications_enabled = 1` (the default),
+/// or if the folder is not found (conservative: notify by default).
+pub fn is_folder_notifications_enabled(
+    conn: &Connection,
+    account_id: &str,
+    folder_name: &str,
+) -> Result<bool, DatabaseError> {
+    let result = conn.query_row(
+        "SELECT notifications_enabled FROM folders WHERE account_id = ?1 AND name = ?2",
+        rusqlite::params![account_id, folder_name],
+        |row| row.get::<_, i32>(0),
+    );
+    match result {
+        Ok(val) => Ok(val != 0),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(true),
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
+/// Update the notifications_enabled flag for a specific folder.
+pub fn set_folder_notifications_enabled(
+    conn: &Connection,
+    account_id: &str,
+    folder_name: &str,
+    enabled: bool,
+) -> Result<bool, DatabaseError> {
+    let updated = conn.execute(
+        "UPDATE folders SET notifications_enabled = ?1 WHERE account_id = ?2 AND name = ?3",
+        rusqlite::params![enabled as i32, account_id, folder_name],
+    )?;
+    Ok(updated > 0)
+}
+
 fn parse_folder_role(s: &str) -> Option<FolderRole> {
     match s {
         "Drafts" => Some(FolderRole::Drafts),

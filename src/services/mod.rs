@@ -19,6 +19,8 @@ pub mod message_fetch;
 pub mod message_store;
 pub mod network;
 pub mod notification_channel;
+#[allow(dead_code)]
+pub(crate) mod notification_dispatcher;
 pub mod order_store;
 pub mod pending_ops_store;
 pub mod real_connection_tester;
@@ -40,7 +42,10 @@ pub use account_store::StoreError;
 pub use connection_log_store::{append_connection_logs, load_connection_logs};
 pub use connection_tester::{ConnectionTester, MockConnectionTester};
 pub use export_service::{export_to_file, ExportResult, ExportServiceError};
-pub use folder_store::{load_folders, replace_folders};
+pub use folder_store::{
+    is_folder_notifications_enabled, load_folders, replace_folders,
+    set_folder_notifications_enabled,
+};
 pub use folder_sync::{
     perform_folder_setup, FolderSyncService, MockFolderSyncService, RealFolderSyncService,
 };
@@ -66,7 +71,10 @@ pub use message_store::{
     find_message_by_uid_in_folder, insert_message, load_folder_sync_state, load_message,
     load_uids_for_folder, update_folder_sync_state, update_message_flags,
 };
-pub use notification_channel::{MockNotificationChannelManager, NotificationChannelManager};
+pub use notification_channel::{
+    FreedesktopNotificationChannelManager, MockNotificationChannelManager,
+    NotificationChannelManager,
+};
 pub use order_store::OrderStore;
 pub use pending_ops_store::{
     complete_op, count_pending_ops, insert_pending_op, load_pending_ops, mark_failed,

@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 10;
+const CURRENT_VERSION: u32 = 11;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -68,10 +68,21 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 10 {
         migrate_v10(conn)?;
     }
+    if version < 11 {
+        migrate_v11(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v11: Add `notifications_enabled` column to the `folders` table (FR-47).
+fn migrate_v11(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        "ALTER TABLE folders ADD COLUMN notifications_enabled INTEGER NOT NULL DEFAULT 1;",
+    )?;
     Ok(())
 }
 

@@ -33,7 +33,6 @@ pub trait NotificationChannelManager {
 }
 
 /// Mock implementation that records calls but performs no real I/O.
-/// Used until a real notification backend is chosen.
 #[derive(Debug, Default)]
 pub struct MockNotificationChannelManager;
 
@@ -51,6 +50,44 @@ impl NotificationChannelManager for MockNotificationChannelManager {
     fn unregister_channel(&self, account_id: Uuid) -> Result<(), NotificationChannelError> {
         let _channel_id = notification_channel_id(account_id);
         // No-op in mock implementation.
+        Ok(())
+    }
+}
+
+/// Real freedesktop notification channel manager backed by `notify-rust`.
+///
+/// On register, it sends a transient notification so the desktop environment
+/// learns about the application + category combination. On unregister it is
+/// a no-op since freedesktop notifications are fire-and-forget.
+#[derive(Debug, Default)]
+pub struct FreedesktopNotificationChannelManager;
+
+impl NotificationChannelManager for FreedesktopNotificationChannelManager {
+    fn register_channel(
+        &self,
+        account_id: Uuid,
+        account_name: &str,
+    ) -> Result<(), NotificationChannelError> {
+        let channel_id = notification_channel_id(account_id);
+        // Send a silent, low-urgency notification so the desktop learns the
+        // app-name + category pairing. This lets GNOME/KDE group future
+        // notifications for this account.
+        notify_rust::Notification::new()
+            .appname("FairEmail")
+            .summary(&format!("Notifications enabled for {account_name}"))
+            .body("You will receive desktop notifications for new mail on this account.")
+            .hint(notify_rust::Hint::Category(channel_id))
+            .hint(notify_rust::Hint::SuppressSound(true))
+            .urgency(notify_rust::Urgency::Low)
+            .show()
+            .map_err(|e| NotificationChannelError::RegistrationFailed(e.to_string()))?;
+        Ok(())
+    }
+
+    fn unregister_channel(&self, account_id: Uuid) -> Result<(), NotificationChannelError> {
+        let _channel_id = notification_channel_id(account_id);
+        // Freedesktop notifications are fire-and-forget; there is no
+        // persistent channel to remove.
         Ok(())
     }
 }
