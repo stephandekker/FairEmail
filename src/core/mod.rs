@@ -81,8 +81,8 @@ pub use primary::{
     auto_designate_on_add, revoke_if_sync_disabled, set_primary, PrimaryDesignationError,
 };
 pub use provider::{
-    LocalizedDoc, MatchScore, MaxTlsVersion, OAuthConfig, Provider, ProviderCandidate,
-    ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
+    merge_network_with_bundled, LocalizedDoc, MatchScore, MaxTlsVersion, OAuthConfig, Provider,
+    ProviderCandidate, ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
 };
 pub use smtp_check::{
     combine_connectivity_results, ConnectivityCheckError, ConnectivityCheckResult, SmtpCheckError,

@@ -236,6 +236,44 @@ impl ProviderDatabase {
     pub fn providers(&self) -> &[Provider] {
         &self.providers
     }
+
+    /// Look up a provider by server hostname (incoming or outgoing).
+    /// Returns the first enabled provider whose IMAP or SMTP hostname matches.
+    pub fn lookup_by_hostname(&self, hostname: &str) -> Option<&Provider> {
+        let lower = hostname.to_lowercase();
+        self.providers.iter().filter(|p| p.enabled).find(|p| {
+            p.incoming.hostname.to_lowercase() == lower
+                || p.outgoing.hostname.to_lowercase() == lower
+        })
+    }
+}
+
+/// When a network-discovered candidate's server hostname matches a bundled
+/// provider entry, replace the network-discovered settings with the bundled
+/// entry's values while preserving the original discovery score (FR-12, N-4).
+///
+/// If no bundled entry matches, the candidate is returned unchanged.
+pub fn merge_network_with_bundled(
+    candidate: ProviderCandidate,
+    db: &ProviderDatabase,
+) -> ProviderCandidate {
+    // Only merge network-discovered candidates (bundled ones are already complete).
+    if candidate.score.is_bundled() {
+        return candidate;
+    }
+
+    // Try matching on incoming hostname, then outgoing hostname.
+    if let Some(bundled) = db
+        .lookup_by_hostname(&candidate.provider.incoming.hostname)
+        .or_else(|| db.lookup_by_hostname(&candidate.provider.outgoing.hostname))
+    {
+        ProviderCandidate {
+            provider: bundled.clone(),
+            score: candidate.score,
+        }
+    } else {
+        candidate
+    }
 }
 
 /// Extract the domain part from an email address.
@@ -370,6 +408,210 @@ mod tests {
                 "Expected provider for domain: {domain}"
             );
         }
+    }
+
+    #[test]
+    fn test_lookup_by_hostname_incoming() {
+        let db = ProviderDatabase::new(vec![make_test_provider("gmail", &["gmail.com"])]);
+        let found = db.lookup_by_hostname("imap.gmail.com").unwrap();
+        assert_eq!(found.id, "gmail");
+    }
+
+    #[test]
+    fn test_lookup_by_hostname_outgoing() {
+        let db = ProviderDatabase::new(vec![make_test_provider("gmail", &["gmail.com"])]);
+        let found = db.lookup_by_hostname("smtp.gmail.com").unwrap();
+        assert_eq!(found.id, "gmail");
+    }
+
+    #[test]
+    fn test_lookup_by_hostname_case_insensitive() {
+        let db = ProviderDatabase::new(vec![make_test_provider("gmail", &["gmail.com"])]);
+        assert!(db.lookup_by_hostname("IMAP.GMAIL.COM").is_some());
+    }
+
+    #[test]
+    fn test_lookup_by_hostname_no_match() {
+        let db = ProviderDatabase::new(vec![make_test_provider("gmail", &["gmail.com"])]);
+        assert!(db.lookup_by_hostname("imap.unknown.com").is_none());
+    }
+
+    #[test]
+    fn test_lookup_by_hostname_disabled_skipped() {
+        let mut provider = make_test_provider("disabled", &["test.com"]);
+        provider.enabled = false;
+        let db = ProviderDatabase::new(vec![provider]);
+        assert!(db.lookup_by_hostname("imap.disabled.com").is_none());
+    }
+
+    #[test]
+    fn test_merge_replaces_settings_preserves_score() {
+        let bundled = make_test_provider("gmail", &["gmail.com"]);
+        let db = ProviderDatabase::new(vec![bundled]);
+
+        // Network-discovered candidate with matching hostname but different settings
+        let network_provider = Provider {
+            id: "ispdb-discovered".to_string(),
+            display_name: "ISPDB Result".to_string(),
+            domain_patterns: vec![],
+            mx_patterns: vec![],
+            incoming: ServerConfig {
+                hostname: "imap.gmail.com".to_string(),
+                port: 143,
+                encryption: ProviderEncryption::StartTls,
+            },
+            outgoing: ServerConfig {
+                hostname: "smtp.gmail.com".to_string(),
+                port: 587,
+                encryption: ProviderEncryption::StartTls,
+            },
+            username_type: UsernameType::EmailAddress,
+            keep_alive_interval: 0,
+            noop_keep_alive: false,
+            partial_fetch: false,
+            max_tls_version: MaxTlsVersion::Tls1_3,
+            app_password_required: false,
+            documentation_url: None,
+            localized_docs: vec![],
+            oauth: None,
+            display_order: 0,
+            enabled: true,
+        };
+
+        let candidate = ProviderCandidate {
+            provider: network_provider,
+            score: MatchScore::ISPDB,
+        };
+
+        let merged = merge_network_with_bundled(candidate, &db);
+
+        // Score preserved
+        assert_eq!(merged.score, MatchScore::ISPDB);
+        // Provider replaced with bundled
+        assert_eq!(merged.provider.id, "gmail");
+        assert_eq!(merged.provider.incoming.port, 993);
+        assert_eq!(
+            merged.provider.incoming.encryption,
+            ProviderEncryption::SslTls
+        );
+        assert_eq!(merged.provider.outgoing.port, 465);
+        assert_eq!(merged.provider.keep_alive_interval, 15);
+        assert!(merged.provider.partial_fetch);
+    }
+
+    #[test]
+    fn test_merge_no_match_returns_unchanged() {
+        let db = ProviderDatabase::new(vec![make_test_provider("gmail", &["gmail.com"])]);
+
+        let network_provider = Provider {
+            id: "unknown".to_string(),
+            display_name: "Unknown".to_string(),
+            domain_patterns: vec![],
+            mx_patterns: vec![],
+            incoming: ServerConfig {
+                hostname: "imap.unknown.com".to_string(),
+                port: 993,
+                encryption: ProviderEncryption::SslTls,
+            },
+            outgoing: ServerConfig {
+                hostname: "smtp.unknown.com".to_string(),
+                port: 465,
+                encryption: ProviderEncryption::SslTls,
+            },
+            username_type: UsernameType::EmailAddress,
+            keep_alive_interval: 0,
+            noop_keep_alive: false,
+            partial_fetch: false,
+            max_tls_version: MaxTlsVersion::Tls1_3,
+            app_password_required: false,
+            documentation_url: None,
+            localized_docs: vec![],
+            oauth: None,
+            display_order: 0,
+            enabled: true,
+        };
+
+        let candidate = ProviderCandidate {
+            provider: network_provider,
+            score: MatchScore::DNS_SRV,
+        };
+
+        let result = merge_network_with_bundled(candidate, &db);
+        assert_eq!(result.provider.id, "unknown");
+        assert_eq!(result.score, MatchScore::DNS_SRV);
+    }
+
+    #[test]
+    fn test_merge_skips_bundled_candidates() {
+        let db = ProviderDatabase::new(vec![make_test_provider("gmail", &["gmail.com"])]);
+
+        let candidate = ProviderCandidate {
+            provider: make_test_provider("gmail", &["gmail.com"]),
+            score: MatchScore::BUNDLED_EXACT,
+        };
+
+        let result = merge_network_with_bundled(candidate, &db);
+        assert_eq!(result.score, MatchScore::BUNDLED_EXACT);
+    }
+
+    #[test]
+    fn test_merge_provider_flags_applied() {
+        // Create a bundled provider with specific flags
+        let mut bundled = make_test_provider("special", &["special.com"]);
+        bundled.keep_alive_interval = 30;
+        bundled.noop_keep_alive = true;
+        bundled.partial_fetch = false;
+        bundled.max_tls_version = MaxTlsVersion::Tls1_2;
+        bundled.app_password_required = true;
+        bundled.documentation_url = Some("https://docs.special.com".to_string());
+
+        let db = ProviderDatabase::new(vec![bundled]);
+
+        let network_provider = Provider {
+            id: "network".to_string(),
+            display_name: "Network".to_string(),
+            domain_patterns: vec![],
+            mx_patterns: vec![],
+            incoming: ServerConfig {
+                hostname: "imap.special.com".to_string(),
+                port: 143,
+                encryption: ProviderEncryption::StartTls,
+            },
+            outgoing: ServerConfig {
+                hostname: "smtp.other.com".to_string(),
+                port: 587,
+                encryption: ProviderEncryption::StartTls,
+            },
+            username_type: UsernameType::EmailAddress,
+            keep_alive_interval: 0,
+            noop_keep_alive: false,
+            partial_fetch: true,
+            max_tls_version: MaxTlsVersion::Tls1_3,
+            app_password_required: false,
+            documentation_url: None,
+            localized_docs: vec![],
+            oauth: None,
+            display_order: 0,
+            enabled: true,
+        };
+
+        let candidate = ProviderCandidate {
+            provider: network_provider,
+            score: MatchScore::VENDOR_AUTODISCOVERY,
+        };
+
+        let merged = merge_network_with_bundled(candidate, &db);
+
+        assert_eq!(merged.score, MatchScore::VENDOR_AUTODISCOVERY);
+        assert_eq!(merged.provider.keep_alive_interval, 30);
+        assert!(merged.provider.noop_keep_alive);
+        assert!(!merged.provider.partial_fetch);
+        assert_eq!(merged.provider.max_tls_version, MaxTlsVersion::Tls1_2);
+        assert!(merged.provider.app_password_required);
+        assert_eq!(
+            merged.provider.documentation_url,
+            Some("https://docs.special.com".to_string())
+        );
     }
 
     #[test]
