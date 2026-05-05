@@ -10,7 +10,10 @@ fn main() {
     use libadwaita as adw;
     use std::rc::Rc;
 
-    use crate::services::{AccountStore, SqliteOrderStore, SqliteSettingsStore};
+    use crate::core::credential_store::{CredentialRole, CredentialStore, SecretValue};
+    use crate::services::{
+        AccountStore, LibsecretCredentialStore, SqliteOrderStore, SqliteSettingsStore,
+    };
 
     fn data_dir() -> std::path::PathBuf {
         let base = if let Ok(custom) = std::env::var("FAIRMAIL_DATA_DIR") {
@@ -145,6 +148,57 @@ fn main() {
         }
     }
 
+    /// Migrate plaintext credentials from the database into the system keychain.
+    /// Idempotent: only processes accounts that still have a non-empty credential column.
+    /// On success, clears the credential columns in the database.
+    fn migrate_credentials_to_keychain(store: &AccountStore, cred_store: &dyn CredentialStore) {
+        let plaintext_creds = match store.read_plaintext_credentials() {
+            Ok(creds) => creds,
+            Err(e) => {
+                eprintln!("Warning: could not read plaintext credentials for migration: {e}");
+                return;
+            }
+        };
+
+        if plaintext_creds.is_empty() {
+            return;
+        }
+
+        let mut all_ok = true;
+        for (account_id, imap_cred, smtp_cred_opt) in &plaintext_creds {
+            if !imap_cred.is_empty() {
+                if let Err(e) = cred_store.write(
+                    *account_id,
+                    CredentialRole::ImapPassword,
+                    &SecretValue::new(imap_cred.clone()),
+                ) {
+                    eprintln!(
+                        "Warning: could not migrate credential to keychain for account {account_id}: {e}"
+                    );
+                    all_ok = false;
+                }
+            }
+            if let Some(smtp_cred) = smtp_cred_opt {
+                if let Err(e) = cred_store.write(
+                    *account_id,
+                    CredentialRole::SmtpPassword,
+                    &SecretValue::new(smtp_cred.clone()),
+                ) {
+                    eprintln!(
+                        "Warning: could not migrate SMTP credential to keychain for account {account_id}: {e}"
+                    );
+                    all_ok = false;
+                }
+            }
+        }
+
+        if all_ok {
+            if let Err(e) = store.clear_plaintext_credentials() {
+                eprintln!("Warning: could not clear plaintext credentials from database: {e}");
+            }
+        }
+    }
+
     let app = adw::Application::builder()
         .application_id("com.example.Fairmail")
         .build();
@@ -155,6 +209,9 @@ fn main() {
         let store =
             Rc::new(AccountStore::new(db_path.clone()).expect("could not open account database"));
         migrate_json_accounts(&dir, &store);
+        let cred_store: Rc<dyn crate::core::CredentialStore> =
+            Rc::new(LibsecretCredentialStore::new());
+        migrate_credentials_to_keychain(&store, cred_store.as_ref());
         let settings_store = Rc::new(
             SqliteSettingsStore::new(db_path.clone()).expect("could not open settings database"),
         );
@@ -162,7 +219,7 @@ fn main() {
         let order_store =
             Rc::new(SqliteOrderStore::new(db_path).expect("could not open order database"));
         migrate_json_order(&dir, &order_store);
-        ui::window::build(app, store, settings_store, order_store);
+        ui::window::build(app, store, settings_store, order_store, cred_store);
     }));
 
     app.run();

@@ -12,8 +12,34 @@ use uuid::Uuid;
 use crate::core::{
     self, apply_custom_order, clear_primary_if_deleted, collect_categories, group_by_category,
     move_account, remove_from_order, Account, ConnectionState, ConnectionStateManager,
+    CredentialRole, CredentialStore, SecretValue,
 };
 use crate::services::{AccountStore, AppSettings, SqliteOrderStore, SqliteSettingsStore};
+
+/// Store all credentials for an account into the system keychain.
+fn store_account_credentials(cred_store: &dyn CredentialStore, account: &Account) {
+    let id = account.id();
+    if !account.credential().is_empty() {
+        if let Err(e) = cred_store.write(
+            id,
+            CredentialRole::ImapPassword,
+            &SecretValue::new(account.credential().to_string()),
+        ) {
+            eprintln!("Warning: could not store IMAP credential in keychain: {e}");
+        }
+    }
+    if let Some(smtp) = account.smtp() {
+        if !smtp.credential.is_empty() {
+            if let Err(e) = cred_store.write(
+                id,
+                CredentialRole::SmtpPassword,
+                &SecretValue::new(smtp.credential.clone()),
+            ) {
+                eprintln!("Warning: could not store SMTP credential in keychain: {e}");
+            }
+        }
+    }
+}
 use crate::ui::add_account_dialog;
 use crate::ui::edit_account_dialog;
 use crate::ui::export_dialog;
@@ -26,6 +52,7 @@ pub(crate) fn build(
     store: Rc<AccountStore>,
     settings_store: Rc<SqliteSettingsStore>,
     order_store: Rc<SqliteOrderStore>,
+    credential_store: Rc<dyn crate::core::CredentialStore>,
 ) {
     let window = adw::ApplicationWindow::builder()
         .application(app)
@@ -496,6 +523,8 @@ pub(crate) fn build(
         order_store,
         #[strong]
         conn_state_mgr,
+        #[strong]
+        credential_store,
         #[weak]
         account_list,
         move |_| {
@@ -505,6 +534,7 @@ pub(crate) fn build(
             let custom_order = custom_order.clone();
             let order_store = order_store.clone();
             let conn_state_mgr = conn_state_mgr.clone();
+            let credential_store = credential_store.clone();
             let account_list = account_list.clone();
             setup_wizard::show(
                 &window,
@@ -519,6 +549,7 @@ pub(crate) fn build(
                             let custom_order = custom_order.clone();
                             let order_store = order_store.clone();
                             let conn_state_mgr = conn_state_mgr.clone();
+                            let credential_store = credential_store.clone();
                             let account_list = account_list.clone();
                             let categories = collect_categories(&accounts.borrow());
                             add_account_dialog::show_with_prefill(
@@ -531,6 +562,7 @@ pub(crate) fn build(
                                 },
                                 move |result| {
                                     if let Some(account) = result {
+                                        store_account_credentials(&*credential_store, &account);
                                         if let Err(e) = store.add(account.clone()) {
                                             eprintln!("Failed to persist new account: {e}");
                                             return;
@@ -594,6 +626,8 @@ pub(crate) fn build(
         order_store,
         #[strong]
         conn_state_mgr,
+        #[strong]
+        credential_store,
         #[weak]
         account_list,
         move |_| {
@@ -603,6 +637,7 @@ pub(crate) fn build(
             let custom_order = custom_order.clone();
             let order_store = order_store.clone();
             let conn_state_mgr = conn_state_mgr.clone();
+            let credential_store = credential_store.clone();
             let account_list = account_list.clone();
             let accts = accounts.borrow().clone();
             import_dialog::show(&window, accts, move |result| {
@@ -616,6 +651,7 @@ pub(crate) fn build(
 
                     // Persist all accounts.
                     for acct in &updated_accounts {
+                        store_account_credentials(&*credential_store, acct);
                         if old_ids.contains(&acct.id()) {
                             let _ = store.update(acct.clone());
                         } else {
@@ -658,6 +694,8 @@ pub(crate) fn build(
         order_store,
         #[strong]
         conn_state_mgr,
+        #[strong]
+        credential_store,
         #[weak]
         account_list,
         move |_, row| {
@@ -695,11 +733,13 @@ pub(crate) fn build(
                 main_window: window.clone(),
             };
             let order_store = order_store.clone();
+            let credential_store = credential_store.clone();
             let custom_order = custom_order.clone();
             edit_account_dialog::show(&window, account, categories, conn_diag, move |result| {
                 match result {
                     Some(edit_account_dialog::EditDialogResult::Updated(updated)) => {
                         let updated = *updated;
+                        store_account_credentials(&*credential_store, &updated);
                         if let Err(e) = store.update(updated.clone()) {
                             eprintln!("Failed to persist account update: {e}");
                             return;
@@ -736,6 +776,10 @@ pub(crate) fn build(
                             eprintln!("Failed to delete account: {e}");
                             return;
                         }
+                        // Remove all credentials from the system keychain.
+                        if let Err(e) = credential_store.delete_all_for_account(deleted_id) {
+                            eprintln!("Warning: could not remove credentials from keychain: {e}");
+                        }
                         // Remove from in-memory list.
                         {
                             let mut list = accounts.borrow_mut();
@@ -771,6 +815,7 @@ pub(crate) fn build(
                     Some(edit_account_dialog::EditDialogResult::Duplicated(duplicated)) => {
                         // FR-31, AC-10: duplicate creates a new independent account.
                         let duplicated = *duplicated;
+                        store_account_credentials(&*credential_store, &duplicated);
                         if let Err(e) = store.add(duplicated.clone()) {
                             eprintln!("Failed to persist duplicated account: {e}");
                             return;
@@ -814,6 +859,7 @@ pub(crate) fn build(
         let custom_order_first = custom_order.clone();
         let order_store_first = order_store.clone();
         let conn_state_mgr_first = conn_state_mgr.clone();
+        let credential_store_first = credential_store.clone();
         let account_list_first = account_list.clone();
         setup_wizard::show(
             &window,
@@ -828,6 +874,7 @@ pub(crate) fn build(
                         let custom_order = custom_order_first.clone();
                         let order_store = order_store_first.clone();
                         let conn_state_mgr = conn_state_mgr_first.clone();
+                        let credential_store = credential_store_first.clone();
                         let account_list = account_list_first.clone();
                         let categories = collect_categories(&accounts.borrow());
                         add_account_dialog::show_with_prefill(
@@ -840,6 +887,7 @@ pub(crate) fn build(
                             },
                             move |result| {
                                 if let Some(account) = result {
+                                    store_account_credentials(&*credential_store, &account);
                                     if let Err(e) = store.add(account.clone()) {
                                         eprintln!("Failed to persist new account: {e}");
                                         return;

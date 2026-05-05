@@ -6,6 +6,7 @@ pub mod auth_error;
 pub mod certificate;
 pub mod connection_state;
 pub mod connection_test;
+pub mod credential_store;
 pub mod delete_account;
 pub(crate) mod detection_failure;
 pub(crate) mod detection_progress;
@@ -62,6 +63,7 @@ pub use connection_state::{
 pub use connection_test::{
     ConnectionTestError, ConnectionTestRequest, ConnectionTestResult, ServerTestOutcome,
 };
+pub use credential_store::{CredentialError, CredentialRole, CredentialStore, SecretValue};
 pub use delete_account::{clear_primary_if_deleted, remove_from_order};
 pub use dns_discovery::{discover_by_dns, DnsDiscoveryResult, DnsError, DnsResolver, SrvRecord};
 pub use duplicate_account::duplicate as duplicate_account;

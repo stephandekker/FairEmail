@@ -21,6 +21,9 @@ argon2 = "0.5"
 rand = "0.8"
 base64 = "0.22"
 rusqlite = { version = "0.31", features = ["bundled"] }
+secret-service = { version = "4", features = ["crypto-rust"] }
+zbus = { version = "4", default-features = false, features = ["tokio"] }
+tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
 tempfile = "3"

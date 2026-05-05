@@ -191,6 +191,58 @@ impl SqliteAccountStore {
         row_to_account(row)
     }
 
+    /// Read all accounts that still have a non-empty credential column in the database.
+    /// Used during the credential migration to move plaintext credentials to the keychain.
+    /// Returns `(account_id, imap_credential, smtp_credential_opt)` tuples.
+    pub fn read_plaintext_credentials(
+        &self,
+    ) -> Result<Vec<(Uuid, String, Option<String>)>, StoreError> {
+        let conn = self.conn.borrow();
+        let mut stmt = conn
+            .prepare("SELECT id, credential, smtp_config FROM accounts WHERE credential != ''")?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+
+        let mut results = Vec::new();
+        for row_result in rows {
+            let (id_str, credential, smtp_json) = row_result?;
+            let id = Uuid::parse_str(&id_str)
+                .map_err(|e| StoreError::Serialization(serde_json::Error::custom(e.to_string())))?;
+
+            let smtp_credential = smtp_json.and_then(|json| {
+                serde_json::from_str::<SmtpConfig>(&json)
+                    .ok()
+                    .map(|c| c.credential)
+                    .filter(|s| !s.is_empty())
+            });
+
+            results.push((id, credential, smtp_credential));
+        }
+        Ok(results)
+    }
+
+    /// Clear the plaintext credential columns in the database after they have
+    /// been migrated to the system keychain.
+    pub fn clear_plaintext_credentials(&self) -> Result<(), StoreError> {
+        let conn = self.conn.borrow();
+        conn.execute(
+            "UPDATE accounts SET credential = '' WHERE credential != ''",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE accounts SET smtp_config = json_set(smtp_config, '$.credential', '')
+             WHERE smtp_config IS NOT NULL AND json_extract(smtp_config, '$.credential') != ''",
+            [],
+        )?;
+        Ok(())
+    }
+
     /// Import accounts from JSON in a single transaction. Returns the number imported.
     /// Skips accounts whose ID already exists (idempotent).
     pub fn import_from_json(&self, accounts: &[Account]) -> Result<usize, StoreError> {
@@ -286,7 +338,7 @@ fn row_to_account(row: AccountRow) -> Result<Account, StoreError> {
     let smtp: Option<SmtpConfig> = row
         .smtp_config
         .as_deref()
-        .map(serde_json::from_str)
+        .map(serde_json::from_str::<SmtpConfig>)
         .transpose()?;
 
     let pop3_settings: Option<Pop3Settings> = row
@@ -343,7 +395,7 @@ fn row_to_account(row: AccountRow) -> Result<Account, StoreError> {
         encryption,
         auth_method,
         username: row.username,
-        credential: row.credential,
+        credential: row.credential, // Empty after migration; real credential lives in keychain.
         smtp,
         pop3_settings,
         color,
@@ -363,7 +415,7 @@ fn row_to_account(row: AccountRow) -> Result<Account, StoreError> {
         keep_alive_settings,
     };
 
-    let mut account = Account::new_with_id(id, params)
+    let mut account = Account::new_from_store(id, params)
         .map_err(|e| StoreError::Serialization(serde_json::Error::custom(e.to_string())))?;
 
     account.set_primary(row.is_primary);
@@ -383,7 +435,22 @@ fn insert_account(conn: &Connection, account: &Account) -> Result<(), StoreError
     let encryption = format!("{:?}", account.encryption());
     let auth_method = format!("{:?}", account.auth_method());
 
-    let smtp_json = account.smtp().map(serde_json::to_string).transpose()?;
+    // Credentials are stored in the system keychain, not in the database.
+    // We serialize SMTP config without the credential field value.
+    let smtp_json = account
+        .smtp()
+        .map(|s| {
+            let redacted = SmtpConfig {
+                host: s.host.clone(),
+                port: s.port,
+                encryption: s.encryption,
+                auth_method: s.auth_method,
+                username: s.username.clone(),
+                credential: String::new(),
+            };
+            serde_json::to_string(&redacted)
+        })
+        .transpose()?;
 
     let pop3_json = account
         .pop3_settings()
@@ -453,7 +520,7 @@ fn insert_account(conn: &Connection, account: &Account) -> Result<(), StoreError
             encryption,
             auth_method,
             account.username(),
-            account.credential(),
+            "", // Credential stored in system keychain, not in database.
             smtp_json,
             pop3_json,
             color_r,
@@ -488,7 +555,21 @@ fn insert_account_tx(tx: &rusqlite::Transaction, account: &Account) -> Result<()
     let encryption = format!("{:?}", account.encryption());
     let auth_method = format!("{:?}", account.auth_method());
 
-    let smtp_json = account.smtp().map(serde_json::to_string).transpose()?;
+    // Credentials are stored in the system keychain, not in the database.
+    let smtp_json = account
+        .smtp()
+        .map(|s| {
+            let redacted = SmtpConfig {
+                host: s.host.clone(),
+                port: s.port,
+                encryption: s.encryption,
+                auth_method: s.auth_method,
+                username: s.username.clone(),
+                credential: String::new(),
+            };
+            serde_json::to_string(&redacted)
+        })
+        .transpose()?;
 
     let pop3_json = account
         .pop3_settings()
@@ -558,7 +639,7 @@ fn insert_account_tx(tx: &rusqlite::Transaction, account: &Account) -> Result<()
             encryption,
             auth_method,
             account.username(),
-            account.credential(),
+            "", // Credential stored in system keychain, not in database.
             smtp_json,
             pop3_json,
             color_r,
@@ -835,5 +916,128 @@ mod tests {
         assert!(loaded[0].security_settings().is_some());
         assert!(loaded[0].fetch_settings().is_some());
         assert!(loaded[0].keep_alive_settings().is_some());
+    }
+
+    #[test]
+    fn credential_never_stored_in_database() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("fairmail.db");
+        let store = SqliteAccountStore::new(db_path.clone()).unwrap();
+
+        let acct = Account::new(NewAccountParams {
+            display_name: "Test".into(),
+            protocol: Protocol::Imap,
+            host: "imap.example.com".into(),
+            port: 993,
+            encryption: EncryptionMode::SslTls,
+            auth_method: AuthMethod::Plain,
+            username: "user@example.com".into(),
+            credential: "super-secret-password".into(),
+            smtp: Some(SmtpConfig {
+                host: "smtp.example.com".into(),
+                port: 587,
+                encryption: EncryptionMode::StartTls,
+                auth_method: AuthMethod::Plain,
+                username: "user@example.com".into(),
+                credential: "smtp-secret-password".into(),
+            }),
+            pop3_settings: None,
+            color: None,
+            avatar_path: None,
+            category: None,
+            sync_enabled: true,
+            on_demand: false,
+            polling_interval_minutes: None,
+            unmetered_only: false,
+            vpn_only: false,
+            schedule_exempt: false,
+            system_folders: None,
+            swipe_defaults: None,
+            notifications_enabled: true,
+            security_settings: None,
+            fetch_settings: None,
+            keep_alive_settings: None,
+        })
+        .unwrap();
+
+        store.add(acct).unwrap();
+
+        // Read the raw database content and verify no credential text is present.
+        let raw_db = std::fs::read_to_string(&db_path).unwrap_or_default();
+        let raw_bytes = std::fs::read(&db_path).unwrap();
+        let raw_str = String::from_utf8_lossy(&raw_bytes);
+        assert!(
+            !raw_str.contains("super-secret-password"),
+            "IMAP credential found in raw database file"
+        );
+        assert!(
+            !raw_str.contains("smtp-secret-password"),
+            "SMTP credential found in raw database file"
+        );
+        // Also check via SQL query.
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        let cred: String = conn
+            .query_row("SELECT credential FROM accounts LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(cred, "", "credential column should be empty");
+
+        let smtp_json: String = conn
+            .query_row("SELECT smtp_config FROM accounts LIMIT 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert!(
+            !smtp_json.contains("smtp-secret-password"),
+            "SMTP credential found in smtp_config JSON"
+        );
+        // Verify the smtp credential field in JSON is empty.
+        let smtp: SmtpConfig = serde_json::from_str(&smtp_json).unwrap();
+        assert_eq!(smtp.credential, "", "smtp credential should be empty in DB");
+        drop(raw_db);
+    }
+
+    #[test]
+    fn read_plaintext_credentials_for_migration() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("fairmail.db");
+        let store = SqliteAccountStore::new(db_path.clone()).unwrap();
+
+        // Manually insert an account with a plaintext credential via raw SQL
+        // to simulate pre-migration state.
+        {
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            conn.execute(
+                "INSERT INTO accounts (id, display_name, protocol, host, port, encryption,
+                 auth_method, username, credential, smtp_config)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                rusqlite::params![
+                    "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                    "Legacy",
+                    "Imap",
+                    "imap.example.com",
+                    993i64,
+                    "SslTls",
+                    "Plain",
+                    "user@example.com",
+                    "legacy-password",
+                    r#"{"host":"smtp.example.com","port":587,"encryption":"StartTls","auth_method":"Plain","username":"user@example.com","credential":"smtp-legacy-pass"}"#,
+                ],
+            )
+            .unwrap();
+        }
+
+        let creds = store.read_plaintext_credentials().unwrap();
+        assert_eq!(creds.len(), 1);
+        let (id, imap_cred, smtp_cred) = &creds[0];
+        assert_eq!(id.to_string(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        assert_eq!(imap_cred, "legacy-password");
+        assert_eq!(smtp_cred.as_deref(), Some("smtp-legacy-pass"));
+
+        // Clear and verify.
+        store.clear_plaintext_credentials().unwrap();
+        let creds_after = store.read_plaintext_credentials().unwrap();
+        assert!(creds_after.is_empty());
     }
 }

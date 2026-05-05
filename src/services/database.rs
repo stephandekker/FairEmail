@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 2;
+const CURRENT_VERSION: u32 = 3;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -44,10 +44,26 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 2 {
         migrate_v2(conn)?;
     }
+    if version < 3 {
+        migrate_v3(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v3: Schema marker for credential-to-keychain migration.
+/// The actual data migration (moving plaintext credentials into the system
+/// keychain and clearing the database column) is handled by
+/// `migrate_credentials_to_keychain` in main.rs, which runs AFTER this
+/// schema migration. This migration is intentionally a no-op on the schema
+/// because the column already accepts empty strings.
+fn migrate_v3(_conn: &Connection) -> Result<(), DatabaseError> {
+    // No schema changes needed — the credential column already accepts TEXT.
+    // Plaintext credential clearing is handled by the application-level
+    // migration after credentials have been written to the keychain.
     Ok(())
 }
 
