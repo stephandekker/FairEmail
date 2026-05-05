@@ -14,7 +14,8 @@ type AccountParamsFn = dyn Fn(&str) -> Option<ImapConnectParams> + Send + Sync;
 use crate::core::content_store::ContentStore;
 use crate::core::message::FLAG_SEEN;
 use crate::core::pending_operation::{
-    OperationKind, OperationState, SendPayload, StoreFlagsPayload,
+    FolderCreatePayload, FolderDeletePayload, FolderRenamePayload, OperationKind, OperationState,
+    SendPayload, StoreFlagsPayload,
 };
 use crate::core::sync_event::SyncEvent;
 use crate::services::database::{open_and_migrate, DatabaseError};
@@ -155,6 +156,75 @@ impl ImapAppender for RealImapAppender {
         rfc822_data: &[u8],
     ) -> Result<(), String> {
         imap_append_message(params, folder_name, flags, rfc822_data)
+    }
+}
+
+/// Trait abstracting IMAP folder operations (CREATE, RENAME, DELETE) for testability.
+pub(crate) trait ImapFolderOps: Send + Sync {
+    /// Create a folder on the IMAP server.
+    fn create_folder(&self, params: &ImapConnectParams, folder_name: &str) -> Result<(), String>;
+    /// Rename a folder on the IMAP server.
+    fn rename_folder(
+        &self,
+        params: &ImapConnectParams,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<(), String>;
+    /// Delete a folder on the IMAP server.
+    fn delete_folder(&self, params: &ImapConnectParams, folder_name: &str) -> Result<(), String>;
+}
+
+/// Real IMAP folder ops that connect to the server.
+pub(crate) struct RealImapFolderOps;
+
+impl ImapFolderOps for RealImapFolderOps {
+    fn create_folder(&self, params: &ImapConnectParams, folder_name: &str) -> Result<(), String> {
+        imap_folder_command(params, &format!("CREATE {}", imap_quote(folder_name)))
+    }
+    fn rename_folder(
+        &self,
+        params: &ImapConnectParams,
+        old_name: &str,
+        new_name: &str,
+    ) -> Result<(), String> {
+        imap_folder_command(
+            params,
+            &format!("RENAME {} {}", imap_quote(old_name), imap_quote(new_name)),
+        )
+    }
+    fn delete_folder(&self, params: &ImapConnectParams, folder_name: &str) -> Result<(), String> {
+        imap_folder_command(params, &format!("DELETE {}", imap_quote(folder_name)))
+    }
+}
+
+/// Mock IMAP folder ops for testing.
+pub(crate) struct MockImapFolderOps {
+    pub should_fail: Option<String>,
+}
+
+impl ImapFolderOps for MockImapFolderOps {
+    fn create_folder(&self, _params: &ImapConnectParams, _folder_name: &str) -> Result<(), String> {
+        match &self.should_fail {
+            Some(err) => Err(err.clone()),
+            None => Ok(()),
+        }
+    }
+    fn rename_folder(
+        &self,
+        _params: &ImapConnectParams,
+        _old_name: &str,
+        _new_name: &str,
+    ) -> Result<(), String> {
+        match &self.should_fail {
+            Some(err) => Err(err.clone()),
+            None => Ok(()),
+        }
+    }
+    fn delete_folder(&self, _params: &ImapConnectParams, _folder_name: &str) -> Result<(), String> {
+        match &self.should_fail {
+            Some(err) => Err(err.clone()),
+            None => Ok(()),
+        }
     }
 }
 
@@ -607,6 +677,171 @@ fn imap_append_message(
     }
 }
 
+/// Execute a single IMAP command (CREATE, RENAME, DELETE) after login.
+fn imap_folder_command(params: &ImapConnectParams, command: &str) -> Result<(), String> {
+    use crate::core::account::EncryptionMode;
+    use native_tls::TlsConnector;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let addr_str = format!("{}:{}", params.host, params.port);
+    let addr: std::net::SocketAddr = addr_str
+        .parse()
+        .or_else(|_| {
+            use std::net::ToSocketAddrs;
+            addr_str
+                .to_socket_addrs()
+                .map_err(|e| e.to_string())?
+                .next()
+                .ok_or_else(|| "DNS resolution failed".to_string())
+        })
+        .map_err(|e| format!("DNS resolution failed: {e}"))?;
+
+    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(30))
+        .map_err(|e| format!("connection failed: {e}"))?;
+    tcp.set_read_timeout(Some(Duration::from_secs(30))).ok();
+    tcp.set_write_timeout(Some(Duration::from_secs(30))).ok();
+
+    macro_rules! run_folder_session {
+        ($reader:expr, $writer:expr) => {{
+            // Read greeting
+            let mut line = String::new();
+            $reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read greeting: {e}"))?;
+            if !line.to_uppercase().starts_with("* OK")
+                && !line.to_uppercase().starts_with("* PREAUTH")
+            {
+                return Err(format!("unexpected greeting: {}", line.trim()));
+            }
+
+            // Login
+            let username = imap_quote(&params.username);
+            let password = imap_quote(&params.password);
+            let cmd = format!("A001 LOGIN {username} {password}\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write login: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush login: {e}"))?;
+
+            let mut resp = String::new();
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read login response: {e}"))?;
+                resp.push_str(&l);
+                if l.starts_with("A001") {
+                    break;
+                }
+            }
+            if !resp.contains("A001 OK") {
+                return Err("authentication failed".to_string());
+            }
+
+            // Execute the folder command
+            let cmd = format!("A002 {command}\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write command: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush command: {e}"))?;
+
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read command response: {e}"))?;
+                if l.starts_with("A002") {
+                    if !l.contains("OK") {
+                        return Err(format!("command failed: {}", l.trim()));
+                    }
+                    break;
+                }
+            }
+
+            // Logout
+            let cmd = "A099 LOGOUT\r\n";
+            let _ = $writer.write_all(cmd.as_bytes());
+            let _ = $writer.flush();
+
+            Ok(())
+        }};
+    }
+
+    match params.encryption {
+        EncryptionMode::SslTls => {
+            let mut builder = TlsConnector::builder();
+            if params.insecure || params.accepted_fingerprint.is_some() {
+                builder.danger_accept_invalid_certs(true);
+                builder.danger_accept_invalid_hostnames(true);
+            }
+            let connector = builder
+                .build()
+                .map_err(|e| format!("TLS build error: {e}"))?;
+            let tls = connector
+                .connect(&params.host, tcp)
+                .map_err(|e| format!("TLS handshake failed: {e}"))?;
+            let mut reader = BufReader::new(tls);
+            run_folder_session!(reader, reader.get_mut())
+        }
+        EncryptionMode::None => {
+            let tcp_clone = tcp.try_clone().map_err(|e| format!("clone tcp: {e}"))?;
+            let mut reader = BufReader::new(tcp);
+            let mut writer = tcp_clone;
+            run_folder_session!(reader, writer)
+        }
+        EncryptionMode::StartTls => {
+            let tcp_clone = tcp.try_clone().map_err(|e| format!("clone tcp: {e}"))?;
+            let mut reader = BufReader::new(tcp);
+            let mut writer = tcp_clone;
+
+            let mut line = String::new();
+            reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read greeting: {e}"))?;
+            if !line.to_uppercase().starts_with("* OK")
+                && !line.to_uppercase().starts_with("* PREAUTH")
+            {
+                return Err(format!("unexpected greeting: {}", line.trim()));
+            }
+
+            writer
+                .write_all(b"A000 STARTTLS\r\n")
+                .map_err(|e| format!("write STARTTLS: {e}"))?;
+            writer.flush().map_err(|e| format!("flush STARTTLS: {e}"))?;
+
+            let mut resp = String::new();
+            loop {
+                let mut l = String::new();
+                reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read STARTTLS resp: {e}"))?;
+                resp.push_str(&l);
+                if l.starts_with("A000") {
+                    break;
+                }
+            }
+            if !resp.to_uppercase().contains("OK") {
+                return Err("STARTTLS rejected".to_string());
+            }
+
+            let tcp_inner = reader.into_inner();
+            let mut builder = TlsConnector::builder();
+            if params.insecure || params.accepted_fingerprint.is_some() {
+                builder.danger_accept_invalid_certs(true);
+                builder.danger_accept_invalid_hostnames(true);
+            }
+            let connector = builder.build().map_err(|e| format!("TLS build: {e}"))?;
+            let tls = connector
+                .connect(&params.host, tcp_inner)
+                .map_err(|e| format!("STARTTLS upgrade: {e}"))?;
+            let mut reader = BufReader::new(tls);
+            run_folder_session!(reader, reader.get_mut())
+        }
+    }
+}
+
 fn imap_quote(s: &str) -> String {
     let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
     format!("\"{escaped}\"")
@@ -632,6 +867,11 @@ impl SyncEngineHandle {
         let _ = self.notify_tx.send(account_id.to_string());
     }
 
+    /// Clone the notification sender for use by services that enqueue pending operations.
+    pub fn notify_sender(&self) -> tokio::sync::mpsc::UnboundedSender<String> {
+        self.notify_tx.clone()
+    }
+
     /// Start IDLE monitoring for an account after its initial sync completes.
     pub fn start_idle(&self, account_id: &str) {
         let _ = self.idle_tx.send(IdleCommand::StartIdle {
@@ -655,6 +895,7 @@ pub(crate) fn start_sync_engine(
         account_params_fn,
         Arc::new(RealIdleWaiter),
         None,
+        Arc::new(RealImapFolderOps),
     )
 }
 
@@ -666,6 +907,7 @@ pub(crate) fn start_sync_engine_with_idle(
     account_params_fn: Arc<AccountParamsFn>,
     idle_waiter: Arc<dyn IdleWaiter>,
     content_store: Option<Arc<dyn ContentStore + Send + Sync>>,
+    folder_ops: Arc<dyn ImapFolderOps>,
 ) -> SyncEngineHandle {
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let (notify_tx, notify_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
@@ -687,6 +929,7 @@ pub(crate) fn start_sync_engine_with_idle(
                 account_params_fn,
                 idle_waiter,
                 content_store,
+                folder_ops,
                 shutdown_rx,
                 notify_rx,
                 idle_rx,
@@ -710,6 +953,7 @@ async fn engine_loop(
     account_params_fn: Arc<AccountParamsFn>,
     idle_waiter: Arc<dyn IdleWaiter>,
     content_store: Option<Arc<dyn ContentStore + Send + Sync>>,
+    folder_ops: Arc<dyn ImapFolderOps>,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
     mut notify_rx: tokio::sync::mpsc::UnboundedReceiver<String>,
     mut idle_rx: tokio::sync::mpsc::UnboundedReceiver<IdleCommand>,
@@ -724,6 +968,7 @@ async fn engine_loop(
                 let event_sender = event_sender.clone();
                 let flag_store = flag_store.clone();
                 let account_params_fn = account_params_fn.clone();
+                let folder_ops = folder_ops.clone();
 
                 tokio::spawn(async move {
                     process_account_ops(
@@ -732,6 +977,7 @@ async fn engine_loop(
                         &event_sender,
                         flag_store,
                         account_params_fn.as_ref(),
+                        folder_ops,
                     ).await;
                 });
             }
@@ -764,6 +1010,7 @@ async fn process_account_ops(
     event_sender: &broadcast::Sender<SyncEvent>,
     flag_store: Arc<dyn ImapFlagStore>,
     account_params_fn: &(dyn Fn(&str) -> Option<ImapConnectParams> + Send + Sync),
+    folder_ops: Arc<dyn ImapFolderOps>,
 ) {
     process_account_ops_full(
         db_path,
@@ -775,6 +1022,7 @@ async fn process_account_ops(
         Arc::new(RealImapAppender),
         None,
         None,
+        folder_ops,
     )
     .await;
 }
@@ -796,6 +1044,7 @@ async fn process_account_ops_full(
     imap_appender: Arc<dyn ImapAppender>,
     smtp_params_fn: Option<Arc<SmtpParamsFn>>,
     content_reader_fn: Option<Arc<ContentReaderFn>>,
+    folder_ops: Arc<dyn ImapFolderOps>,
 ) {
     let conn = match open_and_migrate(db_path) {
         Ok(c) => c,
@@ -1078,9 +1327,183 @@ async fn process_account_ops_full(
                     }
                 }
             }
+            OperationKind::FolderCreate => {
+                let payload: FolderCreatePayload = match serde_json::from_str(&op.payload) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let err_msg = format!("invalid folder-create payload: {e}");
+                        let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                        let _ = event_sender.send(SyncEvent::OperationFailed {
+                            account_id: account_id.to_string(),
+                            operation_id: op.id,
+                            error: err_msg,
+                        });
+                        i += 1;
+                        continue;
+                    }
+                };
+
+                let folder_ops_clone = folder_ops.clone();
+                let params_clone = params.clone();
+                let folder_name = payload.folder_name.clone();
+
+                let result = tokio::task::spawn_blocking(move || {
+                    folder_ops_clone.create_folder(&params_clone, &folder_name)
+                })
+                .await;
+
+                if let Some(delay) =
+                    handle_folder_op_result(&conn, op, account_id, event_sender, result)
+                {
+                    tokio::time::sleep(delay).await;
+                }
+            }
+            OperationKind::FolderRename => {
+                let payload: FolderRenamePayload = match serde_json::from_str(&op.payload) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let err_msg = format!("invalid folder-rename payload: {e}");
+                        let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                        let _ = event_sender.send(SyncEvent::OperationFailed {
+                            account_id: account_id.to_string(),
+                            operation_id: op.id,
+                            error: err_msg,
+                        });
+                        i += 1;
+                        continue;
+                    }
+                };
+
+                let folder_ops_clone = folder_ops.clone();
+                let params_clone = params.clone();
+                let old_name = payload.old_name.clone();
+                let new_name = payload.new_name.clone();
+                let folder_id = payload.folder_id;
+
+                let result = tokio::task::spawn_blocking(move || {
+                    folder_ops_clone.rename_folder(&params_clone, &old_name, &new_name)
+                })
+                .await;
+
+                if let Ok(Ok(())) = &result {
+                    // Update local folder name on success
+                    let _ = crate::services::folder_store::rename_folder(
+                        &conn,
+                        folder_id,
+                        &payload.new_name,
+                    );
+                }
+
+                if let Some(delay) =
+                    handle_folder_op_result(&conn, op, account_id, event_sender, result)
+                {
+                    tokio::time::sleep(delay).await;
+                }
+            }
+            OperationKind::FolderDelete => {
+                let payload: FolderDeletePayload = match serde_json::from_str(&op.payload) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let err_msg = format!("invalid folder-delete payload: {e}");
+                        let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                        let _ = event_sender.send(SyncEvent::OperationFailed {
+                            account_id: account_id.to_string(),
+                            operation_id: op.id,
+                            error: err_msg,
+                        });
+                        i += 1;
+                        continue;
+                    }
+                };
+
+                let folder_ops_clone = folder_ops.clone();
+                let params_clone = params.clone();
+                let folder_name = payload.folder_name.clone();
+                let folder_id = payload.folder_id;
+
+                let result = tokio::task::spawn_blocking(move || {
+                    folder_ops_clone.delete_folder(&params_clone, &folder_name)
+                })
+                .await;
+
+                if let Ok(Ok(())) = &result {
+                    // Delete messages whose only folder association was this folder,
+                    // collecting orphaned content hashes for .eml reclamation.
+                    let orphaned_hashes =
+                        crate::services::message_store::delete_messages_for_folder(
+                            &conn, account_id, folder_id,
+                        );
+                    if let Ok(hashes) = orphaned_hashes {
+                        for hash in &hashes {
+                            eprintln!(
+                                "sync engine: orphaned content hash {hash} — \
+                                 .eml can be reclaimed"
+                            );
+                        }
+                    }
+                    // Delete the folder row
+                    let _ = crate::services::folder_store::delete_folder(&conn, folder_id);
+                }
+
+                if let Some(delay) =
+                    handle_folder_op_result(&conn, op, account_id, event_sender, result)
+                {
+                    tokio::time::sleep(delay).await;
+                }
+            }
         }
 
         i += 1;
+    }
+}
+
+/// Handle the result of a folder IMAP operation (create/rename/delete).
+/// On success: completes the op and emits FolderListChanged.
+/// On transient error: requeues with backoff, returns the delay duration.
+/// On permanent error: marks failed and emits OperationFailed.
+///
+/// Returns `Some(delay)` when the caller should sleep before continuing
+/// (transient-error backoff). Returns `None` otherwise.
+fn handle_folder_op_result(
+    conn: &rusqlite::Connection,
+    op: &crate::core::pending_operation::PendingOperation,
+    account_id: &str,
+    event_sender: &broadcast::Sender<SyncEvent>,
+    result: Result<Result<(), String>, tokio::task::JoinError>,
+) -> Option<std::time::Duration> {
+    match result {
+        Ok(Ok(())) => {
+            let _ = pending_ops_store::complete_op(conn, op.id);
+            let _ = event_sender.send(SyncEvent::FolderListChanged {
+                account_id: account_id.to_string(),
+            });
+            None
+        }
+        Ok(Err(err_msg)) => {
+            let sync_err = SyncError::Imap(err_msg.clone());
+            if is_transient_error(&sync_err) {
+                match pending_ops_store::requeue_op(conn, op.id, &err_msg) {
+                    Ok(retry_count) => Some(backoff_duration(retry_count - 1)),
+                    Err(e) => {
+                        eprintln!("sync engine: requeue failed: {e}");
+                        None
+                    }
+                }
+            } else {
+                let _ = pending_ops_store::mark_failed(conn, op.id, &err_msg);
+                let _ = event_sender.send(SyncEvent::OperationFailed {
+                    account_id: account_id.to_string(),
+                    operation_id: op.id,
+                    error: err_msg,
+                });
+                None
+            }
+        }
+        Err(e) => {
+            let err_msg = format!("task join error: {e}");
+            let _ = pending_ops_store::requeue_op(conn, op.id, &err_msg);
+            None
+        }
     }
 }
 
@@ -1482,6 +1905,7 @@ mod tests {
             &event_tx,
             flag_store.clone(),
             account_params_fn.as_ref(),
+            Arc::new(MockImapFolderOps { should_fail: None }),
         )
         .await;
 
@@ -1542,6 +1966,7 @@ mod tests {
                 &event_tx,
                 flag_store.clone(),
                 account_params_fn.as_ref(),
+                Arc::new(MockImapFolderOps { should_fail: None }),
             ),
         )
         .await;
@@ -1589,6 +2014,7 @@ mod tests {
             &event_tx,
             flag_store.clone(),
             account_params_fn.as_ref(),
+            Arc::new(MockImapFolderOps { should_fail: None }),
         )
         .await;
 
@@ -1887,6 +2313,7 @@ mod tests {
             imap_appender,
             Some(smtp_params_fn),
             None,
+            Arc::new(MockImapFolderOps { should_fail: None }),
         )
         .await;
 
@@ -1934,6 +2361,7 @@ mod tests {
                 imap_appender,
                 Some(smtp_params_fn),
                 None,
+                Arc::new(MockImapFolderOps { should_fail: None }),
             ),
         )
         .await;
@@ -1975,6 +2403,7 @@ mod tests {
             imap_appender,
             Some(smtp_params_fn),
             None,
+            Arc::new(MockImapFolderOps { should_fail: None }),
         )
         .await;
 
@@ -2023,6 +2452,7 @@ mod tests {
             imap_appender,
             Some(smtp_params_fn),
             None,
+            Arc::new(MockImapFolderOps { should_fail: None }),
         )
         .await;
 

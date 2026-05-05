@@ -60,6 +60,58 @@ pub fn load_folders(conn: &Connection, account_id: &str) -> Result<Vec<ImapFolde
     Ok(folders)
 }
 
+/// Insert a single folder row. Returns the new row id.
+pub fn insert_folder(
+    conn: &Connection,
+    account_id: &str,
+    name: &str,
+) -> Result<i64, DatabaseError> {
+    conn.execute(
+        "INSERT INTO folders (account_id, name, attributes) VALUES (?1, ?2, '')",
+        rusqlite::params![account_id, name],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Rename a folder row by id. Returns true if a row was updated.
+pub fn rename_folder(
+    conn: &Connection,
+    folder_id: i64,
+    new_name: &str,
+) -> Result<bool, DatabaseError> {
+    let updated = conn.execute(
+        "UPDATE folders SET name = ?1 WHERE id = ?2",
+        rusqlite::params![new_name, folder_id],
+    )?;
+    Ok(updated > 0)
+}
+
+/// Delete a folder row by id. Returns true if a row was deleted.
+pub fn delete_folder(conn: &Connection, folder_id: i64) -> Result<bool, DatabaseError> {
+    let deleted = conn.execute(
+        "DELETE FROM folders WHERE id = ?1",
+        rusqlite::params![folder_id],
+    )?;
+    Ok(deleted > 0)
+}
+
+/// Look up a folder's name by id.
+pub fn folder_name_by_id(
+    conn: &Connection,
+    folder_id: i64,
+) -> Result<Option<String>, DatabaseError> {
+    let result = conn.query_row(
+        "SELECT name FROM folders WHERE id = ?1",
+        rusqlite::params![folder_id],
+        |row| row.get(0),
+    );
+    match result {
+        Ok(name) => Ok(Some(name)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
 fn parse_folder_role(s: &str) -> Option<FolderRole> {
     match s {
         "Drafts" => Some(FolderRole::Drafts),

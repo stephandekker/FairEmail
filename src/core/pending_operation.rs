@@ -9,6 +9,12 @@ pub enum OperationKind {
     StoreFlags,
     /// Send a message via SMTP.
     Send,
+    /// Create a folder on the IMAP server.
+    FolderCreate,
+    /// Rename a folder on the IMAP server.
+    FolderRename,
+    /// Delete a folder on the IMAP server.
+    FolderDelete,
 }
 
 impl OperationKind {
@@ -16,6 +22,9 @@ impl OperationKind {
         match self {
             OperationKind::StoreFlags => "store_flags",
             OperationKind::Send => "send",
+            OperationKind::FolderCreate => "folder-create",
+            OperationKind::FolderRename => "folder-rename",
+            OperationKind::FolderDelete => "folder-delete",
         }
     }
 
@@ -23,6 +32,9 @@ impl OperationKind {
         match s {
             "store_flags" => Some(OperationKind::StoreFlags),
             "send" => Some(OperationKind::Send),
+            "folder-create" => Some(OperationKind::FolderCreate),
+            "folder-rename" => Some(OperationKind::FolderRename),
+            "folder-delete" => Some(OperationKind::FolderDelete),
             _ => None,
         }
     }
@@ -74,6 +86,28 @@ pub struct SendPayload {
     /// Inline RFC 5322 message bytes (base64-encoded), used when the draft
     /// was not previously persisted in the content store.
     pub inline_rfc822_b64: Option<String>,
+}
+
+/// Payload for a folder-create operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderCreatePayload {
+    pub folder_id: i64,
+    pub folder_name: String,
+}
+
+/// Payload for a folder-rename operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderRenamePayload {
+    pub folder_id: i64,
+    pub old_name: String,
+    pub new_name: String,
+}
+
+/// Payload for a folder-delete operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderDeletePayload {
+    pub folder_id: i64,
+    pub folder_name: String,
 }
 
 /// A row from the `pending_operations` table.

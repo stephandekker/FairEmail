@@ -32,4 +32,6 @@ pub enum SyncEvent {
         account_id: String,
         operation_id: i64,
     },
+    /// The folder list for an account has changed (create, rename, or delete).
+    FolderListChanged { account_id: String },
 }

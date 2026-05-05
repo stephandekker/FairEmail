@@ -41,7 +41,9 @@ pub use connection_log_store::{append_connection_logs, load_connection_logs};
 pub use connection_tester::{ConnectionTester, MockConnectionTester};
 pub use export_service::{export_to_file, ExportResult, ExportServiceError};
 pub use folder_store::{load_folders, replace_folders};
-pub use folder_sync::{perform_folder_setup, FolderSyncService, MockFolderSyncService};
+pub use folder_sync::{
+    perform_folder_setup, FolderSyncService, MockFolderSyncService, RealFolderSyncService,
+};
 pub use fs_content_store::FsContentStore;
 pub use identity_store::{
     insert_identity, load_identities_for_account, load_identity_by_id, update_max_message_size,
