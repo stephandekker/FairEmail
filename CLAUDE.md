@@ -17,8 +17,7 @@ Do not read/use/write any of the files in: /claude-skip/
 - **Build:** Cargo; Meson optional if packaging for Flatpak/system install
 - **Async runtime:** `glib::MainContext` for UI tasks; `tokio` only if non-UI async work is needed
 - **Platform:** Linux (developed and tested on GNOME)
-- **Database:** Mocked until choice is made
-- **Auth:** Mocked until choice is made
+- **Database:** SQLite as the primary store, with raw `.eml` files for the message bodies on the filesystem. More details to be found in docs/architecture.md file.
 
 ## Project Structure
 
