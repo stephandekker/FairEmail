@@ -2,7 +2,9 @@
 # ralph.sh — Continuously picks the top-priority unblocked user story and implements it
 #             using a single Claude Code agent.
 #
-# Usage: bash ralph.sh
+# Usage: bash ralph.sh [--ignore-local-changes]
+#
+#   --ignore-local-changes  Skip the uncommitted-changes guard and start anyway.
 #
 # User stories live in docs/user-stories/<epic-slug>/<N>-<title>.md
 #   e.g. docs/user-stories/10.2-no-third-party-servers/2-remote-content-blocking.md
@@ -25,6 +27,24 @@
 # the agent creates new stories mid-run.
 
 set -euo pipefail
+
+IGNORE_LOCAL_CHANGES=false
+for arg in "$@"; do
+  case "$arg" in
+    --ignore-local-changes)
+      IGNORE_LOCAL_CHANGES=true
+      ;;
+    -h|--help)
+      sed -n '2,26p' "$0"
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      echo "Usage: bash ralph.sh [--ignore-local-changes]" >&2
+      exit 2
+      ;;
+  esac
+done
 
 STORIES_DIR="docs/user-stories"
 DONE_DIR="${STORIES_DIR}/done"
@@ -119,8 +139,11 @@ log "======================================"
 log "  ralph.sh — autonomous story loop"
 log "======================================"
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if [ "$IGNORE_LOCAL_CHANGES" = "true" ]; then
+  log "WARNING: --ignore-local-changes set; skipping clean-tree check."
+elif ! git diff --quiet || ! git diff --cached --quiet; then
   log "ERROR: Uncommitted local changes detected. Please commit or stash them before running ralph."
+  log "       (Or pass --ignore-local-changes to override.)"
   exit 1
 fi
 

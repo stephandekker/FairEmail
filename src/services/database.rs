@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 6;
+const CURRENT_VERSION: u32 = 7;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -56,10 +56,39 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 6 {
         migrate_v6(conn)?;
     }
+    if version < 7 {
+        migrate_v7(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v7: Create the `identities` table (FR-4).
+fn migrate_v7(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS identities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id TEXT NOT NULL,
+            email_address TEXT NOT NULL,
+            display_name TEXT NOT NULL DEFAULT '',
+            smtp_host TEXT NOT NULL DEFAULT '',
+            smtp_port INTEGER NOT NULL DEFAULT 587,
+            smtp_encryption TEXT NOT NULL DEFAULT 'StartTls',
+            smtp_username TEXT NOT NULL DEFAULT '',
+            smtp_realm TEXT NOT NULL DEFAULT '',
+            use_ip_in_ehlo INTEGER NOT NULL DEFAULT 0,
+            custom_ehlo TEXT,
+            login_before_send INTEGER NOT NULL DEFAULT 0,
+            max_message_size_cache INTEGER,
+            FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_identities_account
+            ON identities(account_id);",
+    )?;
     Ok(())
 }
 

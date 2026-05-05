@@ -25,6 +25,7 @@ secret-service = { version = "4", features = ["crypto-rust"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["rt"] }
 native-tls = { version = "0.2", features = ["vendored"] }
+lettre = { version = "0.11", default-features = false, features = ["tokio1", "tokio1-rustls-tls", "smtp-transport", "builder"] }
 sha2 = "0.10"
 hex = "0.4"
 

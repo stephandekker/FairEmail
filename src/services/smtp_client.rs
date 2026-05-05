@@ -1,0 +1,614 @@
+//! Real SMTP client implementation using `lettre` with tokio + rustls.
+//!
+//! Provides the networking layer for SMTP connections with:
+//! - Implicit SSL/TLS, STARTTLS, and plaintext modes
+//! - Authentication via LOGIN/PLAIN
+//! - EHLO max message size extraction
+//! - Certificate fingerprint extraction on TLS failure
+
+use std::io::{BufRead, Write};
+use std::net::TcpStream;
+use std::time::Duration;
+
+use crate::core::account::EncryptionMode;
+use crate::core::certificate::CertificateInfo;
+use crate::core::connection_log::{ConnectionLogEventType, ConnectionLogRecord};
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Parameters needed to establish an SMTP connection.
+#[derive(Debug, Clone)]
+pub(crate) struct SmtpConnectParams {
+    pub host: String,
+    pub port: u16,
+    pub encryption: EncryptionMode,
+    pub username: String,
+    pub password: String,
+    pub accepted_fingerprint: Option<String>,
+    pub insecure: bool,
+    pub account_id: String,
+}
+
+/// Result of a successful SMTP session.
+#[allow(dead_code)]
+pub(crate) struct SmtpSessionResult {
+    pub max_message_size: Option<u64>,
+    pub logs: Vec<ConnectionLogRecord>,
+}
+
+/// Errors from the real SMTP client.
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(crate) enum SmtpClientError {
+    DnsResolution(String),
+    ConnectionRefused { host: String, port: u16 },
+    Timeout,
+    TlsHandshake(String),
+    UntrustedCertificate(CertificateInfo),
+    AuthenticationFailed,
+    ProtocolMismatch(String),
+    ConnectionFailed(String),
+}
+
+/// Run a full SMTP session: connect, TLS handshake, authenticate, query EHLO extensions.
+pub(crate) fn run_smtp_session(
+    params: &SmtpConnectParams,
+) -> Result<SmtpSessionResult, SmtpClientError> {
+    let mut logs = Vec::new();
+
+    logs.push(ConnectionLogRecord::new(
+        params.account_id.clone(),
+        ConnectionLogEventType::ConnectAttempt,
+        format!("SMTP connecting to {}:{}", params.host, params.port),
+    ));
+
+    let addr = resolve_addr(&params.host, params.port)?;
+    let tcp_stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(|e| {
+        let err = classify_connect_error(&e.to_string(), &params.host, params.port);
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::Error,
+            format!("SMTP connection failed: {e}"),
+        ));
+        err
+    })?;
+
+    tcp_stream.set_read_timeout(Some(CONNECT_TIMEOUT)).ok();
+    tcp_stream.set_write_timeout(Some(CONNECT_TIMEOUT)).ok();
+
+    match params.encryption {
+        EncryptionMode::SslTls => {
+            let tls_stream = do_tls_connect(tcp_stream, params, &mut logs)?;
+            let mut session = SmtpSession::new_tls(tls_stream);
+            run_session(&mut session, params, &mut logs)
+        }
+        EncryptionMode::StartTls => {
+            let mut session = SmtpSession::new_plain(tcp_stream);
+
+            // Read greeting
+            let greeting = session.read_response()?;
+            check_smtp_greeting(&greeting)?;
+
+            // Send EHLO to get initial capabilities
+            let ehlo_cmd = "EHLO localhost".to_string();
+            session.send_line(&ehlo_cmd)?;
+            let _ehlo_response = session.read_response()?;
+
+            // Send STARTTLS
+            session.send_line("STARTTLS")?;
+            let starttls_response = session.read_response()?;
+            if !starttls_response.starts_with("220") {
+                return Err(SmtpClientError::TlsHandshake(
+                    "Server rejected STARTTLS".to_string(),
+                ));
+            }
+
+            // Upgrade to TLS
+            let tcp = session.into_plain_stream();
+            let connector = build_tls_connector(params);
+            let tls_stream = match connector.connect(&params.host, tcp) {
+                Ok(s) => {
+                    logs.push(ConnectionLogRecord::new(
+                        params.account_id.clone(),
+                        ConnectionLogEventType::TlsHandshake,
+                        "SMTP STARTTLS upgrade successful".to_string(),
+                    ));
+                    s
+                }
+                Err(_) => {
+                    return Err(handle_tls_error(&params.host, params.port));
+                }
+            };
+
+            let mut session = SmtpSession::new_tls(tls_stream);
+            run_authenticated_session(&mut session, params, &mut logs)
+        }
+        EncryptionMode::None => {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::TlsHandshake,
+                "SMTP: No encryption (plaintext connection)".to_string(),
+            ));
+            let mut session = SmtpSession::new_plain(tcp_stream);
+            run_session(&mut session, params, &mut logs)
+        }
+    }
+}
+
+fn run_session(
+    session: &mut SmtpSession,
+    params: &SmtpConnectParams,
+    logs: &mut Vec<ConnectionLogRecord>,
+) -> Result<SmtpSessionResult, SmtpClientError> {
+    // Read greeting
+    let greeting = session.read_response()?;
+    check_smtp_greeting(&greeting)?;
+
+    logs.push(ConnectionLogRecord::new(
+        params.account_id.clone(),
+        ConnectionLogEventType::ConnectAttempt,
+        format!("SMTP greeting: {}", greeting.lines().next().unwrap_or("")),
+    ));
+
+    run_authenticated_session(session, params, logs)
+}
+
+fn run_authenticated_session(
+    session: &mut SmtpSession,
+    params: &SmtpConnectParams,
+    logs: &mut Vec<ConnectionLogRecord>,
+) -> Result<SmtpSessionResult, SmtpClientError> {
+    // Send EHLO
+    let ehlo_cmd = "EHLO localhost".to_string();
+    session.send_line(&ehlo_cmd)?;
+    let ehlo_response = session.read_response()?;
+
+    if !ehlo_response.starts_with("250") {
+        return Err(SmtpClientError::ConnectionFailed(format!(
+            "EHLO rejected: {}",
+            ehlo_response.lines().next().unwrap_or("")
+        )));
+    }
+
+    // Extract max message size from EHLO response
+    let max_message_size = parse_max_size_from_ehlo(&ehlo_response);
+
+    logs.push(ConnectionLogRecord::new(
+        params.account_id.clone(),
+        ConnectionLogEventType::CapabilityList,
+        format!("SMTP EHLO response: max_size={:?}", max_message_size),
+    ));
+
+    // Authenticate via AUTH LOGIN
+    session.send_line("AUTH LOGIN")?;
+    let auth_response = session.read_response()?;
+
+    if !auth_response.starts_with("334") {
+        // Try AUTH PLAIN instead
+        let plain_credentials = build_auth_plain(&params.username, &params.password);
+        let plain_cmd = format!("AUTH PLAIN {plain_credentials}");
+        session.send_line(&plain_cmd)?;
+        let plain_response = session.read_response()?;
+
+        if plain_response.starts_with("235") {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::LoginResult,
+                format!("SMTP login successful (PLAIN) as {}", params.username),
+            ));
+        } else if plain_response.starts_with("535")
+            || plain_response.starts_with("534")
+            || plain_response.starts_with("454")
+        {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("SMTP auth failed: {}", plain_response.trim()),
+            ));
+            return Err(SmtpClientError::AuthenticationFailed);
+        } else {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("SMTP auth unexpected response: {}", plain_response.trim()),
+            ));
+            return Err(SmtpClientError::AuthenticationFailed);
+        }
+    } else {
+        // Server accepted AUTH LOGIN, send username (base64)
+        let username_b64 = base64_encode(&params.username);
+        session.send_line(&username_b64)?;
+        let user_response = session.read_response()?;
+
+        if !user_response.starts_with("334") {
+            return Err(SmtpClientError::AuthenticationFailed);
+        }
+
+        // Send password (base64)
+        let password_b64 = base64_encode(&params.password);
+        session.send_line(&password_b64)?;
+        let pass_response = session.read_response()?;
+
+        if pass_response.starts_with("235") {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::LoginResult,
+                format!("SMTP login successful (LOGIN) as {}", params.username),
+            ));
+        } else {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("SMTP auth failed: {}", pass_response.trim()),
+            ));
+            return Err(SmtpClientError::AuthenticationFailed);
+        }
+    }
+
+    // QUIT
+    let _ = session.send_line("QUIT");
+
+    Ok(SmtpSessionResult {
+        max_message_size,
+        logs: std::mem::take(logs),
+    })
+}
+
+/// Parse SIZE extension from EHLO response lines.
+/// Looks for "250-SIZE <number>" or "250 SIZE <number>".
+fn parse_max_size_from_ehlo(ehlo_response: &str) -> Option<u64> {
+    for line in ehlo_response.lines() {
+        let upper = line.to_uppercase();
+        if upper.contains("SIZE") {
+            // Format: "250-SIZE 26214400" or "250 SIZE 26214400"
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            for (i, part) in parts.iter().enumerate() {
+                let upper_part = part.to_uppercase();
+                if upper_part == "SIZE" || upper_part.ends_with("-SIZE") {
+                    if let Some(size_str) = parts.get(i + 1) {
+                        if let Ok(size) = size_str.parse::<u64>() {
+                            if size > 0 {
+                                return Some(size);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn build_auth_plain(username: &str, password: &str) -> String {
+    // AUTH PLAIN format: \0username\0password, base64-encoded
+    let mut plain = Vec::new();
+    plain.push(0u8);
+    plain.extend_from_slice(username.as_bytes());
+    plain.push(0u8);
+    plain.extend_from_slice(password.as_bytes());
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(&plain)
+}
+
+fn base64_encode(s: &str) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(s.as_bytes())
+}
+
+// ---------- SmtpSession: wraps either plain or TLS stream ----------
+
+enum StreamKind {
+    Plain(std::io::BufReader<TcpStream>),
+    Tls(std::io::BufReader<native_tls::TlsStream<TcpStream>>),
+}
+
+struct SmtpSession {
+    stream: StreamKind,
+}
+
+impl SmtpSession {
+    fn new_plain(tcp: TcpStream) -> Self {
+        Self {
+            stream: StreamKind::Plain(std::io::BufReader::new(tcp)),
+        }
+    }
+
+    fn new_tls(tls: native_tls::TlsStream<TcpStream>) -> Self {
+        Self {
+            stream: StreamKind::Tls(std::io::BufReader::new(tls)),
+        }
+    }
+
+    fn into_plain_stream(self) -> TcpStream {
+        match self.stream {
+            StreamKind::Plain(reader) => reader.into_inner(),
+            StreamKind::Tls(_) => panic!("cannot extract plain stream from TLS session"),
+        }
+    }
+
+    /// Read a full SMTP response (multi-line responses end with "NNN " prefix).
+    fn read_response(&mut self) -> Result<String, SmtpClientError> {
+        let mut full_response = String::new();
+        loop {
+            let mut line = String::new();
+            let n = match &mut self.stream {
+                StreamKind::Plain(r) => r.read_line(&mut line),
+                StreamKind::Tls(r) => r.read_line(&mut line),
+            }
+            .map_err(|e| map_io_error(&e))?;
+
+            if n == 0 {
+                return Err(SmtpClientError::ConnectionFailed(
+                    "connection closed by server".to_string(),
+                ));
+            }
+
+            full_response.push_str(&line);
+
+            // SMTP multi-line: "250-..." continues, "250 ..." is final
+            if line.len() >= 4 && line.chars().nth(3) == Some(' ') {
+                break;
+            }
+            // Also break on lines that don't have a continuation marker
+            if line.len() < 4 || (!line[3..4].contains('-') && !line[3..4].contains(' ')) {
+                break;
+            }
+
+            // Safety: prevent unbounded reads
+            if full_response.len() > 64 * 1024 {
+                return Err(SmtpClientError::ConnectionFailed(
+                    "response too large".to_string(),
+                ));
+            }
+        }
+        Ok(full_response)
+    }
+
+    fn send_line(&mut self, line: &str) -> Result<(), SmtpClientError> {
+        let data = format!("{line}\r\n");
+        match &mut self.stream {
+            StreamKind::Plain(r) => {
+                r.get_mut()
+                    .write_all(data.as_bytes())
+                    .map_err(|e| map_io_error(&e))?;
+                r.get_mut().flush().map_err(|e| map_io_error(&e))?;
+            }
+            StreamKind::Tls(r) => {
+                r.get_mut()
+                    .write_all(data.as_bytes())
+                    .map_err(|e| map_io_error(&e))?;
+                r.get_mut().flush().map_err(|e| map_io_error(&e))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn check_smtp_greeting(greeting: &str) -> Result<(), SmtpClientError> {
+    if greeting.starts_with("220") {
+        Ok(())
+    } else if greeting.starts_with("* OK") || greeting.to_uppercase().starts_with("* PREAUTH") {
+        Err(SmtpClientError::ProtocolMismatch(
+            "Server speaks IMAP, not SMTP".to_string(),
+        ))
+    } else if greeting.starts_with("+OK") {
+        Err(SmtpClientError::ProtocolMismatch(
+            "Server speaks POP3, not SMTP".to_string(),
+        ))
+    } else if greeting.trim().is_empty() {
+        Err(SmtpClientError::ConnectionFailed(
+            "Empty response from server".to_string(),
+        ))
+    } else {
+        Err(SmtpClientError::ProtocolMismatch(format!(
+            "Unexpected server greeting: {}",
+            greeting.trim()
+        )))
+    }
+}
+
+fn resolve_addr(host: &str, port: u16) -> Result<std::net::SocketAddr, SmtpClientError> {
+    use std::net::ToSocketAddrs;
+    let addr_str = format!("{host}:{port}");
+    addr_str
+        .to_socket_addrs()
+        .map_err(|e| {
+            let msg = e.to_string();
+            if msg.to_lowercase().contains("name or service not known")
+                || msg.to_lowercase().contains("no such host")
+                || msg.to_lowercase().contains("resolve")
+            {
+                SmtpClientError::DnsResolution(host.to_string())
+            } else {
+                SmtpClientError::ConnectionFailed(msg)
+            }
+        })?
+        .next()
+        .ok_or_else(|| SmtpClientError::DnsResolution(host.to_string()))
+}
+
+fn do_tls_connect(
+    tcp: TcpStream,
+    params: &SmtpConnectParams,
+    logs: &mut Vec<ConnectionLogRecord>,
+) -> Result<native_tls::TlsStream<std::net::TcpStream>, SmtpClientError> {
+    let connector = build_tls_connector(params);
+    match connector.connect(&params.host, tcp) {
+        Ok(stream) => {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::TlsHandshake,
+                "SMTP TLS handshake successful (implicit SSL/TLS)".to_string(),
+            ));
+            Ok(stream)
+        }
+        Err(_) => Err(handle_tls_error(&params.host, params.port)),
+    }
+}
+
+fn build_tls_connector(params: &SmtpConnectParams) -> native_tls::TlsConnector {
+    let mut builder = native_tls::TlsConnector::builder();
+    if params.insecure || params.accepted_fingerprint.is_some() {
+        builder.danger_accept_invalid_certs(true);
+        builder.danger_accept_invalid_hostnames(true);
+    }
+    builder.build().unwrap_or_else(|_| {
+        native_tls::TlsConnector::builder()
+            .build()
+            .expect("failed to build default TLS connector")
+    })
+}
+
+fn handle_tls_error(host: &str, port: u16) -> SmtpClientError {
+    if let Some(fp) = try_get_certificate_fingerprint(host, port) {
+        SmtpClientError::UntrustedCertificate(CertificateInfo {
+            fingerprint: fp,
+            dns_names: vec![host.to_string()],
+            server_hostname: host.to_string(),
+        })
+    } else {
+        SmtpClientError::TlsHandshake(format!("TLS handshake failed with {host}"))
+    }
+}
+
+/// Reconnect in danger mode to extract the server's certificate fingerprint.
+fn try_get_certificate_fingerprint(host: &str, port: u16) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    use std::net::TcpStream;
+
+    let addr_str = format!("{host}:{port}");
+    let addr: std::net::SocketAddr = addr_str.parse().ok()?;
+    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(5)).ok()?;
+
+    let connector = native_tls::TlsConnector::builder()
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .build()
+        .ok()?;
+
+    let tls = connector.connect(host, tcp).ok()?;
+    let cert = tls.peer_certificate().ok()??;
+    let der = cert.to_der().ok()?;
+    let hash = Sha256::digest(&der);
+    Some(
+        hash.iter()
+            .map(|b| format!("{b:02X}"))
+            .collect::<Vec<_>>()
+            .join(":"),
+    )
+}
+
+fn classify_connect_error(err: &str, host: &str, port: u16) -> SmtpClientError {
+    let lower = err.to_lowercase();
+    if lower.contains("name or service not known")
+        || lower.contains("no such host")
+        || lower.contains("dns")
+        || lower.contains("resolve")
+    {
+        SmtpClientError::DnsResolution(host.to_string())
+    } else if lower.contains("connection refused") {
+        SmtpClientError::ConnectionRefused {
+            host: host.to_string(),
+            port,
+        }
+    } else if lower.contains("timed out") || lower.contains("timeout") {
+        SmtpClientError::Timeout
+    } else {
+        SmtpClientError::ConnectionFailed(err.to_string())
+    }
+}
+
+fn map_io_error(e: &std::io::Error) -> SmtpClientError {
+    if e.kind() == std::io::ErrorKind::TimedOut || e.kind() == std::io::ErrorKind::WouldBlock {
+        SmtpClientError::Timeout
+    } else {
+        SmtpClientError::ConnectionFailed(format!("I/O error: {e}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_dns_error() {
+        let err = classify_connect_error(
+            "failed to lookup address: Name or service not known",
+            "bad.example.com",
+            587,
+        );
+        assert!(matches!(err, SmtpClientError::DnsResolution(_)));
+    }
+
+    #[test]
+    fn classify_refused_error() {
+        let err =
+            classify_connect_error("Connection refused (os error 111)", "mail.example.com", 587);
+        assert!(matches!(err, SmtpClientError::ConnectionRefused { .. }));
+    }
+
+    #[test]
+    fn classify_timeout_error() {
+        let err = classify_connect_error(
+            "connection timed out (os error 110)",
+            "mail.example.com",
+            587,
+        );
+        assert!(matches!(err, SmtpClientError::Timeout));
+    }
+
+    #[test]
+    fn check_greeting_ok() {
+        assert!(check_smtp_greeting("220 smtp.example.com ESMTP\r\n").is_ok());
+    }
+
+    #[test]
+    fn check_greeting_imap() {
+        let err = check_smtp_greeting("* OK IMAP4rev1 server ready\r\n").unwrap_err();
+        assert!(matches!(err, SmtpClientError::ProtocolMismatch(_)));
+    }
+
+    #[test]
+    fn check_greeting_pop3() {
+        let err = check_smtp_greeting("+OK POP3 server ready\r\n").unwrap_err();
+        assert!(matches!(err, SmtpClientError::ProtocolMismatch(_)));
+    }
+
+    #[test]
+    fn check_greeting_empty() {
+        let err = check_smtp_greeting("").unwrap_err();
+        assert!(matches!(err, SmtpClientError::ConnectionFailed(_)));
+    }
+
+    #[test]
+    fn parse_ehlo_size() {
+        let ehlo = "250-smtp.example.com\r\n250-SIZE 26214400\r\n250 OK\r\n";
+        assert_eq!(parse_max_size_from_ehlo(ehlo), Some(26214400));
+    }
+
+    #[test]
+    fn parse_ehlo_no_size() {
+        let ehlo = "250-smtp.example.com\r\n250-PIPELINING\r\n250 OK\r\n";
+        assert_eq!(parse_max_size_from_ehlo(ehlo), None);
+    }
+
+    #[test]
+    fn parse_ehlo_size_zero() {
+        let ehlo = "250-SIZE 0\r\n250 OK\r\n";
+        assert_eq!(parse_max_size_from_ehlo(ehlo), None);
+    }
+
+    #[test]
+    fn auth_plain_encoding() {
+        let encoded = build_auth_plain("user@example.com", "password123");
+        use base64::Engine;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(&encoded)
+            .unwrap();
+        assert_eq!(decoded[0], 0);
+        assert!(decoded[1..].starts_with(b"user@example.com"));
+        let user_end = 1 + "user@example.com".len();
+        assert_eq!(decoded[user_end], 0);
+        assert_eq!(&decoded[user_end + 1..], b"password123");
+    }
+}

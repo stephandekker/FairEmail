@@ -5,6 +5,7 @@ pub(crate) mod database;
 pub mod export_service;
 pub mod folder_store;
 pub mod folder_sync;
+pub mod identity_store;
 pub mod imap_checker;
 pub(crate) mod imap_client;
 pub mod import_service;
@@ -17,8 +18,10 @@ pub mod order_store;
 pub mod real_connection_tester;
 pub mod real_imap_checker;
 pub mod real_inbound_tester;
+pub mod real_smtp_checker;
 pub mod settings_store;
 pub mod smtp_checker;
+pub(crate) mod smtp_client;
 pub mod sqlite_account_store;
 pub mod sqlite_order_store;
 pub mod sqlite_settings_store;
@@ -31,6 +34,9 @@ pub use connection_tester::{ConnectionTester, MockConnectionTester};
 pub use export_service::{export_to_file, ExportResult, ExportServiceError};
 pub use folder_store::{load_folders, replace_folders};
 pub use folder_sync::{perform_folder_setup, FolderSyncService, MockFolderSyncService};
+pub use identity_store::{
+    insert_identity, load_identities_for_account, update_max_message_size, IdentityRow,
+};
 pub use imap_checker::{ImapChecker, MockImapChecker, MOCK_CERT_FINGERPRINT};
 pub use import_service::{
     import_from_file, is_file_encrypted, read_import_file, ImportServiceError,
@@ -43,6 +49,7 @@ pub use order_store::OrderStore;
 pub use real_connection_tester::RealConnectionTester;
 pub use real_imap_checker::RealImapChecker;
 pub use real_inbound_tester::RealInboundTester;
+pub use real_smtp_checker::RealSmtpChecker;
 pub use settings_store::{AppSettings, SettingsStore};
 pub use smtp_checker::{MockSmtpChecker, SmtpChecker, MOCK_SMTP_CERT_FINGERPRINT};
 pub use sqlite_account_store::SqliteAccountStore as AccountStore;

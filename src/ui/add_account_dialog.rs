@@ -11,12 +11,15 @@ use crate::core::field_validation::{trim_hostname, trim_username, validate_manua
 use crate::core::inbound_test::InboundTestParams;
 use crate::core::inbound_test_diagnostics::diagnose_error;
 use crate::core::port_autofill::{default_port, should_autofill};
-use crate::core::provider::ProviderDatabase;
+use crate::core::provider::{
+    MaxTlsVersion, ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
+};
 use crate::core::{
     Account, AccountColor, AuthMethod, EncryptionMode, NewAccountParams, Pop3Settings, Protocol,
     SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
 };
 use crate::services::inbound_tester::{InboundTester, MockInboundTester};
+use crate::services::smtp_checker::{MockSmtpChecker, SmtpChecker};
 
 /// Result of the add-account dialog: either a validated Account or the user cancelled.
 pub(crate) type DialogResult = Option<Account>;
@@ -849,7 +852,22 @@ fn show_inner(
                     test_results_label,
                     move || {
                         let tester = MockInboundTester;
-                        let result = tester.test_inbound(&params);
+                        let inbound_result = tester.test_inbound(&params);
+
+                        // Run SMTP test if SMTP host is configured.
+                        let smtp_host_val = smtp_host_row.text().to_string();
+                        let smtp_result = if !smtp_host_val.trim().is_empty() {
+                            let smtp_port_val = smtp_port_row.value() as u16;
+                            let smtp_enc = combo_to_encryption(smtp_encryption_row.selected());
+                            let smtp_user = smtp_username_row.text().to_string();
+                            let smtp_pass = smtp_password_row.text().to_string();
+                            let provider =
+                                build_smtp_provider(smtp_host_val.trim(), smtp_port_val, smtp_enc);
+                            let checker = MockSmtpChecker;
+                            Some(checker.check_smtp(&smtp_user, &smtp_pass, &provider, None))
+                        } else {
+                            None
+                        };
 
                         // Stop spinner.
                         test_spinner.set_spinning(false);
@@ -876,9 +894,12 @@ fn show_inner(
                             true,
                         );
 
-                        match result {
+                        let mut text = String::new();
+                        let mut any_error = false;
+
+                        // Display inbound results.
+                        match inbound_result {
                             Ok(success) => {
-                                let mut text = String::new();
                                 if !success.folders.is_empty() {
                                     text.push_str(&gettextrs::gettext("Folders:"));
                                     text.push('\n');
@@ -893,15 +914,9 @@ fn show_inner(
                                 ));
                                     toast_overlay.add_toast(warning_toast);
                                 }
-
-                                test_results_label.set_text(&text);
-                                test_results_group.set_visible(true);
-
-                                let toast =
-                                    adw::Toast::new(&gettextrs::gettext("Connection successful"));
-                                toast_overlay.add_toast(toast);
                             }
                             Err(e) => {
+                                any_error = true;
                                 let provider_db = ProviderDatabase::bundled();
                                 let hostname = host_row.text().to_string();
                                 let hostname_ref = if hostname.trim().is_empty() {
@@ -911,21 +926,58 @@ fn show_inner(
                                 };
                                 let diagnostic = diagnose_error(&e, hostname_ref, &provider_db);
 
-                                let mut error_text = diagnostic.display_text();
+                                text.push_str(&diagnostic.display_text());
                                 if let Some(ref url) = diagnostic.documentation_url {
-                                    error_text.push_str(&format!(
+                                    text.push_str(&format!(
                                         "\n\n{} {}",
                                         gettextrs::gettext("Provider setup guide:"),
                                         url
                                     ));
                                 }
-
-                                test_results_label.set_text(&error_text);
-                                test_results_group.set_visible(true);
-
-                                let toast = adw::Toast::new(&diagnostic.message);
-                                toast_overlay.add_toast(toast);
                             }
+                        }
+
+                        // Display SMTP results.
+                        if let Some(smtp_res) = smtp_result {
+                            if !text.is_empty() {
+                                text.push_str("\n\n");
+                            }
+                            match smtp_res {
+                                Ok(smtp_success) => {
+                                    text.push_str(&gettextrs::gettext("SMTP: OK"));
+                                    if let Some(size) = smtp_success.max_message_size {
+                                        let size_mb = size / (1024 * 1024);
+                                        text.push_str(&format!(
+                                            "\n{} {} ({} bytes)",
+                                            gettextrs::gettext("Max message size:"),
+                                            gettextrs::gettext(format!("{size_mb} MiB")),
+                                            size
+                                        ));
+                                    }
+                                }
+                                Err(smtp_err) => {
+                                    any_error = true;
+                                    text.push_str(&format!(
+                                        "{} {}",
+                                        gettextrs::gettext("SMTP test failed:"),
+                                        smtp_err
+                                    ));
+                                }
+                            }
+                        }
+
+                        test_results_label.set_text(&text);
+                        test_results_group.set_visible(true);
+
+                        if any_error {
+                            let toast = adw::Toast::new(&gettextrs::gettext(
+                                "Connection test completed with errors",
+                            ));
+                            toast_overlay.add_toast(toast);
+                        } else {
+                            let toast =
+                                adw::Toast::new(&gettextrs::gettext("Connection successful"));
+                            toast_overlay.add_toast(toast);
                         }
                     }
                 ),
@@ -1297,4 +1349,47 @@ fn set_form_sensitive(
     smtp_password_row.set_sensitive(sensitive);
     test_btn.set_sensitive(sensitive);
     save_btn.set_sensitive(sensitive);
+}
+
+fn encryption_to_provider(enc: EncryptionMode) -> ProviderEncryption {
+    match enc {
+        EncryptionMode::SslTls => ProviderEncryption::SslTls,
+        EncryptionMode::StartTls => ProviderEncryption::StartTls,
+        EncryptionMode::None => ProviderEncryption::None,
+    }
+}
+
+/// Build a minimal `Provider` from SMTP UI fields for use with `SmtpChecker`.
+fn build_smtp_provider(
+    host: &str,
+    port: u16,
+    encryption: EncryptionMode,
+) -> crate::core::provider::Provider {
+    crate::core::provider::Provider {
+        id: String::new(),
+        display_name: String::new(),
+        domain_patterns: vec![],
+        mx_patterns: vec![],
+        incoming: ServerConfig {
+            hostname: String::new(),
+            port: 0,
+            encryption: ProviderEncryption::None,
+        },
+        outgoing: ServerConfig {
+            hostname: host.to_string(),
+            port,
+            encryption: encryption_to_provider(encryption),
+        },
+        username_type: UsernameType::EmailAddress,
+        keep_alive_interval: 0,
+        noop_keep_alive: false,
+        partial_fetch: false,
+        max_tls_version: MaxTlsVersion::Tls1_3,
+        app_password_required: false,
+        documentation_url: None,
+        localized_docs: vec![],
+        oauth: None,
+        display_order: 0,
+        enabled: false,
+    }
 }
