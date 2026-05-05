@@ -11,8 +11,15 @@ use libadwaita::prelude::*;
 
 use crate::core::account::EncryptionMode;
 use crate::core::port_autofill::{should_autofill, smtp_default_port};
+use crate::core::provider::{
+    MaxTlsVersion, Provider, ProviderEncryption, ServerConfig, UsernameType,
+};
+use crate::core::smtp_check::SmtpCheckError;
 use crate::core::smtp_identity::validate_smtp_identity;
+use crate::core::smtp_test_diagnostics::diagnose_smtp_error;
 use crate::services::identity_store::IdentityRow;
+use crate::services::smtp_checker::MockSmtpChecker;
+use crate::services::smtp_checker::SmtpChecker;
 
 /// An inbound account entry for the associated-account dropdown.
 #[derive(Debug, Clone)]
@@ -383,6 +390,53 @@ pub(crate) fn show(
         }
     ));
 
+    // -- Test Connection --
+    let test_group = adw::PreferencesGroup::new();
+
+    let test_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Test Connection"))
+        .css_classes(["pill"])
+        .build();
+
+    let test_spinner = gtk::Spinner::new();
+    test_spinner.set_visible(false);
+
+    let test_btn_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(gtk::Align::Center)
+        .build();
+    test_btn_box.append(&test_btn);
+    test_btn_box.append(&test_spinner);
+
+    test_group.add(&test_btn_box);
+    vbox.append(&test_group);
+
+    // -- Test Results (hidden initially) --
+    let test_results_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Test Results"))
+        .visible(false)
+        .build();
+    let test_results_label = gtk::Label::builder()
+        .wrap(true)
+        .selectable(true)
+        .xalign(0.0)
+        .build();
+    test_results_group.add(&test_results_label);
+
+    let store_size_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Store as size limit"))
+        .css_classes(["pill"])
+        .visible(false)
+        .build();
+    test_results_group.add(&store_size_btn);
+
+    vbox.append(&test_results_group);
+
+    // Shared state for detected max message size.
+    let detected_max_size: Rc<RefCell<Option<u64>>> = Rc::new(RefCell::new(None));
+    let stored_max_size: Rc<RefCell<Option<u64>>> = Rc::new(RefCell::new(None));
+
     // -- Action buttons --
     let btn_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -410,6 +464,260 @@ pub(crate) fn show(
     toolbar_view.set_content(Some(&toast_overlay));
     dialog.set_child(Some(&toolbar_view));
 
+    // -- "Store as size limit" button handler --
+    store_size_btn.connect_clicked(clone!(
+        #[strong]
+        detected_max_size,
+        #[strong]
+        stored_max_size,
+        #[weak]
+        store_size_btn,
+        #[weak]
+        toast_overlay,
+        move |_| {
+            if let Some(size) = *detected_max_size.borrow() {
+                *stored_max_size.borrow_mut() = Some(size);
+                store_size_btn.set_visible(false);
+                let size_mb = size / (1024 * 1024);
+                toast_overlay.add_toast(adw::Toast::new(&format!(
+                    "{} {} MiB",
+                    gettextrs::gettext("Size limit stored:"),
+                    size_mb
+                )));
+            }
+        }
+    ));
+
+    // -- Test Connection button handler --
+    test_btn.connect_clicked(clone!(
+        #[strong]
+        detected_max_size,
+        #[weak]
+        host_row,
+        #[weak]
+        port_row,
+        #[weak]
+        encryption_row,
+        #[weak]
+        username_row,
+        #[weak]
+        password_row,
+        #[weak]
+        email_row,
+        #[weak]
+        toast_overlay,
+        #[weak]
+        test_btn,
+        #[weak]
+        save_btn,
+        #[weak]
+        cancel_btn,
+        #[weak]
+        test_spinner,
+        #[weak]
+        test_results_group,
+        #[weak]
+        test_results_label,
+        #[weak]
+        store_size_btn,
+        #[weak]
+        display_name_row,
+        #[weak]
+        account_row,
+        #[weak]
+        realm_row,
+        #[weak]
+        dane_row,
+        #[weak]
+        dnssec_row,
+        #[strong]
+        client_cert_path,
+        move |_| {
+            let host_val = host_row.text().to_string();
+            let user_val = username_row.text().to_string();
+            let pass_val = password_row.text().to_string();
+            let email_val = email_row.text().to_string();
+            let has_cert = client_cert_path.borrow().is_some();
+
+            // Validate before testing.
+            let validation =
+                validate_smtp_identity(&host_val, &user_val, &pass_val, &email_val, has_cert);
+            if !validation.is_valid() {
+                let msg = validation
+                    .errors
+                    .iter()
+                    .map(|e| e.message())
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                toast_overlay.add_toast(adw::Toast::new(&msg));
+                return;
+            }
+
+            // Disable all input fields during test.
+            set_smtp_form_sensitive(
+                &email_row,
+                &display_name_row,
+                &account_row,
+                &host_row,
+                &port_row,
+                &encryption_row,
+                &username_row,
+                &password_row,
+                &realm_row,
+                &dane_row,
+                &dnssec_row,
+                &test_btn,
+                &save_btn,
+                &cancel_btn,
+                false,
+            );
+
+            // Show spinner.
+            test_spinner.set_visible(true);
+            test_spinner.set_spinning(true);
+            test_results_group.set_visible(false);
+            store_size_btn.set_visible(false);
+
+            let encryption = combo_to_encryption(encryption_row.selected());
+
+            // Run the test with a short delay to let the UI update.
+            glib::timeout_add_local_once(
+                std::time::Duration::from_millis(200),
+                clone!(
+                    #[strong]
+                    detected_max_size,
+                    #[weak]
+                    host_row,
+                    #[weak]
+                    port_row,
+                    #[weak]
+                    encryption_row,
+                    #[weak]
+                    username_row,
+                    #[weak]
+                    password_row,
+                    #[weak]
+                    email_row,
+                    #[weak]
+                    toast_overlay,
+                    #[weak]
+                    test_btn,
+                    #[weak]
+                    save_btn,
+                    #[weak]
+                    cancel_btn,
+                    #[weak]
+                    test_spinner,
+                    #[weak]
+                    test_results_group,
+                    #[weak]
+                    test_results_label,
+                    #[weak]
+                    store_size_btn,
+                    #[weak]
+                    display_name_row,
+                    #[weak]
+                    account_row,
+                    #[weak]
+                    realm_row,
+                    #[weak]
+                    dane_row,
+                    #[weak]
+                    dnssec_row,
+                    move || {
+                        let provider = build_smtp_provider(
+                            host_val.trim(),
+                            port_row.value() as u16,
+                            encryption,
+                        );
+                        let checker = MockSmtpChecker;
+                        let result = checker.check_smtp(&user_val, &pass_val, &provider, None);
+
+                        // Stop spinner.
+                        test_spinner.set_spinning(false);
+                        test_spinner.set_visible(false);
+
+                        // Re-enable form.
+                        set_smtp_form_sensitive(
+                            &email_row,
+                            &display_name_row,
+                            &account_row,
+                            &host_row,
+                            &port_row,
+                            &encryption_row,
+                            &username_row,
+                            &password_row,
+                            &realm_row,
+                            &dane_row,
+                            &dnssec_row,
+                            &test_btn,
+                            &save_btn,
+                            &cancel_btn,
+                            true,
+                        );
+
+                        let mut text = String::new();
+
+                        match result {
+                            Ok(success) => {
+                                text.push_str(&gettextrs::gettext("SMTP: OK"));
+                                text.push_str(&format!(
+                                    "\n{} {}",
+                                    gettextrs::gettext("Authenticated as:"),
+                                    success.authenticated_username
+                                ));
+                                if let Some(size) = success.max_message_size {
+                                    let size_mb = size / (1024 * 1024);
+                                    text.push_str(&format!(
+                                        "\n{} {} MiB ({} bytes)",
+                                        gettextrs::gettext("Max message size:"),
+                                        size_mb,
+                                        size
+                                    ));
+                                    *detected_max_size.borrow_mut() = Some(size);
+                                    store_size_btn.set_visible(true);
+                                } else {
+                                    *detected_max_size.borrow_mut() = None;
+                                    text.push_str(&format!(
+                                        "\n{}",
+                                        gettextrs::gettext(
+                                            "Server did not advertise a maximum message size"
+                                        )
+                                    ));
+                                }
+
+                                toast_overlay.add_toast(adw::Toast::new(&gettextrs::gettext(
+                                    "Connection successful",
+                                )));
+                            }
+                            Err(ref e) => {
+                                let provider_db =
+                                    crate::core::provider::ProviderDatabase::new(vec![]);
+                                let diag =
+                                    diagnose_smtp_error(e, Some(host_val.trim()), &provider_db);
+                                text.push_str(&diag.display_text());
+
+                                if let SmtpCheckError::UntrustedCertificate(ref info) = e {
+                                    text.push_str("\n\n");
+                                    text.push_str(&gettextrs::gettext("Certificate fingerprint:"));
+                                    text.push('\n');
+                                    text.push_str(&info.fingerprint);
+                                }
+
+                                toast_overlay.add_toast(adw::Toast::new(&gettextrs::gettext(
+                                    "Connection test completed with errors",
+                                )));
+                            }
+                        }
+
+                        test_results_label.set_text(&text);
+                        test_results_group.set_visible(true);
+                    }
+                ),
+            );
+        }
+    ));
+
     // -- Cancel --
     let on_done = Rc::new(on_done);
     let on_done_cancel = on_done.clone();
@@ -430,6 +738,8 @@ pub(crate) fn show(
     // -- Save --
     let accounts_for_save = accounts;
     save_btn.connect_clicked(clone!(
+        #[strong]
+        stored_max_size,
         #[weak]
         dialog,
         #[weak]
@@ -505,7 +815,7 @@ pub(crate) fn show(
                 use_ip_in_ehlo: false,
                 custom_ehlo: None,
                 login_before_send: false,
-                max_message_size_cache: None,
+                max_message_size_cache: *stored_max_size.borrow(),
                 smtp_client_certificate: client_cert_path.borrow().clone(),
                 smtp_dane: dane_row.is_active(),
                 smtp_dnssec: dnssec_row.is_active(),
@@ -520,4 +830,76 @@ pub(crate) fn show(
     ));
 
     dialog.present(Some(parent));
+}
+
+#[allow(clippy::too_many_arguments)]
+fn set_smtp_form_sensitive(
+    email_row: &adw::EntryRow,
+    display_name_row: &adw::EntryRow,
+    account_row: &adw::ComboRow,
+    host_row: &adw::EntryRow,
+    port_row: &adw::SpinRow,
+    encryption_row: &adw::ComboRow,
+    username_row: &adw::EntryRow,
+    password_row: &adw::PasswordEntryRow,
+    realm_row: &adw::EntryRow,
+    dane_row: &adw::SwitchRow,
+    dnssec_row: &adw::SwitchRow,
+    test_btn: &gtk::Button,
+    save_btn: &gtk::Button,
+    cancel_btn: &gtk::Button,
+    sensitive: bool,
+) {
+    email_row.set_sensitive(sensitive);
+    display_name_row.set_sensitive(sensitive);
+    account_row.set_sensitive(sensitive);
+    host_row.set_sensitive(sensitive);
+    port_row.set_sensitive(sensitive);
+    encryption_row.set_sensitive(sensitive);
+    username_row.set_sensitive(sensitive);
+    password_row.set_sensitive(sensitive);
+    realm_row.set_sensitive(sensitive);
+    dane_row.set_sensitive(sensitive);
+    dnssec_row.set_sensitive(sensitive);
+    test_btn.set_sensitive(sensitive);
+    save_btn.set_sensitive(sensitive);
+    cancel_btn.set_sensitive(sensitive);
+}
+
+fn encryption_to_provider(enc: EncryptionMode) -> ProviderEncryption {
+    match enc {
+        EncryptionMode::SslTls => ProviderEncryption::SslTls,
+        EncryptionMode::StartTls => ProviderEncryption::StartTls,
+        EncryptionMode::None => ProviderEncryption::None,
+    }
+}
+
+fn build_smtp_provider(host: &str, port: u16, encryption: EncryptionMode) -> Provider {
+    Provider {
+        id: String::new(),
+        display_name: String::new(),
+        domain_patterns: vec![],
+        mx_patterns: vec![],
+        incoming: ServerConfig {
+            hostname: String::new(),
+            port: 0,
+            encryption: ProviderEncryption::None,
+        },
+        outgoing: ServerConfig {
+            hostname: host.to_string(),
+            port,
+            encryption: encryption_to_provider(encryption),
+        },
+        username_type: UsernameType::EmailAddress,
+        keep_alive_interval: 0,
+        noop_keep_alive: false,
+        partial_fetch: false,
+        max_tls_version: MaxTlsVersion::Tls1_3,
+        app_password_required: false,
+        documentation_url: None,
+        localized_docs: vec![],
+        oauth: None,
+        display_order: 0,
+        enabled: false,
+    }
 }

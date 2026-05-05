@@ -42,6 +42,7 @@ pub mod reauth;
 pub mod save_auto_test;
 pub mod smtp_check;
 pub mod smtp_identity;
+pub mod smtp_test_diagnostics;
 pub mod sync_conditions;
 pub mod sync_event;
 pub mod sync_state;
@@ -138,6 +139,7 @@ pub use smtp_identity::{
     validate_smtp_identity, SmtpIdentityFieldError, SmtpIdentityParams,
     SmtpIdentityValidationResult,
 };
+pub use smtp_test_diagnostics::diagnose_smtp_error;
 pub use sync_conditions::{
     evaluate as evaluate_sync_conditions, EnvironmentStatus, SyncEligibility, SyncPauseReason,
 };
