@@ -142,6 +142,7 @@ mod tests {
             client_certificate: None,
             dane: false,
             dnssec: false,
+            auth_realm: None,
         }
     }
 

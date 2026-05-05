@@ -1271,6 +1271,8 @@ pub(crate) fn show(
         cert_fingerprint_row,
         #[weak]
         trust_cert_btn,
+        #[weak]
+        auth_realm_row,
         #[strong]
         client_cert_path,
         move |_| {
@@ -1297,6 +1299,14 @@ pub(crate) fn show(
                 client_certificate: client_cert_path.borrow().clone(),
                 dane: dane_row.is_active(),
                 dnssec: dnssec_row.is_active(),
+                auth_realm: {
+                    let r = auth_realm_row.text().trim().to_string();
+                    if r.is_empty() {
+                        None
+                    } else {
+                        Some(r)
+                    }
+                },
             };
 
             // Disable all input fields and buttons during test.
@@ -1876,6 +1886,10 @@ pub(crate) fn show(
                         .and_then(|s| s.client_certificate.clone()),
                     dane: params.security_settings.as_ref().is_some_and(|s| s.dane),
                     dnssec: params.security_settings.as_ref().is_some_and(|s| s.dnssec),
+                    auth_realm: params
+                        .security_settings
+                        .as_ref()
+                        .and_then(|s| s.auth_realm.clone()),
                 };
                 let tester = MockInboundTester;
                 let result = tester.test_inbound(&test_params);

@@ -45,6 +45,8 @@ pub(crate) struct ImapConnectParams {
     pub dane: bool,
     /// When true, require DNSSEC-validated DNS resolution (FR-14).
     pub dnssec: bool,
+    /// Optional authentication realm for SASL/NTLM domain (FR-10).
+    pub auth_realm: Option<String>,
 }
 
 /// Errors from the real IMAP client.
@@ -351,14 +353,26 @@ impl ImapSession {
         params: &ImapConnectParams,
         logs: &mut Vec<ConnectionLogRecord>,
     ) -> Result<(), ImapClientError> {
-        // Quote username and password for IMAP LOGIN
+        if let Some(ref realm) = params.auth_realm {
+            // Use AUTHENTICATE PLAIN with realm as the authorization identity (FR-10).
+            self.do_authenticate_plain(params, realm, logs)
+        } else {
+            self.do_login_plain(params, logs)
+        }
+    }
+
+    /// Standard IMAP LOGIN command (no realm).
+    fn do_login_plain(
+        &mut self,
+        params: &ImapConnectParams,
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<(), ImapClientError> {
         let username = imap_quote(&params.username);
         let password = imap_quote(&params.password);
         let cmd = format!("LOGIN {username} {password}");
         self.send_command("A002", &cmd)?;
         let response = self.read_tagged_response("A002")?;
 
-        // Check if the tagged response indicates success
         let tag_line = response
             .lines()
             .find(|l| l.starts_with("A002"))
@@ -375,6 +389,66 @@ impl ImapSession {
                 params.account_id.clone(),
                 ConnectionLogEventType::Error,
                 format!("Login failed: {}", tag_line.trim()),
+            ));
+            Err(ImapClientError::AuthenticationFailed)
+        }
+    }
+
+    /// AUTHENTICATE PLAIN with realm as the SASL authorization identity (FR-10).
+    ///
+    /// SASL PLAIN format (RFC 4616): [authzid] NUL authcid NUL passwd
+    /// The realm is passed as the authzid so the server can route to the
+    /// correct authentication domain.
+    fn do_authenticate_plain(
+        &mut self,
+        params: &ImapConnectParams,
+        realm: &str,
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<(), ImapClientError> {
+        use base64::Engine;
+
+        self.send_command("A002", "AUTHENTICATE PLAIN")?;
+
+        // Server should respond with a continuation request "+"
+        let cont = self.read_line()?;
+        if !cont.starts_with('+') {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("AUTHENTICATE PLAIN not supported: {}", cont.trim()),
+            ));
+            return Err(ImapClientError::AuthenticationFailed);
+        }
+
+        // Build SASL PLAIN token: realm NUL username NUL password
+        let mut token = Vec::new();
+        token.extend_from_slice(realm.as_bytes());
+        token.push(0);
+        token.extend_from_slice(params.username.as_bytes());
+        token.push(0);
+        token.extend_from_slice(params.password.as_bytes());
+
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&token);
+        let line = format!("{encoded}\r\n");
+        self.send_raw(line.as_bytes())?;
+
+        let response = self.read_tagged_response("A002")?;
+        let tag_line = response
+            .lines()
+            .find(|l| l.starts_with("A002"))
+            .unwrap_or("");
+        if tag_line.contains("OK") {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::LoginResult,
+                format!("Login successful as {} (realm: {})", params.username, realm),
+            ));
+            Ok(())
+        } else {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("AUTHENTICATE PLAIN failed: {}", tag_line.trim()),
             ));
             Err(ImapClientError::AuthenticationFailed)
         }

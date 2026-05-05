@@ -338,6 +338,9 @@ mod dev_fetch {
                 .security_settings()
                 .map(|s| s.dnssec)
                 .unwrap_or(false),
+            auth_realm: account
+                .security_settings()
+                .and_then(|s| s.auth_realm.clone()),
         };
 
         let content_root = data_dir.join("messages");

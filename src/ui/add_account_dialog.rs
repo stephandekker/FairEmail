@@ -789,6 +789,7 @@ fn show_inner(
                 client_certificate: None,
                 dane: false,
                 dnssec: false,
+                auth_realm: None,
             };
 
             // Disable all input fields and buttons during test.
@@ -1229,6 +1230,7 @@ fn show_inner(
                     client_certificate: None,
                     dane: false,
                     dnssec: false,
+                    auth_realm: None,
                 };
                 let tester = MockInboundTester;
                 let result = tester.test_inbound(&test_params);

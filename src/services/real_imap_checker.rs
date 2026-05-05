@@ -39,6 +39,7 @@ impl ImapChecker for RealImapChecker {
                 client_certificate: None,
                 dane: false,
                 dnssec: false,
+                auth_realm: None,
             };
 
             match run_imap_session(&connect_params) {

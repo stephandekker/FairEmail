@@ -29,6 +29,8 @@ pub struct InboundTestParams {
     pub dane: bool,
     /// When true, require DNSSEC-validated DNS resolution (FR-14).
     pub dnssec: bool,
+    /// Optional authentication realm for SASL/NTLM domain (FR-10).
+    pub auth_realm: Option<String>,
 }
 
 /// The result of a successful inbound connection test.
@@ -164,6 +166,7 @@ mod tests {
             client_certificate: None,
             dane: false,
             dnssec: false,
+            auth_realm: None,
         }
     }
 
