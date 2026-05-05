@@ -9,6 +9,7 @@ use libadwaita::prelude::*;
 
 use crate::core::connection_test::{ConnectionTestRequest, ServerConnectionParams};
 use crate::core::field_validation::{trim_hostname, trim_username, validate_manual_fields};
+use crate::core::port_autofill::{default_port, should_autofill};
 use crate::core::{
     Account, AccountColor, AuthMethod, EncryptionMode, NewAccountParams, Pop3Settings, Protocol,
     SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
@@ -373,9 +374,29 @@ fn show_inner(
     encryption_row.connect_selected_notify(clone!(
         #[weak]
         no_encryption_banner,
+        #[weak]
+        port_row,
+        #[weak]
+        protocol_row,
         move |row| {
             // Index 2 = "None"
             no_encryption_banner.set_revealed(row.selected() == 2);
+
+            // FR-6/FR-7: Auto-fill port on encryption change.
+            let protocol = match protocol_row.selected() {
+                0 => Protocol::Imap,
+                _ => Protocol::Pop3,
+            };
+            let encryption = combo_to_encryption(row.selected());
+            let current_port = port_row.value() as u16;
+            let current = if current_port == 0 {
+                None
+            } else {
+                Some(current_port)
+            };
+            if should_autofill(current) {
+                port_row.set_value(default_port(protocol, encryption) as f64);
+            }
         }
     ));
 
@@ -506,10 +527,30 @@ fn show_inner(
         pop3_group,
         #[weak]
         system_folders_group,
+        #[weak]
+        port_row,
+        #[weak]
+        encryption_row,
         move |row| {
             let is_pop3 = row.selected() == 1;
             pop3_group.set_visible(is_pop3);
             system_folders_group.set_visible(!is_pop3);
+
+            // FR-6/FR-7: Auto-fill port on protocol change.
+            let protocol = match row.selected() {
+                0 => Protocol::Imap,
+                _ => Protocol::Pop3,
+            };
+            let encryption = combo_to_encryption(encryption_row.selected());
+            let current_port = port_row.value() as u16;
+            let current = if current_port == 0 {
+                None
+            } else {
+                Some(current_port)
+            };
+            if should_autofill(current) {
+                port_row.set_value(default_port(protocol, encryption) as f64);
+            }
         }
     ));
 

@@ -20,6 +20,7 @@ pub mod import_accounts;
 pub(crate) mod ispdb_discovery;
 pub mod navigation;
 pub(crate) mod oauth_signin;
+pub mod port_autofill;
 #[allow(dead_code)]
 pub(crate) mod port_scanning;
 pub mod primary;
@@ -85,6 +86,7 @@ pub use oauth_signin::{
     determine_auth_options, is_oauth_provider, resolve_auth_from_choice, AuthChoice, AuthOptions,
     OAuthTokenResult,
 };
+pub use port_autofill::{default_port, should_autofill};
 pub use primary::{
     auto_designate_on_add, revoke_if_sync_disabled, set_primary, PrimaryDesignationError,
 };
