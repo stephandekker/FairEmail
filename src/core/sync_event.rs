@@ -27,4 +27,9 @@ pub enum SyncEvent {
         folder_name: String,
         bodies_fetched: usize,
     },
+    /// A message was successfully sent via SMTP.
+    MessageSent {
+        account_id: String,
+        operation_id: i64,
+    },
 }

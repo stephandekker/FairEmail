@@ -7,18 +7,22 @@ use serde::{Deserialize, Serialize};
 pub enum OperationKind {
     /// STORE flags (mark read/unread).
     StoreFlags,
+    /// Send a message via SMTP.
+    Send,
 }
 
 impl OperationKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             OperationKind::StoreFlags => "store_flags",
+            OperationKind::Send => "send",
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "store_flags" => Some(OperationKind::StoreFlags),
+            "send" => Some(OperationKind::Send),
             _ => None,
         }
     }
@@ -58,6 +62,18 @@ pub struct StoreFlagsPayload {
     pub uid: u32,
     pub folder_name: String,
     pub new_flags: u32,
+}
+
+/// Payload for a send-message operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SendPayload {
+    /// The identity to send from.
+    pub identity_id: i64,
+    /// Content-store hash of the composed message bytes, if already stored.
+    pub content_hash: Option<String>,
+    /// Inline RFC 5322 message bytes (base64-encoded), used when the draft
+    /// was not previously persisted in the content store.
+    pub inline_rfc822_b64: Option<String>,
 }
 
 /// A row from the `pending_operations` table.

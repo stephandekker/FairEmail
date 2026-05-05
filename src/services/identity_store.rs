@@ -61,6 +61,43 @@ pub fn update_max_message_size(
     Ok(())
 }
 
+/// Load a single identity by its row id.
+pub fn load_identity_by_id(
+    conn: &Connection,
+    identity_id: i64,
+) -> Result<Option<IdentityRow>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, account_id, email_address, display_name,
+                smtp_host, smtp_port, smtp_encryption, smtp_username, smtp_realm,
+                use_ip_in_ehlo, custom_ehlo, login_before_send, max_message_size_cache
+         FROM identities WHERE id = ?1",
+    )?;
+
+    let result = stmt.query_row(params![identity_id], |row| {
+        Ok(IdentityRow {
+            id: row.get(0)?,
+            account_id: row.get(1)?,
+            email_address: row.get(2)?,
+            display_name: row.get(3)?,
+            smtp_host: row.get(4)?,
+            smtp_port: row.get::<_, i64>(5)? as u16,
+            smtp_encryption: row.get(6)?,
+            smtp_username: row.get(7)?,
+            smtp_realm: row.get(8)?,
+            use_ip_in_ehlo: row.get::<_, i64>(9)? != 0,
+            custom_ehlo: row.get(10)?,
+            login_before_send: row.get::<_, i64>(11)? != 0,
+            max_message_size_cache: row.get::<_, Option<i64>>(12)?.map(|v| v as u64),
+        })
+    });
+
+    match result {
+        Ok(row) => Ok(Some(row)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
 /// Load all identities for an account.
 pub fn load_identities_for_account(
     conn: &Connection,

@@ -254,6 +254,282 @@ fn run_authenticated_session(
     })
 }
 
+/// Result of a successful SMTP send.
+#[allow(dead_code)]
+pub(crate) struct SmtpSendResult {
+    pub logs: Vec<ConnectionLogRecord>,
+}
+
+/// Send a fully-composed RFC 5322 message via SMTP.
+///
+/// Authenticates using the provided parameters, then submits the message
+/// using the SMTP envelope (MAIL FROM / RCPT TO / DATA).
+pub(crate) fn send_message(
+    params: &SmtpConnectParams,
+    envelope_from: &str,
+    envelope_to: &[String],
+    rfc822_data: &[u8],
+) -> Result<SmtpSendResult, SmtpClientError> {
+    let mut logs = Vec::new();
+
+    logs.push(ConnectionLogRecord::new(
+        params.account_id.clone(),
+        ConnectionLogEventType::ConnectAttempt,
+        format!("SMTP send connecting to {}:{}", params.host, params.port),
+    ));
+
+    let addr = resolve_addr(&params.host, params.port)?;
+    let tcp_stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)
+        .map_err(|e| classify_connect_error(&e.to_string(), &params.host, params.port))?;
+    tcp_stream.set_read_timeout(Some(CONNECT_TIMEOUT)).ok();
+    tcp_stream.set_write_timeout(Some(CONNECT_TIMEOUT)).ok();
+
+    match params.encryption {
+        EncryptionMode::SslTls => {
+            let tls_stream = do_tls_connect(tcp_stream, params, &mut logs)?;
+            let mut session = SmtpSession::new_tls(tls_stream);
+            send_after_connect(
+                &mut session,
+                params,
+                envelope_from,
+                envelope_to,
+                rfc822_data,
+                &mut logs,
+            )
+        }
+        EncryptionMode::StartTls => {
+            let mut session = SmtpSession::new_plain(tcp_stream);
+            let greeting = session.read_response()?;
+            check_smtp_greeting(&greeting)?;
+            session.send_line("EHLO localhost")?;
+            let _ehlo = session.read_response()?;
+            session.send_line("STARTTLS")?;
+            let starttls_resp = session.read_response()?;
+            if !starttls_resp.starts_with("220") {
+                return Err(SmtpClientError::TlsHandshake(
+                    "Server rejected STARTTLS".to_string(),
+                ));
+            }
+            let tcp = session.into_plain_stream();
+            let connector = build_tls_connector(params);
+            let tls_stream = connector
+                .connect(&params.host, tcp)
+                .map_err(|_| handle_tls_error(&params.host, params.port))?;
+            let mut session = SmtpSession::new_tls(tls_stream);
+            send_after_connect_no_greeting(
+                &mut session,
+                params,
+                envelope_from,
+                envelope_to,
+                rfc822_data,
+                &mut logs,
+            )
+        }
+        EncryptionMode::None => {
+            let mut session = SmtpSession::new_plain(tcp_stream);
+            send_after_connect(
+                &mut session,
+                params,
+                envelope_from,
+                envelope_to,
+                rfc822_data,
+                &mut logs,
+            )
+        }
+    }
+}
+
+/// Authenticate and send after greeting (for SslTls / None).
+fn send_after_connect(
+    session: &mut SmtpSession,
+    params: &SmtpConnectParams,
+    envelope_from: &str,
+    envelope_to: &[String],
+    rfc822_data: &[u8],
+    logs: &mut Vec<ConnectionLogRecord>,
+) -> Result<SmtpSendResult, SmtpClientError> {
+    let greeting = session.read_response()?;
+    check_smtp_greeting(&greeting)?;
+    send_after_connect_no_greeting(
+        session,
+        params,
+        envelope_from,
+        envelope_to,
+        rfc822_data,
+        logs,
+    )
+}
+
+/// Authenticate and send (greeting already consumed, e.g. after STARTTLS).
+fn send_after_connect_no_greeting(
+    session: &mut SmtpSession,
+    params: &SmtpConnectParams,
+    envelope_from: &str,
+    envelope_to: &[String],
+    rfc822_data: &[u8],
+    logs: &mut Vec<ConnectionLogRecord>,
+) -> Result<SmtpSendResult, SmtpClientError> {
+    // EHLO
+    session.send_line("EHLO localhost")?;
+    let ehlo_response = session.read_response()?;
+    if !ehlo_response.starts_with("250") {
+        return Err(SmtpClientError::ConnectionFailed(format!(
+            "EHLO rejected: {}",
+            ehlo_response.lines().next().unwrap_or("")
+        )));
+    }
+
+    // Authenticate
+    smtp_authenticate(session, params, logs)?;
+
+    // MAIL FROM
+    let mail_from = format!("MAIL FROM:<{envelope_from}>");
+    session.send_line(&mail_from)?;
+    let from_resp = session.read_response()?;
+    if !from_resp.starts_with("250") {
+        return Err(SmtpClientError::ConnectionFailed(format!(
+            "MAIL FROM rejected: {}",
+            from_resp.trim()
+        )));
+    }
+
+    // RCPT TO for each recipient
+    for rcpt in envelope_to {
+        let rcpt_cmd = format!("RCPT TO:<{rcpt}>");
+        session.send_line(&rcpt_cmd)?;
+        let rcpt_resp = session.read_response()?;
+        if !rcpt_resp.starts_with("250") && !rcpt_resp.starts_with("251") {
+            return Err(SmtpClientError::ConnectionFailed(format!(
+                "RCPT TO rejected for {rcpt}: {}",
+                rcpt_resp.trim()
+            )));
+        }
+    }
+
+    // DATA
+    session.send_line("DATA")?;
+    let data_resp = session.read_response()?;
+    if !data_resp.starts_with("354") {
+        return Err(SmtpClientError::ConnectionFailed(format!(
+            "DATA rejected: {}",
+            data_resp.trim()
+        )));
+    }
+
+    // Send message body with dot-stuffing, then ".\r\n" to end
+    smtp_send_data(session, rfc822_data)?;
+    let send_resp = session.read_response()?;
+    if !send_resp.starts_with("250") {
+        return Err(SmtpClientError::ConnectionFailed(format!(
+            "Message rejected: {}",
+            send_resp.trim()
+        )));
+    }
+
+    logs.push(ConnectionLogRecord::new(
+        params.account_id.clone(),
+        ConnectionLogEventType::LoginResult,
+        "SMTP message sent successfully".to_string(),
+    ));
+
+    let _ = session.send_line("QUIT");
+
+    Ok(SmtpSendResult {
+        logs: std::mem::take(logs),
+    })
+}
+
+/// Authenticate via AUTH LOGIN or AUTH PLAIN.
+fn smtp_authenticate(
+    session: &mut SmtpSession,
+    params: &SmtpConnectParams,
+    logs: &mut Vec<ConnectionLogRecord>,
+) -> Result<(), SmtpClientError> {
+    session.send_line("AUTH LOGIN")?;
+    let auth_response = session.read_response()?;
+
+    if !auth_response.starts_with("334") {
+        // Try AUTH PLAIN
+        let plain_credentials = build_auth_plain(&params.username, &params.password);
+        let plain_cmd = format!("AUTH PLAIN {plain_credentials}");
+        session.send_line(&plain_cmd)?;
+        let plain_response = session.read_response()?;
+        if plain_response.starts_with("235") {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::LoginResult,
+                format!("SMTP login successful (PLAIN) as {}", params.username),
+            ));
+            return Ok(());
+        }
+        return Err(SmtpClientError::AuthenticationFailed);
+    }
+
+    // AUTH LOGIN flow
+    let username_b64 = base64_encode(&params.username);
+    session.send_line(&username_b64)?;
+    let user_response = session.read_response()?;
+    if !user_response.starts_with("334") {
+        return Err(SmtpClientError::AuthenticationFailed);
+    }
+
+    let password_b64 = base64_encode(&params.password);
+    session.send_line(&password_b64)?;
+    let pass_response = session.read_response()?;
+    if pass_response.starts_with("235") {
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::LoginResult,
+            format!("SMTP login successful (LOGIN) as {}", params.username),
+        ));
+        Ok(())
+    } else {
+        Err(SmtpClientError::AuthenticationFailed)
+    }
+}
+
+/// Send message data with SMTP dot-stuffing, ending with CRLF.CRLF.
+fn smtp_send_data(session: &mut SmtpSession, data: &[u8]) -> Result<(), SmtpClientError> {
+    // Convert data to lines and apply dot-stuffing
+    let text = String::from_utf8_lossy(data);
+    for line in text.split('\n') {
+        let line = line.trim_end_matches('\r');
+        if line.starts_with('.') {
+            // Dot-stuffing: prepend extra dot
+            let stuffed = format!(".{line}\r\n");
+            match &mut session.stream {
+                StreamKind::Plain(r) => {
+                    r.get_mut()
+                        .write_all(stuffed.as_bytes())
+                        .map_err(|e| map_io_error(&e))?;
+                }
+                StreamKind::Tls(r) => {
+                    r.get_mut()
+                        .write_all(stuffed.as_bytes())
+                        .map_err(|e| map_io_error(&e))?;
+                }
+            }
+        } else {
+            let out = format!("{line}\r\n");
+            match &mut session.stream {
+                StreamKind::Plain(r) => {
+                    r.get_mut()
+                        .write_all(out.as_bytes())
+                        .map_err(|e| map_io_error(&e))?;
+                }
+                StreamKind::Tls(r) => {
+                    r.get_mut()
+                        .write_all(out.as_bytes())
+                        .map_err(|e| map_io_error(&e))?;
+                }
+            }
+        }
+    }
+    // End with ".\r\n"
+    session.send_line(".")?;
+    Ok(())
+}
+
 /// Parse SIZE extension from EHLO response lines.
 /// Looks for "250-SIZE <number>" or "250 SIZE <number>".
 fn parse_max_size_from_ehlo(ehlo_response: &str) -> Option<u64> {

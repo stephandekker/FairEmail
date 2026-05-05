@@ -108,7 +108,9 @@ pub use oauth_signin::{
     determine_auth_options, is_oauth_provider, resolve_auth_from_choice, AuthChoice, AuthOptions,
     OAuthTokenResult,
 };
-pub use pending_operation::{OperationKind, OperationState, PendingOperation, StoreFlagsPayload};
+pub use pending_operation::{
+    OperationKind, OperationState, PendingOperation, SendPayload, StoreFlagsPayload,
+};
 pub use port_autofill::{default_port, should_autofill};
 pub use primary::{
     auto_designate_on_add, revoke_if_sync_disabled, set_primary, PrimaryDesignationError,

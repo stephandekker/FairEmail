@@ -44,7 +44,8 @@ pub use folder_store::{load_folders, replace_folders};
 pub use folder_sync::{perform_folder_setup, FolderSyncService, MockFolderSyncService};
 pub use fs_content_store::FsContentStore;
 pub use identity_store::{
-    insert_identity, load_identities_for_account, update_max_message_size, IdentityRow,
+    insert_identity, load_identities_for_account, load_identity_by_id, update_max_message_size,
+    IdentityRow,
 };
 pub use imap_checker::{ImapChecker, MockImapChecker, MOCK_CERT_FINGERPRINT};
 pub use import_service::{
