@@ -37,6 +37,7 @@ pub mod proprietary_provider;
 pub mod provider;
 pub(crate) mod provider_data;
 pub mod reauth;
+pub mod save_auto_test;
 pub mod smtp_check;
 pub mod sync_conditions;
 pub mod sync_event;

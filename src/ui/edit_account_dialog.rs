@@ -9,6 +9,7 @@ use libadwaita::prelude::*;
 
 use crate::core::inbound_test::InboundTestParams;
 use crate::core::provider::{MaxTlsVersion, ProviderEncryption, ServerConfig, UsernameType};
+use crate::core::save_auto_test;
 use crate::core::{
     Account, AccountColor, AuthMethod, ConnectionLogEntry, ConnectionState, DateHeaderPreference,
     EncryptionMode, FetchSettings, KeepAliveSettings, Pop3Settings, Protocol, QuotaInfo,
@@ -1061,6 +1062,9 @@ pub(crate) fn show(
     let on_done_save = on_done.clone();
     let account = std::rc::Rc::new(std::cell::RefCell::new(account));
 
+    // -- Session-level flag: has a successful connection test been run? (FR-42, US-22) --
+    let test_passed_in_session: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+
     // -- Test results area (hidden until test completes) --
     let test_results_group = adw::PreferencesGroup::builder()
         .title(gettextrs::gettext("Test Results"))
@@ -1087,6 +1091,8 @@ pub(crate) fn show(
 
     // -- Test Connection button handler --
     test_btn.connect_clicked(clone!(
+        #[strong]
+        test_passed_in_session,
         #[weak]
         host_row,
         #[weak]
@@ -1177,6 +1183,8 @@ pub(crate) fn show(
             glib::timeout_add_local_once(
                 std::time::Duration::from_millis(200),
                 clone!(
+                    #[strong]
+                    test_passed_in_session,
                     #[weak]
                     host_row,
                     #[weak]
@@ -1332,6 +1340,8 @@ pub(crate) fn show(
                             ));
                             toast_overlay.add_toast(toast);
                         } else {
+                            // Mark that a successful test was run in this session (FR-42, US-22).
+                            *test_passed_in_session.borrow_mut() = true;
                             let toast =
                                 adw::Toast::new(&gettextrs::gettext("Connection successful"));
                             toast_overlay.add_toast(toast);
@@ -1344,6 +1354,8 @@ pub(crate) fn show(
 
     // -- Save button handler --
     save_btn.connect_clicked(clone!(
+        #[strong]
+        test_passed_in_session,
         #[weak]
         dialog,
         #[weak]
@@ -1646,6 +1658,39 @@ pub(crate) fn show(
                     }
                 },
             };
+
+            // FR-42, NFR-7, US-22: auto-test connection before save when
+            // sync is enabled, no prior successful test in this session, and
+            // connection-relevant parameters have actually changed.
+            let acct_ref = account.borrow();
+            if save_auto_test::should_auto_test_existing_account(
+                &acct_ref,
+                &params,
+                *test_passed_in_session.borrow(),
+            ) {
+                let test_params = InboundTestParams {
+                    host: params.host.clone(),
+                    port: params.port,
+                    encryption: params.encryption,
+                    auth_method: params.auth_method,
+                    username: params.username.clone(),
+                    credential: params.credential.clone(),
+                    protocol: params.protocol,
+                };
+                let tester = MockInboundTester;
+                let result = tester.test_inbound(&test_params);
+                if let Err(e) = result {
+                    drop(acct_ref);
+                    let toast = adw::Toast::new(&format!(
+                        "{} {}",
+                        gettextrs::gettext("Connection check failed:"),
+                        e
+                    ));
+                    toast_overlay.add_toast(toast);
+                    return;
+                }
+            }
+            drop(acct_ref);
 
             let mut acct = account.borrow_mut();
             match acct.update(params) {
