@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 8;
+const CURRENT_VERSION: u32 = 9;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -62,10 +62,44 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 8 {
         migrate_v8(conn)?;
     }
+    if version < 9 {
+        migrate_v9(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v9: Create FTS5 virtual table for full-text search over messages,
+/// with triggers to keep it in sync with the `messages` table.
+fn migrate_v9(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+            subject,
+            body_text,
+            content='messages',
+            content_rowid='id'
+        );
+
+        CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+            INSERT INTO messages_fts(rowid, subject, body_text)
+            VALUES (new.id, new.subject, new.body_text);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, subject, body_text)
+            VALUES ('delete', old.id, old.subject, old.body_text);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE OF subject, body_text ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, subject, body_text)
+            VALUES ('delete', old.id, old.subject, old.body_text);
+            INSERT INTO messages_fts(rowid, subject, body_text)
+            VALUES (new.id, new.subject, new.body_text);
+        END;",
+    )?;
     Ok(())
 }
 

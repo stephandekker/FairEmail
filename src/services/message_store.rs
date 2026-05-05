@@ -335,4 +335,92 @@ mod tests {
             .unwrap()
             .is_none());
     }
+
+    #[test]
+    fn fts5_insert_populates_index() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let msg = make_message("fts_hash");
+        let id = insert_message(&conn, &msg, fid).unwrap();
+
+        let (subject, body): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT subject, body_text FROM messages_fts WHERE rowid = ?1",
+                rusqlite::params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(subject.as_deref(), Some("Test Subject"));
+        assert_eq!(body.as_deref(), Some("Hello"));
+    }
+
+    #[test]
+    fn fts5_update_reflects_changes() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let msg = make_message("fts_upd");
+        let id = insert_message(&conn, &msg, fid).unwrap();
+
+        conn.execute(
+            "UPDATE messages SET subject = ?1, body_text = ?2 WHERE id = ?3",
+            rusqlite::params!["Updated Subject", "Updated body", id],
+        )
+        .unwrap();
+
+        let (subject, body): (String, String) = conn
+            .query_row(
+                "SELECT subject, body_text FROM messages_fts WHERE rowid = ?1",
+                rusqlite::params![id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(subject, "Updated Subject");
+        assert_eq!(body, "Updated body");
+    }
+
+    #[test]
+    fn fts5_delete_removes_from_index() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let msg = make_message("fts_del");
+        let id = insert_message(&conn, &msg, fid).unwrap();
+
+        conn.execute("DELETE FROM messages WHERE id = ?1", rusqlite::params![id])
+            .unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages_fts WHERE rowid = ?1",
+                rusqlite::params![id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn fts5_match_query_returns_expected_rows() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+
+        let mut msg1 = make_message("fts_m1");
+        msg1.subject = Some("Rust programming language".to_string());
+        msg1.body_text = Some("Rust is a systems programming language".to_string());
+        let id1 = insert_message(&conn, &msg1, fid).unwrap();
+
+        let mut msg2 = make_message("fts_m2");
+        msg2.uid = 2;
+        msg2.subject = Some("Python tutorial".to_string());
+        msg2.body_text = Some("Python is great for scripting".to_string());
+        let _id2 = insert_message(&conn, &msg2, fid).unwrap();
+
+        let matched_id: i64 = conn
+            .query_row(
+                "SELECT rowid FROM messages_fts WHERE messages_fts MATCH 'Rust'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(matched_id, id1);
+    }
 }
