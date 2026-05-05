@@ -222,7 +222,7 @@ RALPH: ${STORY_ID} - ${STORY_TITLE}
 PROMPT
 )"
 
-  if ! claude --dangerously-skip-permissions -p "$PROMPT"; then
+  if ! claude --dangerously-skip-permissions --no-session-persistence -p "$PROMPT"; then
     log "claude exited with non-zero status — possibly hit usage limit. Stopping."
     exit 1
   fi
