@@ -6,7 +6,12 @@ Fairmail is an Email client for Linux
 
 ## Claude skipping files
 
-Do not read/use/write any of the files in: /claude-skip/
+1. Do not read/use/write any of the files in: /claude-skip/
+2. Don’t assume. Don’t hide confusion. Surface tradeoffs.
+3. Minimum code that solves the problem. Nothing speculative.
+4. Touch only what you must. Clean up only your own mess.
+5. Define success criteria. Loop until verified.
+
 
 ## System Requirements
 
