@@ -4,6 +4,7 @@ pub mod account_order;
 pub mod account_review;
 pub mod auth_error;
 pub mod certificate;
+pub mod connection_log;
 pub mod connection_state;
 pub mod connection_test;
 pub mod credential_store;
@@ -34,6 +35,7 @@ pub(crate) mod provider_data;
 pub mod reauth;
 pub mod smtp_check;
 pub mod sync_conditions;
+pub mod sync_state;
 pub mod user_provider_file;
 #[allow(dead_code)]
 pub(crate) mod vendor_discovery;
@@ -57,6 +59,7 @@ pub use auth_error::{
     AuthErrorPresentation, ProviderHint, GENERAL_SUPPORT_URL,
 };
 pub use certificate::{CertificateDecision, CertificateInfo};
+pub use connection_log::{ConnectionLogEventType, ConnectionLogRecord};
 pub use connection_state::{
     format_log_timestamp, ConnectionLogEntry, ConnectionState, ConnectionStateManager,
 };
@@ -111,6 +114,7 @@ pub use smtp_check::{
 pub use sync_conditions::{
     evaluate as evaluate_sync_conditions, EnvironmentStatus, SyncEligibility, SyncPauseReason,
 };
+pub use sync_state::SyncState;
 pub use user_provider_file::{
     build_merged_database, merge_user_providers, parse_user_provider_file, UserProviderFileError,
     APP_CONFIG_DIR, USER_PROVIDER_FILENAME,

@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 3;
+const CURRENT_VERSION: u32 = 6;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -47,10 +47,73 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 3 {
         migrate_v3(conn)?;
     }
+    if version < 4 {
+        migrate_v4(conn)?;
+    }
+    if version < 5 {
+        migrate_v5(conn)?;
+    }
+    if version < 6 {
+        migrate_v6(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v6: Create the `connection_log` table (per-account, append-only).
+fn migrate_v6(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS connection_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id TEXT NOT NULL,
+            timestamp_secs INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            message TEXT NOT NULL,
+            FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_connection_log_account
+            ON connection_log(account_id, timestamp_secs);",
+    )?;
+    Ok(())
+}
+
+/// Migration v5: Create the `folders` table (per-account folder enumeration).
+fn migrate_v5(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS folders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            attributes TEXT NOT NULL DEFAULT '',
+            role TEXT,
+            delimiter TEXT,
+            FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+            UNIQUE(account_id, name)
+        );",
+    )?;
+    Ok(())
+}
+
+/// Migration v4: Create the `sync_state` table (per-account capability cache).
+fn migrate_v4(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sync_state (
+            account_id TEXT PRIMARY KEY NOT NULL,
+            idle_supported INTEGER NOT NULL DEFAULT 0,
+            condstore_supported INTEGER NOT NULL DEFAULT 0,
+            qresync_supported INTEGER NOT NULL DEFAULT 0,
+            utf8_accept INTEGER NOT NULL DEFAULT 0,
+            max_message_size INTEGER,
+            auth_mechanisms TEXT NOT NULL DEFAULT '',
+            capabilities_raw TEXT NOT NULL DEFAULT '',
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );",
+    )?;
     Ok(())
 }
 
