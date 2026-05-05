@@ -13,7 +13,7 @@ use crate::core::{
     self, apply_custom_order, clear_primary_if_deleted, collect_categories, group_by_category,
     move_account, remove_from_order, Account, ConnectionState, ConnectionStateManager,
 };
-use crate::services::{AccountStore, AppSettings, OrderStore, SettingsStore};
+use crate::services::{AccountStore, AppSettings, SqliteOrderStore, SqliteSettingsStore};
 use crate::ui::add_account_dialog;
 use crate::ui::edit_account_dialog;
 use crate::ui::export_dialog;
@@ -24,8 +24,8 @@ use crate::ui::setup_wizard;
 pub(crate) fn build(
     app: &adw::Application,
     store: Rc<AccountStore>,
-    settings_store: Rc<SettingsStore>,
-    order_store: Rc<OrderStore>,
+    settings_store: Rc<SqliteSettingsStore>,
+    order_store: Rc<SqliteOrderStore>,
 ) {
     let window = adw::ApplicationWindow::builder()
         .application(app)

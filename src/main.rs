@@ -10,7 +10,7 @@ fn main() {
     use libadwaita as adw;
     use std::rc::Rc;
 
-    use crate::services::{AccountStore, OrderStore, SettingsStore};
+    use crate::services::{AccountStore, SqliteOrderStore, SqliteSettingsStore};
 
     fn data_dir() -> std::path::PathBuf {
         let base = if let Ok(custom) = std::env::var("FAIRMAIL_DATA_DIR") {
@@ -66,18 +66,102 @@ fn main() {
         }
     }
 
+    /// Migrate settings from the legacy JSON file into the SQLite store.
+    /// Idempotent. On success, renames `settings.json` to `settings.json.migrated`.
+    fn migrate_json_settings(dir: &std::path::Path, store: &SqliteSettingsStore) {
+        let json_path = dir.join("settings.json");
+        if !json_path.exists() {
+            return;
+        }
+
+        let data = match std::fs::read_to_string(&json_path) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Warning: could not read settings.json for migration: {e}");
+                return;
+            }
+        };
+
+        let settings: crate::services::AppSettings = match serde_json::from_str(&data) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Warning: could not parse settings.json for migration: {e}");
+                return;
+            }
+        };
+
+        match store.import_from_json(&settings) {
+            Ok(_) => {
+                if let Err(e) = std::fs::rename(&json_path, dir.join("settings.json.migrated")) {
+                    eprintln!("Warning: could not rename settings.json to .migrated: {e}");
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "Warning: settings migration failed, leaving settings.json in place: {e}"
+                );
+            }
+        }
+    }
+
+    /// Migrate account order from the legacy JSON file into the SQLite store.
+    /// Idempotent. On success, renames `order.json` to `order.json.migrated`.
+    fn migrate_json_order(dir: &std::path::Path, store: &SqliteOrderStore) {
+        let json_path = dir.join("order.json");
+        if !json_path.exists() {
+            return;
+        }
+
+        let data = match std::fs::read_to_string(&json_path) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("Warning: could not read order.json for migration: {e}");
+                return;
+            }
+        };
+
+        let order: Vec<uuid::Uuid> = match serde_json::from_str(&data) {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("Warning: could not parse order.json for migration: {e}");
+                return;
+            }
+        };
+
+        if order.is_empty() {
+            let _ = std::fs::rename(&json_path, dir.join("order.json.migrated"));
+            return;
+        }
+
+        match store.import_from_json(&order) {
+            Ok(_) => {
+                if let Err(e) = std::fs::rename(&json_path, dir.join("order.json.migrated")) {
+                    eprintln!("Warning: could not rename order.json to .migrated: {e}");
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: order migration failed, leaving order.json in place: {e}");
+            }
+        }
+    }
+
     let app = adw::Application::builder()
         .application_id("com.example.Fairmail")
         .build();
 
     app.connect_activate(clone!(move |app| {
         let dir = data_dir();
-        let store = Rc::new(
-            AccountStore::new(dir.join("fairmail.db")).expect("could not open account database"),
-        );
+        let db_path = dir.join("fairmail.db");
+        let store =
+            Rc::new(AccountStore::new(db_path.clone()).expect("could not open account database"));
         migrate_json_accounts(&dir, &store);
-        let settings_store = Rc::new(SettingsStore::new(dir.join("settings.json")));
-        let order_store = Rc::new(OrderStore::new(dir.join("order.json")));
+        let settings_store = Rc::new(
+            SqliteSettingsStore::new(db_path.clone()).expect("could not open settings database"),
+        );
+        migrate_json_settings(&dir, &settings_store);
+        let order_store =
+            Rc::new(SqliteOrderStore::new(db_path).expect("could not open order database"));
+        migrate_json_order(&dir, &order_store);
         ui::window::build(app, store, settings_store, order_store);
     }));
 

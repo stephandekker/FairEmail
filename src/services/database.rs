@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 1;
+const CURRENT_VERSION: u32 = 2;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -41,10 +41,29 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 1 {
         migrate_v1(conn)?;
     }
+    if version < 2 {
+        migrate_v2(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v2: Create the `settings` and `account_order` tables.
+fn migrate_v2(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY NOT NULL,
+            value TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS account_order (
+            position INTEGER PRIMARY KEY NOT NULL,
+            account_id TEXT NOT NULL
+        );",
+    )?;
     Ok(())
 }
 
@@ -144,6 +163,23 @@ mod tests {
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
         assert_eq!(version, CURRENT_VERSION);
+    }
+
+    #[test]
+    fn creates_settings_and_account_order_tables() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("fairmail.db");
+        let conn = open_and_migrate(&db_path).unwrap();
+
+        let count: i32 = conn
+            .query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+
+        let count: i32 = conn
+            .query_row("SELECT COUNT(*) FROM account_order", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[test]
