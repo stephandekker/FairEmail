@@ -50,8 +50,8 @@ pub fn diagnose_error(
             "Connection timed out".to_string(),
             "The server did not respond within 30 seconds. Check that the hostname and port are correct, and that no firewall is blocking the connection.".to_string(),
         ),
-        InboundTestError::TlsHandshakeFailed(detail) => (
-            format!("TLS/SSL error: {detail}"),
+        InboundTestError::TlsHandshakeFailed { message, .. } => (
+            format!("TLS/SSL error: {message}"),
             "The secure connection could not be established. This may indicate a certificate problem or a protocol mismatch. Try a different encryption mode, or verify the server supports TLS on this port.".to_string(),
         ),
         InboundTestError::AuthenticationFailed => (
@@ -152,7 +152,10 @@ mod tests {
 
     #[test]
     fn tls_handshake_error_shows_guidance() {
-        let err = InboundTestError::TlsHandshakeFailed("certificate expired".to_string());
+        let err = InboundTestError::TlsHandshakeFailed {
+            message: "certificate expired".to_string(),
+            fingerprint: None,
+        };
         let diag = diagnose_error(&err, None, &empty_db());
         assert!(diag.message.contains("certificate expired"));
         assert!(diag.guidance.contains("encryption mode"));

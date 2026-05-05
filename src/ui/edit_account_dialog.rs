@@ -7,7 +7,7 @@ use gtk4::prelude::*;
 use libadwaita as adw;
 use libadwaita::prelude::*;
 
-use crate::core::inbound_test::InboundTestParams;
+use crate::core::inbound_test::{InboundTestError, InboundTestParams};
 use crate::core::provider::{MaxTlsVersion, ProviderEncryption, ServerConfig, UsernameType};
 use crate::core::save_auto_test;
 use crate::core::{
@@ -1076,6 +1076,9 @@ pub(crate) fn show(
     // -- Session-level flag: has a successful connection test been run? (FR-42, US-22) --
     let test_passed_in_session: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
 
+    // -- Detected fingerprint from last failed test (FR-15, US-17) --
+    let detected_fingerprint: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
     // -- Test results area (hidden until test completes) --
     let test_results_group = adw::PreferencesGroup::builder()
         .title(gettextrs::gettext("Test Results"))
@@ -1088,6 +1091,13 @@ pub(crate) fn show(
         .selectable(true)
         .build();
     test_results_group.add(&adw::ActionRow::builder().child(&test_results_label).build());
+    // "Trust this certificate" button — shown only on untrusted-cert errors (FR-15, US-17).
+    let trust_cert_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Trust this certificate"))
+        .css_classes(["suggested-action"])
+        .visible(false)
+        .build();
+    test_results_group.add(&adw::ActionRow::builder().child(&trust_cert_btn).build());
     vbox.append(&test_results_group);
 
     // -- Progress spinner (hidden until test starts) --
@@ -1104,6 +1114,8 @@ pub(crate) fn show(
     test_btn.connect_clicked(clone!(
         #[strong]
         test_passed_in_session,
+        #[strong]
+        detected_fingerprint,
         #[weak]
         host_row,
         #[weak]
@@ -1150,6 +1162,10 @@ pub(crate) fn show(
         delete_btn,
         #[weak]
         insecure_row,
+        #[weak]
+        cert_fingerprint_row,
+        #[weak]
+        trust_cert_btn,
         move |_| {
             let params = InboundTestParams {
                 host: host_row.text().to_string(),
@@ -1163,6 +1179,14 @@ pub(crate) fn show(
                     _ => Protocol::Pop3,
                 },
                 insecure: insecure_row.is_active(),
+                accepted_fingerprint: {
+                    let fp = cert_fingerprint_row.text().trim().to_string();
+                    if fp.is_empty() {
+                        None
+                    } else {
+                        Some(fp)
+                    }
+                },
             };
 
             // Disable all input fields and buttons during test.
@@ -1243,6 +1267,10 @@ pub(crate) fn show(
                     duplicate_btn,
                     #[weak]
                     delete_btn,
+                    #[weak]
+                    trust_cert_btn,
+                    #[strong]
+                    detected_fingerprint,
                     move || {
                         let tester = MockInboundTester;
                         let inbound_result = tester.test_inbound(&params);
@@ -1291,6 +1319,9 @@ pub(crate) fn show(
 
                         let mut text = String::new();
                         let mut any_error = false;
+                        // Hide the trust button by default; only show on untrusted cert.
+                        trust_cert_btn.set_visible(false);
+                        *detected_fingerprint.borrow_mut() = None;
 
                         // Display inbound results.
                         match inbound_result {
@@ -1309,6 +1340,20 @@ pub(crate) fn show(
                                 ));
                                     toast_overlay.add_toast(warning_toast);
                                 }
+                            }
+                            Err(InboundTestError::TlsHandshakeFailed {
+                                ref message,
+                                fingerprint: Some(ref fp),
+                            }) => {
+                                any_error = true;
+                                text.push_str(message);
+                                text.push_str("\n\n");
+                                text.push_str(&gettextrs::gettext("Certificate fingerprint:"));
+                                text.push('\n');
+                                text.push_str(fp);
+                                // Show the "Trust this certificate" action (FR-15, US-17).
+                                *detected_fingerprint.borrow_mut() = Some(fp.clone());
+                                trust_cert_btn.set_visible(true);
                             }
                             Err(e) => {
                                 any_error = true;
@@ -1363,6 +1408,28 @@ pub(crate) fn show(
                     }
                 ),
             );
+        }
+    ));
+
+    // -- "Trust this certificate" button handler (FR-15, US-17) --
+    trust_cert_btn.connect_clicked(clone!(
+        #[strong]
+        detected_fingerprint,
+        #[weak]
+        cert_fingerprint_row,
+        #[weak]
+        trust_cert_btn,
+        #[weak]
+        toast_overlay,
+        move |_| {
+            if let Some(fp) = detected_fingerprint.borrow().clone() {
+                cert_fingerprint_row.set_text(&fp);
+                trust_cert_btn.set_visible(false);
+                let toast = adw::Toast::new(&gettextrs::gettext(
+                    "Certificate pinned — re-run test to verify",
+                ));
+                toast_overlay.add_toast(toast);
+            }
         }
     ));
 
@@ -1694,6 +1761,10 @@ pub(crate) fn show(
                         .security_settings
                         .as_ref()
                         .is_some_and(|s| s.insecure),
+                    accepted_fingerprint: params
+                        .security_settings
+                        .as_ref()
+                        .and_then(|s| s.certificate_fingerprint.clone()),
                 };
                 let tester = MockInboundTester;
                 let result = tester.test_inbound(&test_params);

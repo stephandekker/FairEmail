@@ -785,6 +785,7 @@ fn show_inner(
                     _ => Protocol::Pop3,
                 },
                 insecure: false,
+                accepted_fingerprint: None,
             };
 
             // Disable all input fields and buttons during test.
@@ -1221,6 +1222,7 @@ fn show_inner(
                     credential: raw_password.clone(),
                     protocol,
                     insecure: false,
+                    accepted_fingerprint: None,
                 };
                 let tester = MockInboundTester;
                 let result = tester.test_inbound(&test_params);

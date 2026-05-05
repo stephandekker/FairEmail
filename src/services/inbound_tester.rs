@@ -35,9 +35,22 @@ impl InboundTester for MockInboundTester {
             return Err(InboundTestError::Timeout);
         }
         if host_lower.contains("tlsfail") {
-            return Err(InboundTestError::TlsHandshakeFailed(
-                "certificate verification failed: self-signed certificate".into(),
-            ));
+            // Simulate: the server has a self-signed cert with this fingerprint.
+            let mock_fingerprint =
+                "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89".to_string();
+            // If the caller has pinned this exact fingerprint, the connection succeeds.
+            if params
+                .accepted_fingerprint
+                .as_ref()
+                .is_some_and(|fp| fp == &mock_fingerprint)
+            {
+                // Fall through to success path.
+            } else {
+                return Err(InboundTestError::TlsHandshakeFailed {
+                    message: "certificate verification failed: self-signed certificate".into(),
+                    fingerprint: Some(mock_fingerprint),
+                });
+            }
         }
         if host_lower.contains("unreachable") {
             return Err(InboundTestError::ConnectionFailed(
@@ -125,6 +138,7 @@ mod tests {
             credential: "secret".into(),
             protocol: Protocol::Imap,
             insecure: false,
+            accepted_fingerprint: None,
         }
     }
 
@@ -210,5 +224,47 @@ mod tests {
             tester.test_inbound(&params),
             Err(InboundTestError::EmptyHost)
         ));
+    }
+
+    #[test]
+    fn mock_tlsfail_returns_fingerprint() {
+        let tester = MockInboundTester;
+        let mut params = valid_params();
+        params.host = "tlsfail.example.com".into();
+        let err = tester.test_inbound(&params).unwrap_err();
+        match err {
+            InboundTestError::TlsHandshakeFailed {
+                fingerprint: Some(fp),
+                ..
+            } => {
+                assert!(fp.contains(':'), "fingerprint should be colon-separated");
+            }
+            other => panic!("expected TlsHandshakeFailed with fingerprint, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mock_tlsfail_succeeds_with_accepted_fingerprint() {
+        let tester = MockInboundTester;
+        let mut params = valid_params();
+        params.host = "tlsfail.example.com".into();
+        params.accepted_fingerprint = Some(
+            "AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89".to_string(),
+        );
+        let result = tester.test_inbound(&params);
+        assert!(
+            result.is_ok(),
+            "should succeed with matching pinned fingerprint"
+        );
+    }
+
+    #[test]
+    fn mock_tlsfail_fails_with_wrong_fingerprint() {
+        let tester = MockInboundTester;
+        let mut params = valid_params();
+        params.host = "tlsfail.example.com".into();
+        params.accepted_fingerprint = Some("00:11:22:33".to_string());
+        let err = tester.test_inbound(&params).unwrap_err();
+        assert!(matches!(err, InboundTestError::TlsHandshakeFailed { .. }));
     }
 }

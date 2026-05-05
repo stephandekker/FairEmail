@@ -40,7 +40,7 @@ impl InboundTester for RealInboundTester {
             encryption: params.encryption,
             username: params.username.clone(),
             password: params.credential.clone(),
-            accepted_fingerprint: None,
+            accepted_fingerprint: params.accepted_fingerprint.clone(),
             insecure: params.insecure,
             account_id: String::new(),
         };
@@ -87,7 +87,7 @@ impl RealInboundTester {
             encryption: params.encryption,
             username: params.username.clone(),
             password: params.credential.clone(),
-            accepted_fingerprint: None,
+            accepted_fingerprint: params.accepted_fingerprint.clone(),
             insecure: params.insecure,
             account_id: account_id.to_string(),
         };

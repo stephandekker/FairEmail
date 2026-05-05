@@ -63,10 +63,14 @@ impl From<ImapClientError> for InboundTestError {
                 InboundTestError::ConnectionRefused { host, port }
             }
             ImapClientError::Timeout => InboundTestError::Timeout,
-            ImapClientError::TlsHandshake(msg) => InboundTestError::TlsHandshakeFailed(msg),
-            ImapClientError::UntrustedCertificate(info) => InboundTestError::TlsHandshakeFailed(
-                format!("untrusted certificate (fingerprint: {})", info.fingerprint),
-            ),
+            ImapClientError::TlsHandshake(msg) => InboundTestError::TlsHandshakeFailed {
+                message: msg,
+                fingerprint: None,
+            },
+            ImapClientError::UntrustedCertificate(info) => InboundTestError::TlsHandshakeFailed {
+                message: format!("untrusted certificate (fingerprint: {})", info.fingerprint),
+                fingerprint: Some(info.fingerprint),
+            },
             ImapClientError::AuthenticationFailed => InboundTestError::AuthenticationFailed,
             ImapClientError::ProtocolMismatch(msg) => InboundTestError::ProtocolMismatch(msg),
             ImapClientError::FolderListFailed(msg) => {

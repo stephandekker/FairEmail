@@ -19,6 +19,9 @@ pub struct InboundTestParams {
     /// When true, skip certificate verification (FR-11, FR-12).
     /// Also relaxes username/credential requirements (FR-18, FR-19).
     pub insecure: bool,
+    /// Pinned certificate fingerprint (SHA-256). When set, the connection
+    /// accepts the server certificate only if its fingerprint matches (FR-15).
+    pub accepted_fingerprint: Option<String>,
 }
 
 /// The result of a successful inbound connection test.
@@ -51,8 +54,12 @@ pub enum InboundTestError {
     DnsResolutionFailed(String),
     #[error("connection refused by {host}:{port}")]
     ConnectionRefused { host: String, port: u16 },
-    #[error("TLS/SSL handshake failed: {0}")]
-    TlsHandshakeFailed(String),
+    #[error("TLS/SSL handshake failed: {message}")]
+    TlsHandshakeFailed {
+        message: String,
+        /// Certificate fingerprint extracted from the untrusted certificate, if available.
+        fingerprint: Option<String>,
+    },
     #[error("protocol mismatch: {0}")]
     ProtocolMismatch(String),
 }
@@ -141,6 +148,7 @@ mod tests {
             credential: "password".into(),
             protocol: Protocol::Imap,
             insecure: false,
+            accepted_fingerprint: None,
         }
     }
 
