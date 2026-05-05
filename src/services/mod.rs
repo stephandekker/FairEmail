@@ -2,6 +2,7 @@ pub mod account_store;
 pub mod connection_log_store;
 pub mod connection_tester;
 pub(crate) mod database;
+pub(crate) mod dns_resolver;
 pub mod export_service;
 pub mod folder_store;
 pub mod folder_sync;

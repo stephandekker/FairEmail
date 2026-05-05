@@ -31,6 +31,8 @@ hex = "0.4"
 mail-parser = "0.9"
 html2text = "0.12"
 notify-rust = "4"
+hickory-resolver = { version = "0.25", default-features = false, features = ["dnssec-ring", "tokio"] }
+hickory-proto = { version = "0.25", default-features = false, features = ["dnssec-ring"] }
 
 [dev-dependencies]
 tempfile = "3"

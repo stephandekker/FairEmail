@@ -45,6 +45,8 @@ fn test_incoming_server(request: &ConnectionTestRequest) -> ServerTestOutcome {
         insecure: false,
         account_id: String::new(),
         client_certificate: None,
+        dane: false,
+        dnssec: false,
     };
 
     match run_imap_session(&connect_params) {
@@ -76,5 +78,11 @@ fn format_client_error(e: ImapClientError) -> String {
             format!("Folder listing failed: {msg}")
         }
         ImapClientError::ConnectionFailed(msg) => msg,
+        ImapClientError::DnssecFailed(msg) => {
+            format!("DNSSEC validation failed: {msg}")
+        }
+        ImapClientError::DaneFailed(msg) => {
+            format!("DANE verification failed: {msg}")
+        }
     }
 }

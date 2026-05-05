@@ -333,6 +333,11 @@ mod dev_fetch {
             client_certificate: account
                 .security_settings()
                 .and_then(|s| s.client_certificate.clone()),
+            dane: account.security_settings().map(|s| s.dane).unwrap_or(false),
+            dnssec: account
+                .security_settings()
+                .map(|s| s.dnssec)
+                .unwrap_or(false),
         };
 
         let content_root = data_dir.join("messages");

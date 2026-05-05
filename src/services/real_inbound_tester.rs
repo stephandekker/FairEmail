@@ -44,6 +44,8 @@ impl InboundTester for RealInboundTester {
             insecure: params.insecure,
             account_id: String::new(),
             client_certificate: params.client_certificate.clone(),
+            dane: params.dane,
+            dnssec: params.dnssec,
         };
 
         match run_imap_session(&connect_params) {
@@ -92,6 +94,8 @@ impl RealInboundTester {
             insecure: params.insecure,
             account_id: account_id.to_string(),
             client_certificate: params.client_certificate.clone(),
+            dane: params.dane,
+            dnssec: params.dnssec,
         };
 
         match run_imap_session(&connect_params) {

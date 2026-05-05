@@ -25,6 +25,10 @@ pub struct InboundTestParams {
     /// Path to a client certificate file (PKCS#12) for mutual TLS (FR-9, FR-19).
     /// When set, the password/credential field is no longer required.
     pub client_certificate: Option<String>,
+    /// When true, require DANE (TLSA) verification for TLS connections (FR-13).
+    pub dane: bool,
+    /// When true, require DNSSEC-validated DNS resolution (FR-14).
+    pub dnssec: bool,
 }
 
 /// The result of a successful inbound connection test.
@@ -65,6 +69,10 @@ pub enum InboundTestError {
     },
     #[error("protocol mismatch: {0}")]
     ProtocolMismatch(String),
+    #[error("DNSSEC validation failed: {0}")]
+    DnssecFailed(String),
+    #[error("DANE verification failed: {0}")]
+    DaneFailed(String),
 }
 
 /// The result type for inbound connection tests.
@@ -154,6 +162,8 @@ mod tests {
             insecure: false,
             accepted_fingerprint: None,
             client_certificate: None,
+            dane: false,
+            dnssec: false,
         }
     }
 
@@ -305,5 +315,39 @@ mod tests {
         let caps = success.format_capabilities();
         assert!(caps.contains("polling fallback"));
         assert!(caps.contains("UTF-8: not supported"));
+    }
+
+    #[test]
+    fn dane_defaults_to_false() {
+        let params = valid_params();
+        assert!(!params.dane);
+    }
+
+    #[test]
+    fn dnssec_defaults_to_false() {
+        let params = valid_params();
+        assert!(!params.dnssec);
+    }
+
+    #[test]
+    fn validate_passes_with_dane_enabled() {
+        let mut params = valid_params();
+        params.dane = true;
+        assert!(params.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_passes_with_dnssec_enabled() {
+        let mut params = valid_params();
+        params.dnssec = true;
+        assert!(params.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_passes_with_both_dane_and_dnssec() {
+        let mut params = valid_params();
+        params.dane = true;
+        params.dnssec = true;
+        assert!(params.validate().is_ok());
     }
 }

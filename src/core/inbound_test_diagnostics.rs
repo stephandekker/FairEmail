@@ -74,6 +74,14 @@ pub fn diagnose_error(
             "No username specified".to_string(),
             "Enter your username (usually your email address) to test the connection.".to_string(),
         ),
+        InboundTestError::DnssecFailed(detail) => (
+            format!("DNSSEC validation failed: {detail}"),
+            "The DNS response for this server could not be validated with DNSSEC. The server's domain may not have DNSSEC signing enabled. Disable the DNSSEC toggle if you do not require DNSSEC validation.".to_string(),
+        ),
+        InboundTestError::DaneFailed(detail) => (
+            format!("DANE verification failed: {detail}"),
+            "The server's TLS certificate could not be verified against TLSA DNS records. The server may not publish TLSA records, or the records may not match the certificate. Disable the DANE toggle if you do not require DANE verification.".to_string(),
+        ),
         InboundTestError::EmptyCredential => (
             "No password specified".to_string(),
             "Enter your password to test the connection.".to_string(),
@@ -228,5 +236,22 @@ mod tests {
         let diag = diagnose_error(&err, None, &empty_db());
         assert!(diag.message.contains("network unreachable"));
         assert!(diag.guidance.contains("network connection"));
+    }
+
+    #[test]
+    fn dnssec_error_shows_detail() {
+        let err =
+            InboundTestError::DnssecFailed("DNSSEC validation failed for mail.test.com".into());
+        let diag = diagnose_error(&err, None, &empty_db());
+        assert!(diag.message.contains("DNSSEC"));
+        assert!(diag.guidance.contains("DNSSEC"));
+    }
+
+    #[test]
+    fn dane_error_shows_detail() {
+        let err = InboundTestError::DaneFailed("no matching TLSA record".into());
+        let diag = diagnose_error(&err, None, &empty_db());
+        assert!(diag.message.contains("DANE"));
+        assert!(diag.guidance.contains("TLSA"));
     }
 }

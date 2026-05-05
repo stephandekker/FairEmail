@@ -909,7 +909,8 @@ pub(crate) fn show(
         .build();
     security_expander.add_row(&insecure_row);
 
-    // FR-11/FR-12: enabling insecure automatically disables DANE (incompatible).
+    // FR-11/FR-12: when insecure is enabled, DANE is disabled and cannot be toggled.
+    dane_row.set_sensitive(!insecure_row.is_active());
     insecure_row.connect_active_notify(clone!(
         #[weak]
         dane_row,
@@ -917,6 +918,7 @@ pub(crate) fn show(
             if row.is_active() {
                 dane_row.set_active(false);
             }
+            dane_row.set_sensitive(!row.is_active());
         }
     ));
 
@@ -1262,6 +1264,10 @@ pub(crate) fn show(
         #[weak]
         insecure_row,
         #[weak]
+        dane_row,
+        #[weak]
+        dnssec_row,
+        #[weak]
         cert_fingerprint_row,
         #[weak]
         trust_cert_btn,
@@ -1289,6 +1295,8 @@ pub(crate) fn show(
                     }
                 },
                 client_certificate: client_cert_path.borrow().clone(),
+                dane: dane_row.is_active(),
+                dnssec: dnssec_row.is_active(),
             };
 
             // Disable all input fields and buttons during test.
@@ -1866,6 +1874,8 @@ pub(crate) fn show(
                         .security_settings
                         .as_ref()
                         .and_then(|s| s.client_certificate.clone()),
+                    dane: params.security_settings.as_ref().is_some_and(|s| s.dane),
+                    dnssec: params.security_settings.as_ref().is_some_and(|s| s.dnssec),
                 };
                 let tester = MockInboundTester;
                 let result = tester.test_inbound(&test_params);

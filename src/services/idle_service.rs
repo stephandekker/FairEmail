@@ -455,6 +455,8 @@ mod tests {
             insecure: false,
             account_id: "acct-1".to_string(),
             client_certificate: None,
+            dane: false,
+            dnssec: false,
         }
     }
 

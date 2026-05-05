@@ -41,6 +41,10 @@ pub(crate) struct ImapConnectParams {
     pub account_id: String,
     /// Path to a PKCS#12 client certificate file for mutual TLS (FR-9).
     pub client_certificate: Option<String>,
+    /// When true, require DANE (TLSA) verification for TLS connections (FR-13).
+    pub dane: bool,
+    /// When true, require DNSSEC-validated DNS resolution (FR-14).
+    pub dnssec: bool,
 }
 
 /// Errors from the real IMAP client.
@@ -55,6 +59,8 @@ pub(crate) enum ImapClientError {
     ProtocolMismatch(String),
     FolderListFailed(String),
     ConnectionFailed(String),
+    DnssecFailed(String),
+    DaneFailed(String),
 }
 
 impl From<ImapClientError> for InboundTestError {
@@ -79,6 +85,8 @@ impl From<ImapClientError> for InboundTestError {
                 InboundTestError::ConnectionFailed(format!("folder listing failed: {msg}"))
             }
             ImapClientError::ConnectionFailed(msg) => InboundTestError::ConnectionFailed(msg),
+            ImapClientError::DnssecFailed(msg) => InboundTestError::DnssecFailed(msg),
+            ImapClientError::DaneFailed(msg) => InboundTestError::DaneFailed(msg),
         }
     }
 }
@@ -95,7 +103,7 @@ pub(crate) fn run_imap_session(
         format!("Connecting to {}:{}", params.host, params.port),
     ));
 
-    let addr = resolve_addr(&params.host, params.port)?;
+    let addr = resolve_addr_maybe_dnssec(&params.host, params.port, params.dnssec)?;
     let tcp_stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(|e| {
         let err = classify_connect_error(&e.to_string(), &params.host, params.port);
         logs.push(ConnectionLogRecord::new(
@@ -153,6 +161,11 @@ pub(crate) fn run_imap_session(
                     return Err(handle_tls_error(&params.host));
                 }
             };
+
+            // DANE verification after STARTTLS upgrade (FR-13).
+            if params.dane {
+                verify_dane(&tls_stream, &params.host, params.port, &mut logs)?;
+            }
 
             let mut session = ImapSession::new_tls(tls_stream);
             // After STARTTLS, need to re-read capabilities
@@ -835,6 +848,24 @@ fn imap_quote(s: &str) -> String {
     format!("\"{escaped}\"")
 }
 
+/// Resolve a hostname, optionally with DNSSEC validation.
+fn resolve_addr_maybe_dnssec(
+    host: &str,
+    port: u16,
+    dnssec: bool,
+) -> Result<std::net::SocketAddr, ImapClientError> {
+    if dnssec {
+        use super::dns_resolver::{resolve_with_dnssec, DnsSecurityError};
+        return resolve_with_dnssec(host, port).map_err(|e| match e {
+            DnsSecurityError::DnssecValidationFailed { ref host } => {
+                ImapClientError::DnssecFailed(format!("DNSSEC validation failed for {host}"))
+            }
+            other => ImapClientError::DnssecFailed(other.to_string()),
+        });
+    }
+    resolve_addr(host, port)
+}
+
 fn resolve_addr(host: &str, port: u16) -> Result<std::net::SocketAddr, ImapClientError> {
     use std::net::ToSocketAddrs;
     let addr_str = format!("{host}:{port}");
@@ -868,6 +899,10 @@ fn do_tls_connect(
                 ConnectionLogEventType::TlsHandshake,
                 "TLS handshake successful (implicit SSL/TLS)".to_string(),
             ));
+            // DANE verification: check the server certificate against TLSA records (FR-13).
+            if params.dane {
+                verify_dane(&stream, &params.host, params.port, logs)?;
+            }
             Ok(stream)
         }
         Err(e) => {
@@ -902,6 +937,57 @@ fn build_tls_connector(params: &ImapConnectParams) -> TlsConnector {
             .build()
             .expect("failed to build default TLS connector")
     })
+}
+
+/// Verify the server's TLS certificate against DANE TLSA records (FR-13).
+fn verify_dane(
+    tls_stream: &TlsStream<TcpStream>,
+    host: &str,
+    port: u16,
+    logs: &mut Vec<ConnectionLogRecord>,
+) -> Result<(), ImapClientError> {
+    use super::dns_resolver::{lookup_tlsa, verify_certificate_against_tlsa, DnsSecurityError};
+
+    // Extract the peer certificate from the TLS session.
+    let cert = tls_stream
+        .peer_certificate()
+        .map_err(|e| ImapClientError::DaneFailed(format!("could not read peer certificate: {e}")))?
+        .ok_or_else(|| {
+            ImapClientError::DaneFailed("server did not present a certificate".to_string())
+        })?;
+
+    let cert_der = cert.to_der().map_err(|e| {
+        ImapClientError::DaneFailed(format!("could not encode certificate to DER: {e}"))
+    })?;
+
+    // Look up TLSA records for _port._tcp.host.
+    let tlsa_records = lookup_tlsa(host, port).map_err(|e| match e {
+        DnsSecurityError::NoTlsaRecords { host, port } => {
+            ImapClientError::DaneFailed(format!("no TLSA records found for _{port}._tcp.{host}"))
+        }
+        other => ImapClientError::DaneFailed(other.to_string()),
+    })?;
+
+    if verify_certificate_against_tlsa(&cert_der, &tlsa_records) {
+        logs.push(ConnectionLogRecord::new(
+            String::new(),
+            ConnectionLogEventType::TlsHandshake,
+            format!(
+                "DANE verification successful ({} TLSA record(s) checked)",
+                tlsa_records.len()
+            ),
+        ));
+        Ok(())
+    } else {
+        logs.push(ConnectionLogRecord::new(
+            String::new(),
+            ConnectionLogEventType::Error,
+            "DANE verification failed: certificate does not match any TLSA record".to_string(),
+        ));
+        Err(ImapClientError::DaneFailed(format!(
+            "certificate does not match any TLSA record for _{port}._tcp.{host}"
+        )))
+    }
 }
 
 fn handle_tls_error(host: &str) -> ImapClientError {
@@ -1123,7 +1209,7 @@ pub(crate) fn fetch_folder_messages(
         ),
     ));
 
-    let addr = resolve_addr(&params.host, params.port)?;
+    let addr = resolve_addr_maybe_dnssec(&params.host, params.port, params.dnssec)?;
     let tcp_stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)
         .map_err(|e| classify_connect_error(&e.to_string(), &params.host, params.port))?;
 
@@ -1236,7 +1322,7 @@ fn connect_and_login(
         format!("Connecting to {}:{}", params.host, params.port),
     ));
 
-    let addr = resolve_addr(&params.host, params.port)?;
+    let addr = resolve_addr_maybe_dnssec(&params.host, params.port, params.dnssec)?;
     let tcp_stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)
         .map_err(|e| classify_connect_error(&e.to_string(), &params.host, params.port))?;
 

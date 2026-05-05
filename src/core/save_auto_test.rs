@@ -71,6 +71,22 @@ fn connection_params_changed(account: &Account, params: &UpdateAccountParams) ->
             }
         }
     }
+    // Check security settings changes (DNSSEC, DANE, insecure, fingerprint, client cert).
+    match (account.security_settings(), &params.security_settings) {
+        (None, None) => {}
+        (Some(_), None) | (None, Some(_)) => return true,
+        (Some(existing), Some(new)) => {
+            if existing.dnssec != new.dnssec
+                || existing.dane != new.dane
+                || existing.insecure != new.insecure
+                || existing.certificate_fingerprint != new.certificate_fingerprint
+                || existing.client_certificate != new.client_certificate
+                || existing.auth_realm != new.auth_realm
+            {
+                return true;
+            }
+        }
+    }
     false
 }
 
@@ -332,6 +348,49 @@ mod tests {
 
         // Fix the SMTP host to match — should no longer trigger.
         params.smtp.as_mut().unwrap().host = "smtp.example.com".into();
+        assert!(!should_auto_test_existing_account(&acct, &params, false));
+    }
+
+    // -- security settings change detection --
+
+    #[test]
+    fn existing_account_needs_test_when_dane_enabled() {
+        let acct = make_account();
+        let mut params = matching_update_params();
+        params.security_settings = Some(crate::core::account::SecuritySettings {
+            dane: true,
+            ..Default::default()
+        });
+        assert!(should_auto_test_existing_account(&acct, &params, false));
+    }
+
+    #[test]
+    fn existing_account_needs_test_when_dnssec_enabled() {
+        let acct = make_account();
+        let mut params = matching_update_params();
+        params.security_settings = Some(crate::core::account::SecuritySettings {
+            dnssec: true,
+            ..Default::default()
+        });
+        assert!(should_auto_test_existing_account(&acct, &params, false));
+    }
+
+    #[test]
+    fn existing_account_needs_test_when_insecure_changed() {
+        let acct = make_account();
+        let mut params = matching_update_params();
+        params.security_settings = Some(crate::core::account::SecuritySettings {
+            insecure: true,
+            ..Default::default()
+        });
+        assert!(should_auto_test_existing_account(&acct, &params, false));
+    }
+
+    #[test]
+    fn existing_account_no_test_when_security_settings_unchanged() {
+        let acct = make_account();
+        let params = matching_update_params();
+        // Both are None — should not trigger.
         assert!(!should_auto_test_existing_account(&acct, &params, false));
     }
 }

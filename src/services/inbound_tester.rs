@@ -140,6 +140,8 @@ mod tests {
             insecure: false,
             accepted_fingerprint: None,
             client_certificate: None,
+            dane: false,
+            dnssec: false,
         }
     }
 
