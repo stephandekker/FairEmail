@@ -41,6 +41,7 @@ pub mod provider_dropdown;
 pub mod reauth;
 pub mod save_auto_test;
 pub mod smtp_check;
+pub mod smtp_identity;
 pub mod sync_conditions;
 pub mod sync_event;
 pub mod sync_state;
@@ -75,7 +76,9 @@ pub use connection_test::{
     ConnectionTestError, ConnectionTestRequest, ConnectionTestResult, ServerTestOutcome,
 };
 pub use content_store::{ContentStore, ContentStoreError};
-pub use credential_store::{CredentialError, CredentialRole, CredentialStore, SecretValue};
+pub use credential_store::{
+    identity_credential_uuid, CredentialError, CredentialRole, CredentialStore, SecretValue,
+};
 pub use delete_account::{clear_primary_if_deleted, remove_from_order};
 pub use dns_discovery::{discover_by_dns, DnsDiscoveryResult, DnsError, DnsResolver, SrvRecord};
 pub use duplicate_account::duplicate as duplicate_account;
@@ -114,7 +117,7 @@ pub use oauth_signin::{
 pub use pending_operation::{
     OperationKind, OperationState, PendingOperation, SendPayload, StoreFlagsPayload,
 };
-pub use port_autofill::{default_port, should_autofill};
+pub use port_autofill::{default_port, should_autofill, smtp_default_port};
 pub use primary::{
     auto_designate_on_add, revoke_if_sync_disabled, set_primary, PrimaryDesignationError,
 };
@@ -130,6 +133,10 @@ pub use reauth::{find_matching_account, reauthorize_account, ReauthError, Reauth
 pub use smtp_check::{
     combine_connectivity_results, ConnectivityCheckError, ConnectivityCheckResult, SmtpCheckError,
     SmtpCheckResult, SmtpCheckSuccess, SmtpConnectionParams,
+};
+pub use smtp_identity::{
+    validate_smtp_identity, SmtpIdentityFieldError, SmtpIdentityParams,
+    SmtpIdentityValidationResult,
 };
 pub use sync_conditions::{
     evaluate as evaluate_sync_conditions, EnvironmentStatus, SyncEligibility, SyncPauseReason,

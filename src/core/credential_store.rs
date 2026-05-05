@@ -8,6 +8,8 @@ pub enum CredentialRole {
     ImapPassword,
     SmtpPassword,
     OAuthRefreshToken,
+    /// Per-identity SMTP password (keyed by a UUID derived from the identity row id).
+    IdentitySmtpPassword,
 }
 
 impl CredentialRole {
@@ -17,8 +19,38 @@ impl CredentialRole {
             Self::ImapPassword => "imap-password",
             Self::SmtpPassword => "smtp-password",
             Self::OAuthRefreshToken => "oauth-refresh-token",
+            Self::IdentitySmtpPassword => "identity-smtp-password",
         }
     }
+}
+
+/// Derive a deterministic UUID from an identity row id for use as a credential key.
+///
+/// Constructs a UUID by embedding the identity id bytes in a fixed template,
+/// giving each identity a unique, reproducible credential key.
+pub fn identity_credential_uuid(identity_id: i64) -> Uuid {
+    let id_bytes = identity_id.to_le_bytes();
+    // Fixed prefix (a1b2c3d4-e5f6-4890) with the identity id in the last 8 bytes.
+    // Version nibble = 4 (random), variant bits = 10xx (RFC 4122).
+    let bytes: [u8; 16] = [
+        0xa1,
+        0xb2,
+        0xc3,
+        0xd4,
+        0xe5,
+        0xf6,
+        0x48,
+        0x90,
+        0x80 | (id_bytes[0] & 0x3f),
+        id_bytes[1],
+        id_bytes[2],
+        id_bytes[3],
+        id_bytes[4],
+        id_bytes[5],
+        id_bytes[6],
+        id_bytes[7],
+    ];
+    Uuid::from_bytes(bytes)
 }
 
 impl fmt::Display for CredentialRole {
@@ -133,6 +165,24 @@ mod tests {
             CredentialRole::OAuthRefreshToken.as_str(),
             "oauth-refresh-token"
         );
+        assert_eq!(
+            CredentialRole::IdentitySmtpPassword.as_str(),
+            "identity-smtp-password"
+        );
+    }
+
+    #[test]
+    fn identity_credential_uuid_is_deterministic() {
+        let uuid1 = identity_credential_uuid(42);
+        let uuid2 = identity_credential_uuid(42);
+        assert_eq!(uuid1, uuid2);
+    }
+
+    #[test]
+    fn identity_credential_uuid_differs_for_different_ids() {
+        let uuid1 = identity_credential_uuid(1);
+        let uuid2 = identity_credential_uuid(2);
+        assert_ne!(uuid1, uuid2);
     }
 
     #[test]

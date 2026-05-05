@@ -6,8 +6,8 @@
 
 use super::account::{EncryptionMode, Protocol};
 
-/// All known default ports across protocol/encryption combinations.
-const KNOWN_DEFAULT_PORTS: &[u16] = &[993, 143, 995, 110];
+/// All known default ports across protocol/encryption combinations (inbound + SMTP).
+const KNOWN_DEFAULT_PORTS: &[u16] = &[993, 143, 995, 110, 465, 587, 25];
 
 /// Return the conventional default port for a given protocol and encryption mode.
 pub fn default_port(protocol: Protocol, encryption: EncryptionMode) -> u16 {
@@ -16,6 +16,17 @@ pub fn default_port(protocol: Protocol, encryption: EncryptionMode) -> u16 {
         (Protocol::Imap, EncryptionMode::StartTls | EncryptionMode::None) => 143,
         (Protocol::Pop3, EncryptionMode::SslTls) => 995,
         (Protocol::Pop3, EncryptionMode::StartTls | EncryptionMode::None) => 110,
+    }
+}
+
+/// Return the conventional default SMTP port for the given encryption mode.
+///
+/// SSL/TLS → 465, STARTTLS → 587, None → 25.
+pub fn smtp_default_port(encryption: EncryptionMode) -> u16 {
+    match encryption {
+        EncryptionMode::SslTls => 465,
+        EncryptionMode::StartTls => 587,
+        EncryptionMode::None => 25,
     }
 }
 
@@ -110,5 +121,39 @@ mod tests {
     fn port_zero_does_not_allow_autofill() {
         // 0 is not a known default, so it's treated as user-entered
         assert!(!should_autofill(Some(0)));
+    }
+
+    // -- smtp_default_port tests --
+
+    #[test]
+    fn smtp_ssl_tls_returns_465() {
+        assert_eq!(smtp_default_port(EncryptionMode::SslTls), 465);
+    }
+
+    #[test]
+    fn smtp_starttls_returns_587() {
+        assert_eq!(smtp_default_port(EncryptionMode::StartTls), 587);
+    }
+
+    #[test]
+    fn smtp_none_returns_25() {
+        assert_eq!(smtp_default_port(EncryptionMode::None), 25);
+    }
+
+    // -- SMTP ports in should_autofill --
+
+    #[test]
+    fn known_default_465_allows_autofill() {
+        assert!(should_autofill(Some(465)));
+    }
+
+    #[test]
+    fn known_default_587_allows_autofill() {
+        assert!(should_autofill(Some(587)));
+    }
+
+    #[test]
+    fn known_default_25_allows_autofill() {
+        assert!(should_autofill(Some(25)));
     }
 }

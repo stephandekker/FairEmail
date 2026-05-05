@@ -53,8 +53,8 @@ pub use folder_sync::{
 };
 pub use fs_content_store::FsContentStore;
 pub use identity_store::{
-    insert_identity, load_identities_for_account, load_identity_by_id, update_max_message_size,
-    IdentityRow,
+    insert_identity, load_identities_for_account, load_identity_by_id, update_identity,
+    update_max_message_size, IdentityRow,
 };
 pub use imap_checker::{ImapChecker, MockImapChecker, MOCK_CERT_FINGERPRINT};
 pub use import_service::{

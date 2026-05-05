@@ -15,4 +15,7 @@ pub mod import_dialog;
 #[cfg(feature = "ui")]
 pub mod setup_wizard;
 #[cfg(feature = "ui")]
+#[allow(dead_code)]
+pub mod smtp_identity_dialog;
+#[cfg(feature = "ui")]
 pub mod window;

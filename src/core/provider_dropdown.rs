@@ -112,8 +112,8 @@ pub fn index_for_provider_id(entries: &[ProviderDropdownEntry], provider_id: &st
 mod tests {
     use super::*;
     use crate::core::provider::{
-        LocalizedDoc, MaxTlsVersion, Provider, ProviderDatabase, ProviderEncryption,
-        ServerConfig, UsernameType,
+        LocalizedDoc, MaxTlsVersion, Provider, ProviderDatabase, ProviderEncryption, ServerConfig,
+        UsernameType,
     };
 
     fn make_provider(id: &str, name: &str, order: u32) -> Provider {
