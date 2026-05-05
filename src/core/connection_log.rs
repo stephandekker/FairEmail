@@ -13,6 +13,12 @@ pub enum ConnectionLogEventType {
     ListFolders,
     /// An error occurred.
     Error,
+    /// IDLE mode entered on a folder.
+    IdleEnter,
+    /// IDLE mode exited (renewal, notification, or error).
+    IdleExit,
+    /// Reconnecting after a disconnect.
+    Reconnect,
 }
 
 impl ConnectionLogEventType {
@@ -24,6 +30,9 @@ impl ConnectionLogEventType {
             Self::CapabilityList => "capability",
             Self::ListFolders => "list_folders",
             Self::Error => "error",
+            Self::IdleEnter => "idle_enter",
+            Self::IdleExit => "idle_exit",
+            Self::Reconnect => "reconnect",
         }
     }
 
@@ -35,6 +44,9 @@ impl ConnectionLogEventType {
             "capability" => Some(Self::CapabilityList),
             "list_folders" => Some(Self::ListFolders),
             "error" => Some(Self::Error),
+            "idle_enter" => Some(Self::IdleEnter),
+            "idle_exit" => Some(Self::IdleExit),
+            "reconnect" => Some(Self::Reconnect),
             _ => None,
         }
     }
@@ -49,6 +61,9 @@ impl std::fmt::Display for ConnectionLogEventType {
             Self::CapabilityList => write!(f, "Capabilities"),
             Self::ListFolders => write!(f, "List Folders"),
             Self::Error => write!(f, "Error"),
+            Self::IdleEnter => write!(f, "IDLE Enter"),
+            Self::IdleExit => write!(f, "IDLE Exit"),
+            Self::Reconnect => write!(f, "Reconnect"),
         }
     }
 }
@@ -92,6 +107,9 @@ mod tests {
             ConnectionLogEventType::CapabilityList,
             ConnectionLogEventType::ListFolders,
             ConnectionLogEventType::Error,
+            ConnectionLogEventType::IdleEnter,
+            ConnectionLogEventType::IdleExit,
+            ConnectionLogEventType::Reconnect,
         ];
         for t in types {
             let s = t.as_str();

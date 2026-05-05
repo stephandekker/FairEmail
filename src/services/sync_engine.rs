@@ -11,10 +11,12 @@ use tokio::sync::broadcast;
 /// Type alias for the account-params lookup function.
 type AccountParamsFn = dyn Fn(&str) -> Option<ImapConnectParams> + Send + Sync;
 
+use crate::core::content_store::ContentStore;
 use crate::core::message::FLAG_SEEN;
 use crate::core::pending_operation::{OperationKind, OperationState, StoreFlagsPayload};
 use crate::core::sync_event::SyncEvent;
 use crate::services::database::{open_and_migrate, DatabaseError};
+use crate::services::idle_service::{self, IdleWaiter, RealIdleWaiter};
 use crate::services::imap_client::ImapConnectParams;
 use crate::services::pending_ops_store;
 
@@ -339,12 +341,26 @@ pub(crate) struct SyncEngineHandle {
     _shutdown_tx: tokio::sync::watch::Sender<bool>,
     _runtime_thread: std::thread::JoinHandle<()>,
     notify_tx: tokio::sync::mpsc::UnboundedSender<String>,
+    idle_tx: tokio::sync::mpsc::UnboundedSender<IdleCommand>,
+}
+
+/// Commands for the IDLE subsystem.
+enum IdleCommand {
+    /// Start IDLE monitoring for an account (after initial sync).
+    StartIdle { account_id: String },
 }
 
 impl SyncEngineHandle {
     /// Notify the engine that an account has new pending operations.
     pub fn notify_account(&self, account_id: &str) {
         let _ = self.notify_tx.send(account_id.to_string());
+    }
+
+    /// Start IDLE monitoring for an account after its initial sync completes.
+    pub fn start_idle(&self, account_id: &str) {
+        let _ = self.idle_tx.send(IdleCommand::StartIdle {
+            account_id: account_id.to_string(),
+        });
     }
 }
 
@@ -356,8 +372,28 @@ pub(crate) fn start_sync_engine(
     flag_store: Arc<dyn ImapFlagStore>,
     account_params_fn: Arc<AccountParamsFn>,
 ) -> SyncEngineHandle {
+    start_sync_engine_with_idle(
+        db_path,
+        event_sender,
+        flag_store,
+        account_params_fn,
+        Arc::new(RealIdleWaiter),
+        None,
+    )
+}
+
+/// Start the sync engine with explicit idle waiter and content store (for testing).
+pub(crate) fn start_sync_engine_with_idle(
+    db_path: PathBuf,
+    event_sender: broadcast::Sender<SyncEvent>,
+    flag_store: Arc<dyn ImapFlagStore>,
+    account_params_fn: Arc<AccountParamsFn>,
+    idle_waiter: Arc<dyn IdleWaiter>,
+    content_store: Option<Arc<dyn ContentStore + Send + Sync>>,
+) -> SyncEngineHandle {
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let (notify_tx, notify_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (idle_tx, idle_rx) = tokio::sync::mpsc::unbounded_channel::<IdleCommand>();
 
     let thread = std::thread::Builder::new()
         .name("sync-engine".to_string())
@@ -373,8 +409,11 @@ pub(crate) fn start_sync_engine(
                 event_sender,
                 flag_store,
                 account_params_fn,
+                idle_waiter,
+                content_store,
                 shutdown_rx,
                 notify_rx,
+                idle_rx,
             ));
         })
         .expect("failed to spawn sync engine thread");
@@ -383,16 +422,21 @@ pub(crate) fn start_sync_engine(
         _shutdown_tx: shutdown_tx,
         _runtime_thread: thread,
         notify_tx,
+        idle_tx,
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn engine_loop(
     db_path: PathBuf,
     event_sender: broadcast::Sender<SyncEvent>,
     flag_store: Arc<dyn ImapFlagStore>,
     account_params_fn: Arc<AccountParamsFn>,
+    idle_waiter: Arc<dyn IdleWaiter>,
+    content_store: Option<Arc<dyn ContentStore + Send + Sync>>,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
     mut notify_rx: tokio::sync::mpsc::UnboundedReceiver<String>,
+    mut idle_rx: tokio::sync::mpsc::UnboundedReceiver<IdleCommand>,
 ) {
     loop {
         tokio::select! {
@@ -414,6 +458,25 @@ async fn engine_loop(
                         account_params_fn.as_ref(),
                     ).await;
                 });
+            }
+            Some(cmd) = idle_rx.recv() => {
+                match cmd {
+                    IdleCommand::StartIdle { account_id } => {
+                        // Only start IDLE if we have a content store.
+                        if let Some(ref cs) = content_store {
+                            let idle_shutdown_rx = shutdown_rx.clone();
+                            tokio::spawn(idle_service::run_idle_loop(
+                                account_id,
+                                db_path.clone(),
+                                account_params_fn.clone(),
+                                event_sender.clone(),
+                                cs.clone(),
+                                idle_waiter.clone(),
+                                idle_shutdown_rx,
+                            ));
+                        }
+                    }
+                }
             }
         }
     }

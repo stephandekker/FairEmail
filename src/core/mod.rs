@@ -17,6 +17,7 @@ pub mod duplicate_account;
 pub mod export_accounts;
 pub mod field_validation;
 pub mod folder_setup;
+pub(crate) mod idle_manager;
 pub mod imap_check;
 pub mod import_accounts;
 pub mod inbound_test;

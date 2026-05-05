@@ -21,4 +21,10 @@ pub enum SyncEvent {
         message_id: i64,
         new_flags: u32,
     },
+    /// New mail was received via IDLE push notification.
+    NewMailReceived {
+        account_id: String,
+        folder_name: String,
+        bodies_fetched: usize,
+    },
 }

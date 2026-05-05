@@ -224,6 +224,31 @@ impl ImapSession {
         }
     }
 
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) {
+        match &mut self.stream {
+            StreamKind::Plain(r) => {
+                let _ = r.get_ref().set_read_timeout(timeout);
+            }
+            StreamKind::Tls(r) => {
+                let _ = r.get_ref().get_ref().set_read_timeout(timeout);
+            }
+        }
+    }
+
+    fn send_raw(&mut self, data: &[u8]) -> Result<(), ImapClientError> {
+        match &mut self.stream {
+            StreamKind::Plain(r) => {
+                r.get_mut().write_all(data).map_err(|e| map_io_error(&e))?;
+                r.get_mut().flush().map_err(|e| map_io_error(&e))?;
+            }
+            StreamKind::Tls(r) => {
+                r.get_mut().write_all(data).map_err(|e| map_io_error(&e))?;
+                r.get_mut().flush().map_err(|e| map_io_error(&e))?;
+            }
+        }
+        Ok(())
+    }
+
     fn read_line(&mut self) -> Result<String, ImapClientError> {
         let mut line = String::new();
         let n = match &mut self.stream {
@@ -1271,6 +1296,117 @@ fn run_fetch_session(
     })
 }
 
+/// Result of waiting during an IDLE cycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum IdleWaitResult {
+    /// Server indicated new messages (EXISTS count changed).
+    NewMessages,
+    /// Server indicated flag changes or expunge.
+    FlagsOrExpunge,
+    /// The renewal timeout expired without server notification.
+    Timeout,
+    /// A connection error occurred.
+    Error(String),
+}
+
+/// Run one IDLE cycle: connect, login, SELECT folder, enter IDLE, wait for
+/// a server notification or timeout, send DONE, and logout.
+///
+/// This is a blocking call that holds a connection for up to `idle_timeout`.
+pub(crate) fn run_idle_cycle(
+    params: &ImapConnectParams,
+    folder_name: &str,
+    idle_timeout: Duration,
+) -> (IdleWaitResult, Vec<ConnectionLogRecord>) {
+    let mut logs = Vec::new();
+
+    // Connect and login.
+    let mut session = match connect_and_login(params, &mut logs) {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                IdleWaitResult::Error(format!("connect/login failed: {e:?}")),
+                logs,
+            )
+        }
+    };
+
+    // SELECT the folder.
+    if let Err(e) = session.do_select(params, folder_name, &mut logs) {
+        return (IdleWaitResult::Error(format!("SELECT failed: {e:?}")), logs);
+    }
+
+    // Log IDLE enter.
+    logs.push(ConnectionLogRecord::new(
+        params.account_id.clone(),
+        ConnectionLogEventType::IdleEnter,
+        format!("Entering IDLE on {folder_name}"),
+    ));
+
+    // Send IDLE command.
+    if let Err(e) = session.send_command("A010", "IDLE") {
+        return (
+            IdleWaitResult::Error(format!("send IDLE failed: {e:?}")),
+            logs,
+        );
+    }
+
+    // Read continuation response ("+").
+    match session.read_line() {
+        Ok(line) if line.starts_with('+') => {}
+        Ok(line) => {
+            return (
+                IdleWaitResult::Error(format!("unexpected IDLE response: {}", line.trim())),
+                logs,
+            )
+        }
+        Err(e) => {
+            return (
+                IdleWaitResult::Error(format!("read continuation failed: {e:?}")),
+                logs,
+            )
+        }
+    }
+
+    // Set read timeout for the IDLE wait period.
+    session.set_read_timeout(Some(idle_timeout));
+
+    // Wait for server notification or timeout.
+    let result = loop {
+        match session.read_line() {
+            Ok(line) => {
+                let upper = line.to_uppercase();
+                if upper.contains("EXISTS") {
+                    break IdleWaitResult::NewMessages;
+                } else if upper.contains("EXPUNGE") || upper.contains("FETCH") {
+                    break IdleWaitResult::FlagsOrExpunge;
+                }
+                // Other untagged responses (e.g., * OK still here) — keep waiting.
+            }
+            Err(ImapClientError::Timeout) => {
+                break IdleWaitResult::Timeout;
+            }
+            Err(e) => {
+                break IdleWaitResult::Error(format!("{e:?}"));
+            }
+        }
+    };
+
+    // Log IDLE exit.
+    logs.push(ConnectionLogRecord::new(
+        params.account_id.clone(),
+        ConnectionLogEventType::IdleExit,
+        format!("IDLE exit: {result:?}"),
+    ));
+
+    // Send DONE to terminate IDLE, then logout.
+    let _ = session.send_raw(b"DONE\r\n");
+    let _ = session.read_tagged_response("A010");
+    let _ = session.send_command("A099", "LOGOUT");
+
+    (result, logs)
+}
+
 fn map_io_error(e: &std::io::Error) -> ImapClientError {
     if e.kind() == std::io::ErrorKind::TimedOut || e.kind() == std::io::ErrorKind::WouldBlock {
         ImapClientError::Timeout
@@ -1430,5 +1566,19 @@ mod tests {
     fn extract_bracket_value_highestmodseq() {
         let line = "* OK [HIGHESTMODSEQ 67890]";
         assert_eq!(extract_bracket_value(line, "HIGHESTMODSEQ"), Some(67890));
+    }
+
+    #[test]
+    fn idle_wait_result_debug_format() {
+        // Ensure IdleWaitResult variants are properly constructable and comparable.
+        assert_eq!(IdleWaitResult::NewMessages, IdleWaitResult::NewMessages);
+        assert_eq!(
+            IdleWaitResult::FlagsOrExpunge,
+            IdleWaitResult::FlagsOrExpunge
+        );
+        assert_eq!(IdleWaitResult::Timeout, IdleWaitResult::Timeout);
+        assert_ne!(IdleWaitResult::NewMessages, IdleWaitResult::Timeout);
+        let err = IdleWaitResult::Error("test".to_string());
+        assert_eq!(err, IdleWaitResult::Error("test".to_string()));
     }
 }

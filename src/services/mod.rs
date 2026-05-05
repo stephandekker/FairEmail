@@ -7,6 +7,7 @@ pub mod folder_store;
 pub mod folder_sync;
 pub mod fs_content_store;
 pub mod identity_store;
+pub(crate) mod idle_service;
 pub mod imap_checker;
 pub(crate) mod imap_client;
 pub mod import_service;
