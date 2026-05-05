@@ -953,6 +953,14 @@ impl Account {
         self.keep_alive_settings = settings;
     }
 
+    /// Update only the credential and authentication method (FR-33, FR-34).
+    /// Used by the re-authorization flow to refresh expired/revoked credentials
+    /// without touching any other account properties.
+    pub fn update_credentials(&mut self, credential: String, auth_method: AuthMethod) {
+        self.credential = credential;
+        self.auth_method = auth_method;
+    }
+
     /// Extract the configuration of this account into `NewAccountParams` suitable for
     /// creating a duplicate. The duplicate will NOT inherit:
     /// - The source's unique identifier (a new UUID is assigned on creation)

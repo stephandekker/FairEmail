@@ -19,7 +19,7 @@ use crate::services::network::is_network_available;
 /// or `None` if the user cancelled / closed the dialog.
 pub(crate) type WizardResult = Option<WizardAction>;
 
-/// The action chosen in the wizard: auto-detect or manual setup (FR-35).
+/// The action chosen in the wizard: auto-detect, manual setup, or re-authorize (FR-35, FR-32).
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub(crate) enum WizardAction {
@@ -27,6 +27,8 @@ pub(crate) enum WizardAction {
     Check(WizardData),
     /// User clicked "Manual setup" — open manual configuration (US-26).
     ManualSetup(WizardData),
+    /// User clicked "Authorize existing account again" — re-authorize flow (FR-32).
+    Reauthorize(WizardData),
 }
 
 /// Validated wizard data ready for the next step (provider detection / account creation).
@@ -235,6 +237,18 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
     btn_box.append(&check_btn);
 
     vbox.append(&btn_box);
+
+    // -- Re-authorize existing account option (FR-32, US-24) --
+    let reauth_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Authorize existing account again"))
+        .css_classes(["pill", "flat"])
+        .halign(gtk::Align::Center)
+        .margin_top(4)
+        .build();
+    reauth_btn.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Re-authorize an existing account whose credentials have expired",
+    ))]);
+    vbox.append(&reauth_btn);
 
     // -- Detection progress indicator (FR-14, AC-16, NFR-8) --
     let progress_box = gtk::Box::builder()
@@ -566,6 +580,33 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             let password = password_row.text().to_string();
 
             on_done(Some(WizardAction::ManualSetup(WizardData {
+                display_name,
+                email,
+                password,
+            })));
+            dialog.close();
+        }
+    ));
+
+    // -- Re-authorize button handler (FR-32, US-24) --
+    // Carries over entered email and password for re-authorization.
+    reauth_btn.connect_clicked(clone!(
+        #[weak]
+        name_row,
+        #[weak]
+        email_row,
+        #[weak]
+        password_row,
+        #[weak]
+        dialog,
+        #[strong]
+        on_done,
+        move |_| {
+            let display_name = name_row.text().trim().to_string();
+            let email = email_row.text().trim().to_string();
+            let password = password_row.text().to_string();
+
+            on_done(Some(WizardAction::Reauthorize(WizardData {
                 display_name,
                 email,
                 password,

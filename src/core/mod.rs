@@ -26,6 +26,7 @@ pub(crate) mod privacy;
 pub mod proprietary_provider;
 pub mod provider;
 pub(crate) mod provider_data;
+pub mod reauth;
 pub mod smtp_check;
 pub mod sync_conditions;
 #[allow(dead_code)]
@@ -89,6 +90,7 @@ pub use provider::{
     merge_network_with_bundled, LocalizedDoc, MatchScore, MaxTlsVersion, OAuthConfig, Provider,
     ProviderCandidate, ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
 };
+pub use reauth::{find_matching_account, reauthorize_account, ReauthError, ReauthParams};
 pub use smtp_check::{
     combine_connectivity_results, ConnectivityCheckError, ConnectivityCheckResult, SmtpCheckError,
     SmtpCheckResult, SmtpCheckSuccess, SmtpConnectionParams,
