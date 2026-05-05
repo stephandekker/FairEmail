@@ -132,6 +132,19 @@ pub fn delete_message(conn: &Connection, id: i64) -> Result<Option<(String, bool
     Ok(Some((hash, remaining == 0)))
 }
 
+/// Update the flags on a message row. Returns true if the row was found and updated.
+pub fn update_message_flags(
+    conn: &Connection,
+    message_id: i64,
+    new_flags: u32,
+) -> Result<bool, DatabaseError> {
+    let updated = conn.execute(
+        "UPDATE messages SET flags = ?1 WHERE id = ?2",
+        rusqlite::params![new_flags, message_id],
+    )?;
+    Ok(updated > 0)
+}
+
 /// Count messages for an account.
 pub fn count_messages(conn: &Connection, account_id: &str) -> Result<i64, DatabaseError> {
     let count: i64 = conn.query_row(

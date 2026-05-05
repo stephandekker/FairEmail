@@ -19,6 +19,7 @@ pub mod message_store;
 pub mod network;
 pub mod notification_channel;
 pub mod order_store;
+pub mod pending_ops_store;
 pub mod real_connection_tester;
 pub mod real_imap_checker;
 pub mod real_inbound_tester;
@@ -29,6 +30,8 @@ pub(crate) mod smtp_client;
 pub mod sqlite_account_store;
 pub mod sqlite_order_store;
 pub mod sqlite_settings_store;
+#[allow(dead_code)]
+pub mod sync_engine;
 pub mod sync_state_store;
 pub mod user_provider_service;
 
@@ -53,10 +56,14 @@ pub use memory_credential_store::MemoryCredentialStore;
 pub(crate) use message_fetch::fetch_and_store_folder;
 pub use message_store::{
     count_messages, delete_message, find_folder_id, insert_message, load_message,
-    update_folder_sync_state,
+    update_folder_sync_state, update_message_flags,
 };
 pub use notification_channel::{MockNotificationChannelManager, NotificationChannelManager};
 pub use order_store::OrderStore;
+pub use pending_ops_store::{
+    complete_op, count_pending_ops, insert_pending_op, load_pending_ops, mark_failed,
+    mark_in_flight, requeue_op,
+};
 pub use real_connection_tester::RealConnectionTester;
 pub use real_imap_checker::RealImapChecker;
 pub use real_inbound_tester::RealInboundTester;

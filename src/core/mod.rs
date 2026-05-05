@@ -26,6 +26,7 @@ pub(crate) mod ispdb_discovery;
 pub mod message;
 pub mod navigation;
 pub(crate) mod oauth_signin;
+pub mod pending_operation;
 pub mod port_autofill;
 #[allow(dead_code)]
 pub(crate) mod port_scanning;
@@ -37,6 +38,7 @@ pub(crate) mod provider_data;
 pub mod reauth;
 pub mod smtp_check;
 pub mod sync_conditions;
+pub mod sync_event;
 pub mod sync_state;
 pub mod user_provider_file;
 #[allow(dead_code)]
@@ -105,6 +107,7 @@ pub use oauth_signin::{
     determine_auth_options, is_oauth_provider, resolve_auth_from_choice, AuthChoice, AuthOptions,
     OAuthTokenResult,
 };
+pub use pending_operation::{OperationKind, OperationState, PendingOperation, StoreFlagsPayload};
 pub use port_autofill::{default_port, should_autofill};
 pub use primary::{
     auto_designate_on_add, revoke_if_sync_disabled, set_primary, PrimaryDesignationError,
@@ -121,6 +124,7 @@ pub use smtp_check::{
 pub use sync_conditions::{
     evaluate as evaluate_sync_conditions, EnvironmentStatus, SyncEligibility, SyncPauseReason,
 };
+pub use sync_event::SyncEvent;
 pub use sync_state::SyncState;
 pub use user_provider_file::{
     build_merged_database, merge_user_providers, parse_user_provider_file, UserProviderFileError,

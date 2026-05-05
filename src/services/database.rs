@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 9;
+const CURRENT_VERSION: u32 = 10;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -65,10 +65,34 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 9 {
         migrate_v9(conn)?;
     }
+    if version < 10 {
+        migrate_v10(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v10: Create the `pending_operations` table (FR-4).
+fn migrate_v10(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS pending_operations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'pending',
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_pending_ops_account_state
+            ON pending_operations(account_id, state, id);",
+    )?;
     Ok(())
 }
 
