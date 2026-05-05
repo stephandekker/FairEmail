@@ -14,6 +14,7 @@ use crate::core::port_autofill::{default_port, should_autofill};
 use crate::core::provider::{
     MaxTlsVersion, ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
 };
+use crate::core::provider_dropdown;
 use crate::core::save_auto_test;
 use crate::core::{
     Account, AccountColor, AuthMethod, EncryptionMode, NewAccountParams, Pop3Settings, Protocol,
@@ -337,6 +338,40 @@ fn show_inner(
         .title(gettextrs::gettext("Incoming Server"))
         .build();
 
+    // -- Provider dropdown (FR-29, FR-30, FR-31) --
+    let provider_db_for_dropdown = ProviderDatabase::bundled();
+    let dropdown_entries = provider_dropdown::build_dropdown_entries(&provider_db_for_dropdown);
+    let provider_labels: Vec<String> = dropdown_entries
+        .iter()
+        .map(|e| {
+            if e.id.is_empty() {
+                gettextrs::gettext("Custom")
+            } else {
+                e.label.clone()
+            }
+        })
+        .collect();
+    let provider_label_refs: Vec<&str> = provider_labels.iter().map(|s| s.as_str()).collect();
+    let provider_row = adw::ComboRow::builder()
+        .title(gettextrs::gettext("Provider"))
+        .model(&gtk::StringList::new(&provider_label_refs))
+        .selected(0)
+        .build();
+    server_group.add(&provider_row);
+
+    // Guidance label for provider-specific help text (FR-31).
+    let provider_guidance_label = gtk::Label::builder()
+        .wrap(true)
+        .xalign(0.0)
+        .css_classes(["caption", "dim-label"])
+        .visible(false)
+        .margin_start(12)
+        .margin_end(12)
+        .build();
+    // Provider selection handler is connected after host/port/encryption rows are created.
+
+    let dropdown_entries_rc = Rc::new(dropdown_entries);
+
     // -- Domain-based auto-config (FR-23 through FR-28) --
     let domain_row = adw::EntryRow::builder()
         .title(gettextrs::gettext("Domain"))
@@ -433,6 +468,44 @@ fn show_inner(
         }
     ));
 
+    // -- Provider dropdown selection handler (FR-29, FR-30, FR-31) --
+    provider_row.connect_selected_notify(clone!(
+        #[strong]
+        dropdown_entries_rc,
+        #[weak]
+        host_row,
+        #[weak]
+        port_row,
+        #[weak]
+        encryption_row,
+        #[weak]
+        provider_guidance_label,
+        move |row| {
+            let idx = row.selected() as usize;
+            if idx >= dropdown_entries_rc.len() {
+                return;
+            }
+            let entry = &dropdown_entries_rc[idx];
+
+            // Pre-fill from provider database.
+            let db = ProviderDatabase::bundled();
+            if let Some(prefill) = provider_dropdown::prefill_for_provider(&db, &entry.id) {
+                host_row.set_text(&prefill.hostname);
+                port_row.set_value(f64::from(prefill.port));
+                encryption_row.set_selected(provider_encryption_to_combo(prefill.encryption));
+            }
+            // "Custom" (idx 0) leaves fields as-is.
+
+            // Update guidance text.
+            if let Some(guidance) = provider_dropdown::provider_guidance(&db, &entry.id) {
+                provider_guidance_label.set_text(&guidance);
+                provider_guidance_label.set_visible(true);
+            } else {
+                provider_guidance_label.set_visible(false);
+            }
+        }
+    ));
+
     // -- POP3 limitations banner (US-35, FR-10) --
     let pop3_banner = adw::Banner::builder()
         .title(gettextrs::gettext(
@@ -452,6 +525,7 @@ fn show_inner(
     ));
 
     vbox.append(&server_group);
+    vbox.append(&provider_guidance_label);
 
     // -- Auto-config button handler (FR-23 through FR-28) --
     auto_config_btn.connect_clicked(clone!(

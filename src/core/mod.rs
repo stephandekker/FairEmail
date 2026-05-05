@@ -37,6 +37,7 @@ pub(crate) mod privacy;
 pub mod proprietary_provider;
 pub mod provider;
 pub(crate) mod provider_data;
+pub mod provider_dropdown;
 pub mod reauth;
 pub mod save_auto_test;
 pub mod smtp_check;
@@ -120,6 +121,10 @@ pub use primary::{
 pub use provider::{
     merge_network_with_bundled, LocalizedDoc, MatchScore, MaxTlsVersion, OAuthConfig, Provider,
     ProviderCandidate, ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
+};
+pub use provider_dropdown::{
+    build_dropdown_entries, index_for_provider_id, prefill_for_provider, provider_guidance,
+    ProviderDropdownEntry, ProviderPrefill,
 };
 pub use reauth::{find_matching_account, reauthorize_account, ReauthError, ReauthParams};
 pub use smtp_check::{
