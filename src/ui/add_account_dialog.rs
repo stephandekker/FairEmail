@@ -23,8 +23,16 @@ use crate::core::{
 use crate::services::inbound_tester::{InboundTester, MockInboundTester};
 use crate::services::smtp_checker::{MockSmtpChecker, SmtpChecker};
 
-/// Result of the add-account dialog: either a validated Account or the user cancelled.
-pub(crate) type DialogResult = Option<Account>;
+/// Result of the add-account dialog when the user saves.
+#[derive(Debug, Clone)]
+pub(crate) struct SaveResult {
+    pub account: Account,
+    /// Whether the user opted to create an SMTP identity after saving.
+    pub create_smtp_identity: bool,
+}
+
+/// Result of the add-account dialog: either a validated SaveResult or the user cancelled.
+pub(crate) type DialogResult = Option<SaveResult>;
 
 /// Pre-fill data carried over from the quick-setup wizard (FR-36).
 #[derive(Debug, Clone, Default)]
@@ -906,6 +914,18 @@ fn show_inner(
 
     vbox.append(&smtp_group);
 
+    // -- Create SMTP identity checkbox (FR-43) --
+    let create_identity_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Create SMTP identity after save"))
+        .subtitle(gettextrs::gettext(
+            "Navigate to outbound identity configuration",
+        ))
+        .active(true)
+        .build();
+    let identity_group = adw::PreferencesGroup::new();
+    identity_group.add(&create_identity_row);
+    vbox.append(&identity_group);
+
     // -- Action buttons --
     let btn_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -1310,6 +1330,8 @@ fn show_inner(
         avatar_path,
         #[strong]
         test_passed_in_session,
+        #[weak]
+        create_identity_row,
         move |_| {
             // Clear previous inline error styling.
             host_row.remove_css_class("error");
@@ -1510,7 +1532,10 @@ fn show_inner(
                 keep_alive_settings: None,
             }) {
                 Ok(account) => {
-                    on_done(Some(account));
+                    on_done(Some(SaveResult {
+                        account,
+                        create_smtp_identity: create_identity_row.is_active(),
+                    }));
                     dialog.close();
                 }
                 Err(e) => {

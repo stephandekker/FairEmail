@@ -45,6 +45,7 @@ use crate::ui::edit_account_dialog;
 use crate::ui::export_dialog;
 use crate::ui::import_dialog;
 use crate::ui::setup_wizard;
+use crate::ui::smtp_identity_dialog;
 
 /// Build the main application window with the account list and navigation pane.
 pub(crate) fn build(
@@ -552,6 +553,7 @@ pub(crate) fn build(
                             let credential_store = credential_store.clone();
                             let account_list = account_list.clone();
                             let categories = collect_categories(&accounts.borrow());
+                            let window_for_identity = window.clone();
                             add_account_dialog::show_with_prefill(
                                 &window,
                                 categories,
@@ -561,7 +563,8 @@ pub(crate) fn build(
                                     password: data.password,
                                 },
                                 move |result| {
-                                    if let Some(account) = result {
+                                    if let Some(save_result) = result {
+                                        let account = save_result.account;
                                         store_account_credentials(&*credential_store, &account);
                                         if let Err(e) = store.add(account.clone()) {
                                             eprintln!("Failed to persist new account: {e}");
@@ -569,6 +572,10 @@ pub(crate) fn build(
                                         }
                                         let new_id = account.id();
                                         conn_state_mgr.borrow_mut().ensure_account(new_id);
+                                        let create_identity = save_result.create_smtp_identity;
+                                        let username = account.username().to_string();
+                                        let credential = account.credential().to_string();
+                                        let display_name = account.display_name().to_string();
                                         {
                                             let mut list = accounts.borrow_mut();
                                             list.push(account);
@@ -587,6 +594,22 @@ pub(crate) fn build(
                                             custom_order.borrow().as_deref(),
                                             &conn_state_mgr.borrow(),
                                         );
+                                        // FR-43: navigate to SMTP identity dialog if opted in.
+                                        if create_identity {
+                                            let entry = smtp_identity_dialog::InboundAccountEntry {
+                                                id: new_id.to_string(),
+                                                display_name: display_name.clone(),
+                                                username: username.clone(),
+                                                password: credential.clone(),
+                                            };
+                                            smtp_identity_dialog::show(
+                                                &window_for_identity,
+                                                vec![entry],
+                                                None,
+                                                None,
+                                                |_| {},
+                                            );
+                                        }
                                     }
                                 },
                             );
@@ -877,6 +900,7 @@ pub(crate) fn build(
                         let credential_store = credential_store_first.clone();
                         let account_list = account_list_first.clone();
                         let categories = collect_categories(&accounts.borrow());
+                        let window_for_identity = window.clone();
                         add_account_dialog::show_with_prefill(
                             &window,
                             categories,
@@ -886,7 +910,8 @@ pub(crate) fn build(
                                 password: data.password,
                             },
                             move |result| {
-                                if let Some(account) = result {
+                                if let Some(save_result) = result {
+                                    let account = save_result.account;
                                     store_account_credentials(&*credential_store, &account);
                                     if let Err(e) = store.add(account.clone()) {
                                         eprintln!("Failed to persist new account: {e}");
@@ -894,6 +919,10 @@ pub(crate) fn build(
                                     }
                                     let new_id = account.id();
                                     conn_state_mgr.borrow_mut().ensure_account(new_id);
+                                    let create_identity = save_result.create_smtp_identity;
+                                    let username = account.username().to_string();
+                                    let credential = account.credential().to_string();
+                                    let display_name = account.display_name().to_string();
                                     {
                                         let mut list = accounts.borrow_mut();
                                         list.push(account);
@@ -912,6 +941,22 @@ pub(crate) fn build(
                                         custom_order.borrow().as_deref(),
                                         &conn_state_mgr.borrow(),
                                     );
+                                    // FR-43: navigate to SMTP identity dialog if opted in.
+                                    if create_identity {
+                                        let entry = smtp_identity_dialog::InboundAccountEntry {
+                                            id: new_id.to_string(),
+                                            display_name: display_name.clone(),
+                                            username: username.clone(),
+                                            password: credential.clone(),
+                                        };
+                                        smtp_identity_dialog::show(
+                                            &window_for_identity,
+                                            vec![entry],
+                                            None,
+                                            None,
+                                            |_| {},
+                                        );
+                                    }
                                 }
                             },
                         );
