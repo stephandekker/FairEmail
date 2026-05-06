@@ -4,6 +4,7 @@
 //! mail server support, based on protocol-specific capability advertisements
 //! (IMAP CAPABILITY, SMTP EHLO, POP3 CAPA).
 
+use crate::core::account::EncryptionMode;
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -137,6 +138,49 @@ pub fn filter_by_toggles(
         .copied()
         .filter(|m| toggles.is_enabled(*m))
         .collect()
+}
+
+/// Returns `true` for mechanisms that transmit the password in recoverable form
+/// (PLAIN and LOGIN). These must not be used over unencrypted connections unless
+/// the user has explicitly opted in via `allow_insecure_auth`.
+pub fn is_plaintext_mechanism(mechanism: AuthMechanism) -> bool {
+    matches!(mechanism, AuthMechanism::Plain | AuthMechanism::Login)
+}
+
+/// Remove plaintext password mechanisms (PLAIN, LOGIN) from `mechanisms` when the
+/// connection is unencrypted and the user has not opted in to insecure auth (FR-30).
+///
+/// Returns `Ok(filtered)` on success.  Returns `Err(message)` when *all*
+/// password-capable mechanisms were removed, meaning authentication cannot proceed
+/// without exposing the password on the wire.
+pub fn filter_insecure_mechanisms(
+    mechanisms: &[AuthMechanism],
+    encryption: EncryptionMode,
+    allow_insecure_auth: bool,
+) -> Result<Vec<AuthMechanism>, String> {
+    if encryption != EncryptionMode::None || allow_insecure_auth {
+        // Connection is encrypted, or user opted in — no filtering needed.
+        return Ok(mechanisms.to_vec());
+    }
+
+    let filtered: Vec<AuthMechanism> = mechanisms
+        .iter()
+        .copied()
+        .filter(|m| !is_plaintext_mechanism(*m))
+        .collect();
+
+    // If filtering removed every mechanism the caller had, return an error so
+    // the connection layer can surface a clear message instead of silently
+    // failing or falling through to an empty-mechanism path.
+    if filtered.is_empty() && !mechanisms.is_empty() {
+        return Err(
+            "Refusing to authenticate: PLAIN/LOGIN not permitted over an unencrypted connection. \
+             Enable \"Allow insecure authentication\" in account settings to override."
+                .to_string(),
+        );
+    }
+
+    Ok(filtered)
 }
 
 /// Returns the full set of mechanisms the application supports for a protocol.
@@ -893,5 +937,67 @@ mod tests {
         assert!(restored.ntlm_enabled);
         assert!(restored.cram_md5_enabled);
         assert!(!restored.apop_enabled);
+    }
+
+    // --- is_plaintext_mechanism ---
+
+    #[test]
+    fn plaintext_mechanisms_identified() {
+        assert!(is_plaintext_mechanism(AuthMechanism::Plain));
+        assert!(is_plaintext_mechanism(AuthMechanism::Login));
+        assert!(!is_plaintext_mechanism(AuthMechanism::CramMd5));
+        assert!(!is_plaintext_mechanism(AuthMechanism::Ntlm));
+        assert!(!is_plaintext_mechanism(AuthMechanism::Xoauth2));
+        assert!(!is_plaintext_mechanism(AuthMechanism::External));
+        assert!(!is_plaintext_mechanism(AuthMechanism::Apop));
+    }
+
+    // --- filter_insecure_mechanisms ---
+
+    #[test]
+    fn filter_insecure_allows_all_when_encrypted() {
+        let mechs = vec![AuthMechanism::Plain, AuthMechanism::Login];
+        let result = filter_insecure_mechanisms(&mechs, EncryptionMode::SslTls, false);
+        assert_eq!(result.unwrap(), mechs);
+    }
+
+    #[test]
+    fn filter_insecure_allows_all_with_starttls() {
+        let mechs = vec![AuthMechanism::Plain, AuthMechanism::Login];
+        let result = filter_insecure_mechanisms(&mechs, EncryptionMode::StartTls, false);
+        assert_eq!(result.unwrap(), mechs);
+    }
+
+    #[test]
+    fn filter_insecure_allows_all_when_opted_in() {
+        let mechs = vec![AuthMechanism::Plain, AuthMechanism::Login];
+        let result = filter_insecure_mechanisms(&mechs, EncryptionMode::None, true);
+        assert_eq!(result.unwrap(), mechs);
+    }
+
+    #[test]
+    fn filter_insecure_removes_plain_login_over_none() {
+        let mechs = vec![
+            AuthMechanism::CramMd5,
+            AuthMechanism::Plain,
+            AuthMechanism::Login,
+        ];
+        let result = filter_insecure_mechanisms(&mechs, EncryptionMode::None, false).unwrap();
+        assert_eq!(result, vec![AuthMechanism::CramMd5]);
+    }
+
+    #[test]
+    fn filter_insecure_errors_when_only_plaintext_over_none() {
+        let mechs = vec![AuthMechanism::Plain, AuthMechanism::Login];
+        let result = filter_insecure_mechanisms(&mechs, EncryptionMode::None, false);
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("PLAIN/LOGIN not permitted"));
+    }
+
+    #[test]
+    fn filter_insecure_empty_input_returns_empty() {
+        let result = filter_insecure_mechanisms(&[], EncryptionMode::None, false).unwrap();
+        assert!(result.is_empty());
     }
 }

@@ -349,6 +349,10 @@ mod dev_fetch {
             .and_then(|s| s.load().ok())
             .unwrap_or_default()
             .mechanism_toggles,
+            allow_insecure_auth: account
+                .security_settings()
+                .map(|s| s.allow_insecure_auth)
+                .unwrap_or(false),
         };
 
         let content_root = data_dir.join("messages");

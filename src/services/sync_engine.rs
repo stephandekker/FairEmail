@@ -1602,6 +1602,7 @@ fn resolve_send_context(
         client_certificate: identity.smtp_client_certificate.clone(),
         auth_realm: imap_params.auth_realm.clone(),
         mechanism_toggles: imap_params.mechanism_toggles.clone(),
+        allow_insecure_auth: imap_params.allow_insecure_auth,
     };
 
     let data = resolve_message_bytes(payload, content_reader_fn)?;
@@ -1839,6 +1840,7 @@ mod tests {
             auth_realm: None,
             auth_method: AuthMethod::Plain,
             mechanism_toggles: Default::default(),
+            allow_insecure_auth: false,
         }
     }
 
@@ -2250,6 +2252,7 @@ mod tests {
             client_certificate: None,
             auth_realm: None,
             mechanism_toggles: Default::default(),
+            allow_insecure_auth: false,
         }
     }
 
@@ -2621,6 +2624,7 @@ mod tests {
             auth_realm: None,
             auth_method: AuthMethod::OAuth2,
             mechanism_toggles: Default::default(),
+            allow_insecure_auth: false,
         };
         let account_params_fn: Arc<AccountParamsFn> = Arc::new(move |_| Some(params.clone()));
 

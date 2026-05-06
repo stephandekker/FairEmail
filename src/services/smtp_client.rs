@@ -38,6 +38,8 @@ pub(crate) struct SmtpConnectParams {
     pub auth_realm: Option<String>,
     /// Global mechanism toggles (FR-25 – FR-29).
     pub mechanism_toggles: crate::core::auth_mechanism::MechanismToggles,
+    /// When true, allow PLAIN/LOGIN over unencrypted connections (FR-30/FR-31).
+    pub allow_insecure_auth: bool,
 }
 
 /// Result of a successful SMTP session.
@@ -59,6 +61,7 @@ pub(crate) enum SmtpClientError {
     AuthenticationFailed,
     ProtocolMismatch(String),
     ConnectionFailed(String),
+    InsecureAuthRefused(String),
 }
 
 /// Build the EHLO command string from connection params.
@@ -423,8 +426,30 @@ fn smtp_authenticate(
         }
     }
 
-    // Try AUTH LOGIN if enabled by global toggles (FR-26).
-    if toggles.login_enabled {
+    // Refuse PLAIN/LOGIN over unencrypted connections unless opted in (FR-30/FR-31).
+    let insecure_plain_ok = params.encryption != EncryptionMode::None || params.allow_insecure_auth;
+    if !insecure_plain_ok && !toggles.login_enabled && !toggles.plain_enabled {
+        // Neither LOGIN nor PLAIN is enabled anyway — fall through to final error.
+    } else if !insecure_plain_ok && (toggles.login_enabled || toggles.plain_enabled) {
+        // At least one plaintext mechanism is enabled but the connection is unencrypted.
+        // Check whether there are any non-plaintext mechanisms left to try.
+        // If not, refuse with a clear error.
+        let have_non_plaintext = toggles.ntlm_enabled || toggles.cram_md5_enabled;
+        if !have_non_plaintext {
+            let msg = "Refusing to authenticate: PLAIN/LOGIN not permitted over an unencrypted connection. \
+                Enable \"Allow insecure authentication\" in account settings to override.".to_string();
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                msg.clone(),
+            ));
+            return Err(SmtpClientError::InsecureAuthRefused(msg));
+        }
+        // Non-plaintext mechanisms exist; skip LOGIN/PLAIN below but don't error yet.
+    }
+
+    // Try AUTH LOGIN if enabled by global toggles (FR-26) and connection is secure enough.
+    if toggles.login_enabled && insecure_plain_ok {
         session.send_line("AUTH LOGIN")?;
         let auth_response = session.read_response()?;
 
@@ -453,8 +478,8 @@ fn smtp_authenticate(
         // Server rejected AUTH LOGIN; fall through to try PLAIN
     }
 
-    // Try AUTH PLAIN if enabled by global toggles (FR-26).
-    if toggles.plain_enabled {
+    // Try AUTH PLAIN if enabled by global toggles (FR-26) and connection is secure enough.
+    if toggles.plain_enabled && insecure_plain_ok {
         let plain_credentials = if let Some(ref realm) = params.auth_realm {
             if !realm.is_empty() {
                 build_auth_plain_with_realm(&params.username, &params.password, realm)

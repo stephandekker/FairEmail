@@ -465,6 +465,7 @@ mod tests {
             auth_realm: None,
             auth_method: AuthMethod::Plain,
             mechanism_toggles: Default::default(),
+            allow_insecure_auth: false,
         }
     }
 

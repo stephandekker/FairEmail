@@ -68,6 +68,7 @@ mod tests {
                 certificate_fingerprint: Some("ab:cd:ef:01".into()),
                 client_certificate: Some("/etc/pki/client.pem".into()),
                 auth_realm: Some("example.com".into()),
+                allow_insecure_auth: false,
             }),
             fetch_settings: None,
             keep_alive_settings: None,

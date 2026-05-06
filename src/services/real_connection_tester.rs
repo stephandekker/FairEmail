@@ -50,6 +50,7 @@ fn test_incoming_server(request: &ConnectionTestRequest) -> ServerTestOutcome {
         auth_realm: None,
         auth_method: request.incoming.auth_method,
         mechanism_toggles: Default::default(),
+        allow_insecure_auth: false,
     };
 
     match run_imap_session(&connect_params) {
@@ -87,5 +88,6 @@ fn format_client_error(e: ImapClientError) -> String {
         ImapClientError::DaneFailed(msg) => {
             format!("DANE verification failed: {msg}")
         }
+        ImapClientError::InsecureAuthRefused(msg) => msg,
     }
 }

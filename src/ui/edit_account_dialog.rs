@@ -2025,6 +2025,7 @@ pub(crate) fn show(
                             certificate_fingerprint: fingerprint,
                             client_certificate: client_cert,
                             auth_realm: realm,
+                            allow_insecure_auth: false,
                         })
                     } else {
                         None

@@ -52,6 +52,8 @@ pub(crate) struct ImapConnectParams {
     pub auth_method: AuthMethod,
     /// Global mechanism toggles (FR-25 – FR-29).
     pub mechanism_toggles: crate::core::auth_mechanism::MechanismToggles,
+    /// When true, allow PLAIN/LOGIN over unencrypted connections (FR-30/FR-31).
+    pub allow_insecure_auth: bool,
 }
 
 /// Errors from the real IMAP client.
@@ -68,6 +70,7 @@ pub(crate) enum ImapClientError {
     ConnectionFailed(String),
     DnssecFailed(String),
     DaneFailed(String),
+    InsecureAuthRefused(String),
 }
 
 impl From<ImapClientError> for InboundTestError {
@@ -94,6 +97,7 @@ impl From<ImapClientError> for InboundTestError {
             ImapClientError::ConnectionFailed(msg) => InboundTestError::ConnectionFailed(msg),
             ImapClientError::DnssecFailed(msg) => InboundTestError::DnssecFailed(msg),
             ImapClientError::DaneFailed(msg) => InboundTestError::DaneFailed(msg),
+            ImapClientError::InsecureAuthRefused(msg) => InboundTestError::ConnectionFailed(msg),
         }
     }
 }
@@ -373,6 +377,22 @@ impl ImapSession {
             &server_mechs,
             &params.mechanism_toggles,
         );
+
+        // Filter out plaintext mechanisms over unencrypted connections (FR-30/FR-31).
+        let allowed = crate::core::auth_mechanism::filter_insecure_mechanisms(
+            &allowed,
+            params.encryption,
+            params.allow_insecure_auth,
+        )
+        .map_err(|msg| {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                msg.clone(),
+            ));
+            ImapClientError::InsecureAuthRefused(msg)
+        })?;
+
         let negotiated = crate::core::auth_mechanism::negotiate_password_mechanism(
             crate::core::auth_mechanism::AuthProtocol::Imap,
             &allowed,

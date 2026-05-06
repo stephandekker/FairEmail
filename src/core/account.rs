@@ -239,6 +239,11 @@ pub struct SecuritySettings {
     /// Allow insecure (unverified-certificate) connections for this account (US-9).
     #[serde(default)]
     pub insecure: bool,
+    /// Allow sending passwords via PLAIN/LOGIN over unencrypted connections (FR-30/FR-31).
+    /// Defaults to `false` (secure by default). When `true`, the insecure-connection
+    /// protection is bypassed for this account.
+    #[serde(default)]
+    pub allow_insecure_auth: bool,
     /// SHA-256 fingerprint of the server certificate to pin (US-9).
     /// When set, the client must reject any certificate whose fingerprint
     /// does not match, regardless of CA trust.
@@ -266,6 +271,7 @@ impl SecuritySettings {
         !self.dnssec
             && !self.dane
             && !self.insecure
+            && !self.allow_insecure_auth
             && self.certificate_fingerprint.is_none()
             && self.client_certificate.is_none()
             && self.auth_realm.is_none()
@@ -3022,6 +3028,7 @@ mod tests {
             certificate_fingerprint: Some("aa:bb:cc".into()),
             client_certificate: Some("/path/to/cert".into()),
             auth_realm: Some("realm.example.com".into()),
+            allow_insecure_auth: false,
         });
         let acct = Account::new(p).unwrap();
         let sec = acct.security_settings().unwrap();
@@ -3045,6 +3052,7 @@ mod tests {
             certificate_fingerprint: None,
             client_certificate: None,
             auth_realm: None,
+            allow_insecure_auth: false,
         });
         acct.update(up).unwrap();
         let sec = acct.security_settings().unwrap();
@@ -3089,6 +3097,7 @@ mod tests {
             certificate_fingerprint: Some("de:ad:be:ef".into()),
             client_certificate: Some("/etc/ssl/client.pem".into()),
             auth_realm: Some("mail.example.com".into()),
+            allow_insecure_auth: false,
         });
         let acct = Account::new(p).unwrap();
         let json = serde_json::to_string(&acct).unwrap();

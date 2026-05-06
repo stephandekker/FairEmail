@@ -914,6 +914,7 @@ mod tests {
                 certificate_fingerprint: Some("abc123".into()),
                 client_certificate: None,
                 auth_realm: Some("example.com".into()),
+                allow_insecure_auth: false,
             }),
             fetch_settings: Some(FetchSettings {
                 partial_fetch: true,
