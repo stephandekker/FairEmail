@@ -17,8 +17,8 @@ use crate::core::provider::{
 use crate::core::provider_dropdown;
 use crate::core::save_auto_test;
 use crate::core::{
-    Account, AccountColor, AuthMethod, EncryptionMode, NewAccountParams, Pop3Settings, Protocol,
-    SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
+    Account, AccountColor, AuthMethod, EncryptionMode, FetchSettings, NewAccountParams,
+    Pop3Settings, Protocol, SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
 };
 use crate::services::inbound_tester::{InboundTester, MockInboundTester};
 use crate::services::smtp_checker::{MockSmtpChecker, SmtpChecker};
@@ -875,6 +875,44 @@ fn show_inner(
 
     vbox.append(&swipe_group);
 
+    // -- Advanced inbound options (US-36, US-37, US-38) --
+    let advanced_inbound_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Advanced Inbound Options"))
+        .description(gettextrs::gettext(
+            "Polling, network restrictions, and protocol options",
+        ))
+        .build();
+
+    let adv_polling_row = adw::SpinRow::builder()
+        .title(gettextrs::gettext(
+            "Polling interval (minutes, 0 = default)",
+        ))
+        .adjustment(&gtk::Adjustment::new(0.0, 0.0, 1440.0, 1.0, 5.0, 0.0))
+        .build();
+    advanced_inbound_group.add(&adv_polling_row);
+
+    let adv_unmetered_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Unmetered network only"))
+        .subtitle(gettextrs::gettext("Suppress sync on metered connections"))
+        .build();
+    advanced_inbound_group.add(&adv_unmetered_row);
+
+    let adv_vpn_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("VPN only"))
+        .subtitle(gettextrs::gettext("Suppress sync when no VPN is active"))
+        .build();
+    advanced_inbound_group.add(&adv_vpn_row);
+
+    let adv_utf8_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("UTF-8 support"))
+        .subtitle(gettextrs::gettext(
+            "Enable IMAP UTF8=ACCEPT for this account",
+        ))
+        .build();
+    advanced_inbound_group.add(&adv_utf8_row);
+
+    vbox.append(&advanced_inbound_group);
+
     // -- Outgoing (SMTP) server settings --
     let smtp_group = adw::PreferencesGroup::builder()
         .title(gettextrs::gettext("Outgoing Server (SMTP)"))
@@ -1538,15 +1576,35 @@ fn show_inner(
                 category,
                 sync_enabled: true,
                 on_demand: false,
-                polling_interval_minutes: None,
-                unmetered_only: false,
-                vpn_only: false,
+                polling_interval_minutes: {
+                    let v = adv_polling_row.value() as u32;
+                    if v == 0 {
+                        None
+                    } else {
+                        Some(v)
+                    }
+                },
+                unmetered_only: adv_unmetered_row.is_active(),
+                vpn_only: adv_vpn_row.is_active(),
                 schedule_exempt: false,
                 system_folders,
                 swipe_defaults,
                 notifications_enabled: true,
                 security_settings: None,
-                fetch_settings: None,
+                fetch_settings: {
+                    let utf8 = adv_utf8_row.is_active();
+                    if utf8 {
+                        Some(FetchSettings {
+                            partial_fetch: false,
+                            raw_fetch: false,
+                            ignore_size_limits: false,
+                            date_header_preference: Default::default(),
+                            utf8_support: true,
+                        })
+                    } else {
+                        None
+                    }
+                },
                 keep_alive_settings: None,
             }) {
                 Ok(account) => {

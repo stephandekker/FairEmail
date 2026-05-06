@@ -52,6 +52,7 @@ type AccountParamsFn = dyn Fn(&str) -> Option<ImapConnectParams> + Send + Sync;
 /// Run the IDLE/poll loop for one account. Blocks until shutdown.
 ///
 /// This is an async function meant to be spawned on the sync engine's tokio runtime.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_idle_loop(
     account_id: String,
     db_path: PathBuf,
@@ -60,6 +61,7 @@ pub(crate) async fn run_idle_loop(
     content_store: Arc<dyn ContentStore + Send + Sync>,
     idle_waiter: Arc<dyn IdleWaiter>,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    polling_interval_minutes: Option<u32>,
 ) {
     // Check IDLE capability from the database.
     let idle_supported = check_idle_supported(&db_path, &account_id).unwrap_or_default();
@@ -227,7 +229,10 @@ pub(crate) async fn run_idle_loop(
                 }
 
                 // Wait for the poll interval or shutdown.
-                let poll_interval = Duration::from_secs(DEFAULT_POLL_INTERVAL_SECS);
+                // Use per-account polling interval if configured, otherwise the default.
+                let poll_interval = polling_interval_minutes
+                    .map(|m| Duration::from_secs(u64::from(m) * 60))
+                    .unwrap_or_else(|| Duration::from_secs(DEFAULT_POLL_INTERVAL_SECS));
                 tokio::select! {
                     _ = shutdown_rx.changed() => {
                         let (s, a) = idle_manager::next_state(&state, &IdleEvent::Shutdown);
@@ -492,6 +497,7 @@ mod tests {
                 content_store,
                 waiter,
                 shutdown_rx,
+                None,
             ),
         )
         .await;
@@ -541,6 +547,7 @@ mod tests {
                 content_store,
                 waiter,
                 shutdown_rx,
+                None,
             ),
         )
         .await;
@@ -588,6 +595,7 @@ mod tests {
             content_store,
             waiter,
             shutdown_rx,
+            None,
         ));
 
         // Give it time for the first disconnect + reconnect attempt (5s backoff).
@@ -636,6 +644,7 @@ mod tests {
             content_store,
             waiter,
             shutdown_rx,
+            None,
         ));
 
         // Give it a moment to enter polling state, then shut down.
@@ -686,6 +695,7 @@ mod tests {
             content_store,
             waiter,
             shutdown_rx,
+            None,
         ));
 
         // Signal shutdown.

@@ -858,7 +858,11 @@ pub(crate) struct SyncEngineHandle {
 /// Commands for the IDLE subsystem.
 enum IdleCommand {
     /// Start IDLE monitoring for an account (after initial sync).
-    StartIdle { account_id: String },
+    StartIdle {
+        account_id: String,
+        /// Per-account polling interval override (in minutes); `None` = use default.
+        polling_interval_minutes: Option<u32>,
+    },
 }
 
 impl SyncEngineHandle {
@@ -873,9 +877,10 @@ impl SyncEngineHandle {
     }
 
     /// Start IDLE monitoring for an account after its initial sync completes.
-    pub fn start_idle(&self, account_id: &str) {
+    pub fn start_idle(&self, account_id: &str, polling_interval_minutes: Option<u32>) {
         let _ = self.idle_tx.send(IdleCommand::StartIdle {
             account_id: account_id.to_string(),
+            polling_interval_minutes,
         });
     }
 }
@@ -983,7 +988,10 @@ async fn engine_loop(
             }
             Some(cmd) = idle_rx.recv() => {
                 match cmd {
-                    IdleCommand::StartIdle { account_id } => {
+                    IdleCommand::StartIdle {
+                        account_id,
+                        polling_interval_minutes,
+                    } => {
                         // Only start IDLE if we have a content store.
                         if let Some(ref cs) = content_store {
                             let idle_shutdown_rx = shutdown_rx.clone();
@@ -995,6 +1003,7 @@ async fn engine_loop(
                                 cs.clone(),
                                 idle_waiter.clone(),
                                 idle_shutdown_rx,
+                                polling_interval_minutes,
                             ));
                         }
                     }
