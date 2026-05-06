@@ -61,6 +61,18 @@ impl ImapChecker for RealImapChecker {
                     last_error = Some(ImapCheckError::AuthenticationFailed);
                     continue;
                 }
+                Err(ImapClientError::NoMechanismAvailable) => {
+                    return Err(ImapCheckError::MechanismUnavailable);
+                }
+                Err(ImapClientError::AllMechanismsDisabled) => {
+                    return Err(ImapCheckError::AllMechanismsDisabled);
+                }
+                Err(ImapClientError::TokenExpired(msg)) => {
+                    return Err(ImapCheckError::TokenExpired(msg));
+                }
+                Err(ImapClientError::ServerAuthError(msg)) => {
+                    return Err(ImapCheckError::ServerError(msg));
+                }
                 Err(ImapClientError::UntrustedCertificate(info)) => {
                     return Err(ImapCheckError::UntrustedCertificate(Box::new(info)));
                 }

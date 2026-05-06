@@ -26,6 +26,22 @@ pub fn diagnose_smtp_error(
             "Authentication failed: wrong credentials".to_string(),
             "The SMTP server rejected the username or password. Double-check your credentials. If your provider requires an app-specific password, generate one in your provider's security settings.".to_string(),
         ),
+        SmtpCheckError::MechanismUnavailable => (
+            "Authentication failed: no common mechanism".to_string(),
+            "The SMTP server does not support any authentication method that the client can use. The server may require a different authentication method such as OAuth2.".to_string(),
+        ),
+        SmtpCheckError::AllMechanismsDisabled => (
+            "Authentication failed: all mechanisms disabled".to_string(),
+            "All compatible authentication methods have been disabled in advanced settings. Check your mechanism toggles in advanced settings to re-enable a required method.".to_string(),
+        ),
+        SmtpCheckError::TokenExpired(detail) => (
+            format!("Authentication token expired or revoked: {detail}"),
+            "Your OAuth token has expired or been revoked. Please sign in again to refresh your credentials.".to_string(),
+        ),
+        SmtpCheckError::ServerError(detail) => (
+            format!("Server error during authentication: {detail}"),
+            "The SMTP server encountered an internal error during authentication. This is likely a temporary issue — please try again later.".to_string(),
+        ),
         SmtpCheckError::UntrustedCertificate(info) => (
             format!(
                 "Untrusted certificate from server \"{}\"",

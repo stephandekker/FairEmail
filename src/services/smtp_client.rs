@@ -54,11 +54,22 @@ pub(crate) struct SmtpSessionResult {
 #[allow(dead_code)]
 pub(crate) enum SmtpClientError {
     DnsResolution(String),
-    ConnectionRefused { host: String, port: u16 },
+    ConnectionRefused {
+        host: String,
+        port: u16,
+    },
     Timeout,
     TlsHandshake(String),
     UntrustedCertificate(CertificateInfo),
     AuthenticationFailed,
+    /// No common mechanism between client and server after negotiation.
+    NoMechanismAvailable,
+    /// All compatible mechanisms were disabled by user toggles.
+    AllMechanismsDisabled,
+    /// OAuth token expired or revoked.
+    TokenExpired(String),
+    /// Server-side error during authentication (5xx-like).
+    ServerAuthError(String),
     ProtocolMismatch(String),
     ConnectionFailed(String),
     InsecureAuthRefused(String),
@@ -503,7 +514,27 @@ fn smtp_authenticate(
         return Err(SmtpClientError::AuthenticationFailed);
     }
 
-    Err(SmtpClientError::AuthenticationFailed)
+    // No mechanism could be used: distinguish between "disabled by toggles"
+    // and "no common mechanism" based on whether any mechanisms were enabled.
+    let any_password_enabled = toggles.login_enabled
+        || toggles.plain_enabled
+        || toggles.ntlm_enabled
+        || toggles.cram_md5_enabled;
+    if !any_password_enabled {
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::Error,
+            "All compatible authentication mechanisms have been disabled in settings".to_string(),
+        ));
+        Err(SmtpClientError::AllMechanismsDisabled)
+    } else {
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::Error,
+            "No common authentication mechanism found between client and server".to_string(),
+        ));
+        Err(SmtpClientError::NoMechanismAvailable)
+    }
 }
 
 /// Authenticate via AUTH NTLM for Windows domain authentication.

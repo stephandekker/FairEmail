@@ -75,6 +75,18 @@ fn format_client_error(e: ImapClientError) -> String {
             format!("Untrusted certificate (fingerprint: {})", info.fingerprint)
         }
         ImapClientError::AuthenticationFailed => "Authentication failed".to_string(),
+        ImapClientError::NoMechanismAvailable => {
+            "No common authentication mechanism available".to_string()
+        }
+        ImapClientError::AllMechanismsDisabled => {
+            "All compatible authentication mechanisms disabled in settings".to_string()
+        }
+        ImapClientError::TokenExpired(msg) => {
+            format!("Authentication token expired or revoked: {msg}")
+        }
+        ImapClientError::ServerAuthError(msg) => {
+            format!("Server authentication error: {msg}")
+        }
         ImapClientError::ProtocolMismatch(msg) => {
             format!("Protocol mismatch: {msg}")
         }

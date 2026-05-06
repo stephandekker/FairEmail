@@ -30,8 +30,18 @@ const OUTLOOK_DOMAINS: &[&str] = &[
 /// The category of error that occurred.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthErrorKind {
-    /// Authentication credentials were rejected.
-    AuthenticationFailed,
+    /// Authentication credentials were rejected (invalid username or password).
+    InvalidCredentials,
+    /// No common authentication mechanism supported by both client and server.
+    UnsupportedMechanism,
+    /// All compatible mechanisms have been disabled by the user in advanced settings.
+    MechanismDisabled,
+    /// OAuth token expired, revoked, or otherwise rejected.
+    ExpiredToken,
+    /// The server's certificate was rejected (untrusted, expired, or hostname mismatch).
+    CertificateRejected,
+    /// A server-side error occurred during authentication (5xx, internal error).
+    ServerError,
     /// Could not connect to the server.
     ConnectionFailed,
     /// A non-auth, non-connection error.
@@ -49,6 +59,10 @@ pub struct ProviderHint {
     pub is_outlook_provider: bool,
     /// Outlook-specific guidance text (FR-22).
     pub outlook_guidance: Option<String>,
+    /// Whether this provider supports OAuth2 (NFR-7: deprecated mechanism guidance).
+    pub supports_oauth: bool,
+    /// Guidance text when the provider has deprecated password access (NFR-7).
+    pub deprecated_mechanism_guidance: Option<String>,
 }
 
 /// A user-friendly auth error with provider-specific guidance.
@@ -97,11 +111,35 @@ pub fn build_provider_hint(provider: &Provider, email: &str) -> ProviderHint {
         None
     };
 
+    let supports_oauth = provider.oauth.is_some();
+
+    // NFR-7: When a provider supports OAuth and requires app-specific passwords,
+    // they have likely deprecated plain password access. Guide the user toward
+    // the supported alternative.
+    let deprecated_mechanism_guidance = if supports_oauth && provider.app_password_required {
+        Some(format!(
+            "This provider ({}) has deprecated direct password login. \
+             Please use OAuth2 sign-in or generate an app-specific password \
+             in your {} account security settings.",
+            provider.display_name, provider.display_name
+        ))
+    } else if supports_oauth {
+        Some(format!(
+            "This provider ({}) supports OAuth2 sign-in, which may be required. \
+             Try signing in with OAuth2 instead of a password.",
+            provider.display_name
+        ))
+    } else {
+        None
+    };
+
     ProviderHint {
         app_password_required: provider.app_password_required,
         documentation_url: provider.documentation_url.clone(),
         is_outlook_provider: is_outlook,
         outlook_guidance,
+        supports_oauth,
+        deprecated_mechanism_guidance,
     }
 }
 
@@ -111,13 +149,45 @@ pub fn present_imap_error(
     provider: Option<&Provider>,
     email: &str,
 ) -> AuthErrorPresentation {
-    let (user_message, raw_details, error_kind) = match error {
+    let provider_hint = provider.map(|p| build_provider_hint(p, email));
+
+    let (mut user_message, raw_details, error_kind) = match error {
         ImapCheckError::AuthenticationFailed => (
             "Could not sign in to your email account. \
              Please check your email address and password."
                 .to_string(),
             None,
-            AuthErrorKind::AuthenticationFailed,
+            AuthErrorKind::InvalidCredentials,
+        ),
+        ImapCheckError::MechanismUnavailable => (
+            "The email server does not support any of the authentication methods \
+             that are currently enabled. The server may require a different \
+             authentication method."
+                .to_string(),
+            None,
+            AuthErrorKind::UnsupportedMechanism,
+        ),
+        ImapCheckError::AllMechanismsDisabled => (
+            "Authentication failed because all compatible authentication methods \
+             have been disabled in advanced settings. Check your mechanism toggles \
+             in advanced settings to re-enable a required method."
+                .to_string(),
+            None,
+            AuthErrorKind::MechanismDisabled,
+        ),
+        ImapCheckError::TokenExpired(details) => (
+            "Your authentication token has expired or been revoked. \
+             Please sign in again to refresh your credentials."
+                .to_string(),
+            Some(details.clone()),
+            AuthErrorKind::ExpiredToken,
+        ),
+        ImapCheckError::ServerError(details) => (
+            "The email server encountered an internal error during authentication. \
+             This is likely a temporary issue — please try again later."
+                .to_string(),
+            Some(details.clone()),
+            AuthErrorKind::ServerError,
         ),
         ImapCheckError::ConnectionFailed(details) => (
             "Could not connect to the email server. \
@@ -132,13 +202,26 @@ pub fn present_imap_error(
             AuthErrorKind::Other,
         ),
         ImapCheckError::UntrustedCertificate(_) => (
-            "The server's security certificate could not be verified.".to_string(),
+            "The server's security certificate could not be verified. \
+             The certificate may be expired, self-signed, or not matching the server hostname."
+                .to_string(),
             None,
-            AuthErrorKind::Other,
+            AuthErrorKind::CertificateRejected,
         ),
     };
 
-    let provider_hint = provider.map(|p| build_provider_hint(p, email));
+    // NFR-7: Append deprecated mechanism guidance when provider has deprecated password access.
+    if matches!(
+        error_kind,
+        AuthErrorKind::InvalidCredentials | AuthErrorKind::UnsupportedMechanism
+    ) {
+        if let Some(ref hint) = provider_hint {
+            if let Some(ref guidance) = hint.deprecated_mechanism_guidance {
+                user_message.push(' ');
+                user_message.push_str(guidance);
+            }
+        }
+    }
 
     AuthErrorPresentation {
         user_message,
@@ -155,13 +238,45 @@ pub fn present_smtp_error(
     provider: Option<&Provider>,
     email: &str,
 ) -> AuthErrorPresentation {
-    let (user_message, raw_details, error_kind) = match error {
+    let provider_hint = provider.map(|p| build_provider_hint(p, email));
+
+    let (mut user_message, raw_details, error_kind) = match error {
         SmtpCheckError::AuthenticationFailed => (
             "Could not sign in to the outgoing mail server. \
              Please check your email address and password."
                 .to_string(),
             None,
-            AuthErrorKind::AuthenticationFailed,
+            AuthErrorKind::InvalidCredentials,
+        ),
+        SmtpCheckError::MechanismUnavailable => (
+            "The outgoing mail server does not support any of the authentication methods \
+             that are currently enabled. The server may require a different \
+             authentication method."
+                .to_string(),
+            None,
+            AuthErrorKind::UnsupportedMechanism,
+        ),
+        SmtpCheckError::AllMechanismsDisabled => (
+            "Authentication with the outgoing mail server failed because all compatible \
+             authentication methods have been disabled in advanced settings. \
+             Check your mechanism toggles in advanced settings to re-enable a required method."
+                .to_string(),
+            None,
+            AuthErrorKind::MechanismDisabled,
+        ),
+        SmtpCheckError::TokenExpired(details) => (
+            "Your authentication token for the outgoing mail server has expired or been revoked. \
+             Please sign in again to refresh your credentials."
+                .to_string(),
+            Some(details.clone()),
+            AuthErrorKind::ExpiredToken,
+        ),
+        SmtpCheckError::ServerError(details) => (
+            "The outgoing mail server encountered an internal error during authentication. \
+             This is likely a temporary issue — please try again later."
+                .to_string(),
+            Some(details.clone()),
+            AuthErrorKind::ServerError,
         ),
         SmtpCheckError::ConnectionFailed(details) => (
             "Could not connect to the outgoing mail server. \
@@ -171,13 +286,26 @@ pub fn present_smtp_error(
             AuthErrorKind::ConnectionFailed,
         ),
         SmtpCheckError::UntrustedCertificate(_) => (
-            "The outgoing server's security certificate could not be verified.".to_string(),
+            "The outgoing server's security certificate could not be verified. \
+             The certificate may be expired, self-signed, or not matching the server hostname."
+                .to_string(),
             None,
-            AuthErrorKind::Other,
+            AuthErrorKind::CertificateRejected,
         ),
     };
 
-    let provider_hint = provider.map(|p| build_provider_hint(p, email));
+    // NFR-7: Append deprecated mechanism guidance when provider has deprecated password access.
+    if matches!(
+        error_kind,
+        AuthErrorKind::InvalidCredentials | AuthErrorKind::UnsupportedMechanism
+    ) {
+        if let Some(ref hint) = provider_hint {
+            if let Some(ref guidance) = hint.deprecated_mechanism_guidance {
+                user_message.push(' ');
+                user_message.push_str(guidance);
+            }
+        }
+    }
 
     AuthErrorPresentation {
         user_message,
@@ -186,6 +314,30 @@ pub fn present_smtp_error(
         provider_hint,
         support_url: GENERAL_SUPPORT_URL.to_string(),
     }
+}
+
+/// Check if an IMAP error is an authentication-related error (not connection).
+fn is_imap_auth_error(err: &ImapCheckError) -> bool {
+    matches!(
+        err,
+        ImapCheckError::AuthenticationFailed
+            | ImapCheckError::MechanismUnavailable
+            | ImapCheckError::AllMechanismsDisabled
+            | ImapCheckError::TokenExpired(_)
+            | ImapCheckError::ServerError(_)
+    )
+}
+
+/// Check if an SMTP error is an authentication-related error (not connection).
+fn is_smtp_auth_error(err: &SmtpCheckError) -> bool {
+    matches!(
+        err,
+        SmtpCheckError::AuthenticationFailed
+            | SmtpCheckError::MechanismUnavailable
+            | SmtpCheckError::AllMechanismsDisabled
+            | SmtpCheckError::TokenExpired(_)
+            | SmtpCheckError::ServerError(_)
+    )
 }
 
 /// Build a user-friendly error presentation from a combined connectivity check error.
@@ -202,23 +354,19 @@ pub fn present_connectivity_error(
             present_smtp_error(smtp_err, provider, email)
         }
         ConnectivityCheckError::BothFailed { imap, smtp } => {
-            // Present the most actionable error — prefer auth failures over connection failures
-            let imap_is_auth = matches!(imap, ImapCheckError::AuthenticationFailed);
-            let smtp_is_auth = matches!(smtp, SmtpCheckError::AuthenticationFailed);
+            // Present the most actionable error — prefer auth failures over connection failures.
+            // When both have auth errors, prefer the more specific one (mechanism/token errors
+            // over generic auth failures).
+            let imap_is_auth = is_imap_auth_error(imap);
+            let smtp_is_auth = is_smtp_auth_error(smtp);
 
             if imap_is_auth || smtp_is_auth {
-                // Auth failure: show auth-focused message
-                let user_message = "Could not sign in to your email account. \
-                     Please check your email address and password."
-                    .to_string();
-                let provider_hint = provider.map(|p| build_provider_hint(p, email));
-
-                AuthErrorPresentation {
-                    user_message,
-                    raw_details: None,
-                    error_kind: AuthErrorKind::AuthenticationFailed,
-                    provider_hint,
-                    support_url: GENERAL_SUPPORT_URL.to_string(),
+                // Prefer to present the IMAP auth error (more commonly the root cause),
+                // but if only SMTP has the auth error, present that.
+                if imap_is_auth {
+                    present_imap_error(imap, provider, email)
+                } else {
+                    present_smtp_error(smtp, provider, email)
                 }
             } else {
                 // Connection failure: show connection-focused message
@@ -303,7 +451,7 @@ mod tests {
         assert!(presentation
             .user_message
             .contains("check your email address and password"));
-        assert_eq!(presentation.error_kind, AuthErrorKind::AuthenticationFailed);
+        assert_eq!(presentation.error_kind, AuthErrorKind::InvalidCredentials);
         assert!(presentation.raw_details.is_none());
     }
 
@@ -419,7 +567,7 @@ mod tests {
         assert!(presentation
             .user_message
             .contains("check your email address and password"));
-        assert_eq!(presentation.error_kind, AuthErrorKind::AuthenticationFailed);
+        assert_eq!(presentation.error_kind, AuthErrorKind::InvalidCredentials);
     }
 
     #[test]
@@ -440,7 +588,7 @@ mod tests {
             smtp: SmtpCheckError::ConnectionFailed("timeout".to_string()),
         };
         let presentation = present_connectivity_error(&error, None, "user@example.com");
-        assert_eq!(presentation.error_kind, AuthErrorKind::AuthenticationFailed);
+        assert_eq!(presentation.error_kind, AuthErrorKind::InvalidCredentials);
     }
 
     #[test]
@@ -516,14 +664,298 @@ mod tests {
     fn connectivity_error_imap_only_delegates() {
         let error = ConnectivityCheckError::ImapFailed(ImapCheckError::AuthenticationFailed);
         let presentation = present_connectivity_error(&error, None, "user@example.com");
-        assert_eq!(presentation.error_kind, AuthErrorKind::AuthenticationFailed);
+        assert_eq!(presentation.error_kind, AuthErrorKind::InvalidCredentials);
     }
 
     #[test]
     fn connectivity_error_smtp_only_delegates() {
         let error = ConnectivityCheckError::SmtpFailed(SmtpCheckError::AuthenticationFailed);
         let presentation = present_connectivity_error(&error, None, "user@example.com");
-        assert_eq!(presentation.error_kind, AuthErrorKind::AuthenticationFailed);
+        assert_eq!(presentation.error_kind, AuthErrorKind::InvalidCredentials);
         assert!(presentation.user_message.contains("outgoing mail server"));
+    }
+
+    // --- Story 13: Authentication Error Reporting tests ---
+
+    fn make_oauth_provider(
+        id: &str,
+        app_password_required: bool,
+        doc_url: Option<&str>,
+    ) -> Provider {
+        use crate::core::provider::OAuthConfig;
+        let mut provider = make_provider(id, app_password_required, doc_url);
+        provider.oauth = Some(OAuthConfig {
+            auth_url: "https://auth.example.com/authorize".to_string(),
+            token_url: "https://auth.example.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1".to_string(),
+            scopes: vec!["email".to_string()],
+            client_id: Some("test-client-id".to_string()),
+            pkce_required: false,
+            extra_params: vec![],
+            userinfo_url: None,
+            privacy_policy_url: None,
+        });
+        provider
+    }
+
+    // AC: Messages distinguish between invalid credentials
+    #[test]
+    fn imap_auth_failed_shows_invalid_credentials_kind() {
+        let presentation = present_imap_error(
+            &ImapCheckError::AuthenticationFailed,
+            None,
+            "user@example.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::InvalidCredentials);
+        assert!(presentation.user_message.contains("password"));
+    }
+
+    // AC: Messages distinguish between unsupported mechanism
+    #[test]
+    fn imap_mechanism_unavailable_shows_unsupported_mechanism() {
+        let presentation = present_imap_error(
+            &ImapCheckError::MechanismUnavailable,
+            None,
+            "user@example.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::UnsupportedMechanism);
+        assert!(presentation.user_message.contains("authentication methods"));
+    }
+
+    // AC: When all enabled mechanisms exhausted, mention disabled in advanced settings
+    #[test]
+    fn imap_all_mechanisms_disabled_mentions_advanced_settings() {
+        let presentation = present_imap_error(
+            &ImapCheckError::AllMechanismsDisabled,
+            None,
+            "user@example.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::MechanismDisabled);
+        assert!(presentation
+            .user_message
+            .contains("disabled in advanced settings"));
+        assert!(presentation.user_message.contains("mechanism toggles"));
+    }
+
+    // AC: Messages distinguish expired or revoked token
+    #[test]
+    fn imap_token_expired_shows_expired_token_kind() {
+        let presentation = present_imap_error(
+            &ImapCheckError::TokenExpired("invalid_grant".to_string()),
+            None,
+            "user@example.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::ExpiredToken);
+        assert!(presentation
+            .user_message
+            .contains("expired or been revoked"));
+        assert!(presentation.user_message.contains("sign in again"));
+        assert_eq!(presentation.raw_details, Some("invalid_grant".to_string()));
+    }
+
+    // AC: Messages distinguish certificate rejection
+    #[test]
+    fn imap_untrusted_certificate_shows_certificate_rejected_kind() {
+        use crate::core::certificate::CertificateInfo;
+        let presentation = present_imap_error(
+            &ImapCheckError::UntrustedCertificate(Box::new(CertificateInfo {
+                fingerprint: "AA:BB:CC".to_string(),
+                dns_names: vec!["mail.example.com".to_string()],
+                server_hostname: "mail.example.com".to_string(),
+            })),
+            None,
+            "user@example.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::CertificateRejected);
+        assert!(presentation.user_message.contains("certificate"));
+    }
+
+    // AC: Messages distinguish server-side errors
+    #[test]
+    fn imap_server_error_shows_server_error_kind() {
+        let presentation = present_imap_error(
+            &ImapCheckError::ServerError("500 Internal Server Error".to_string()),
+            None,
+            "user@example.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::ServerError);
+        assert!(presentation.user_message.contains("internal error"));
+        assert!(presentation.user_message.contains("try again later"));
+    }
+
+    // --- SMTP error reporting tests ---
+
+    #[test]
+    fn smtp_mechanism_unavailable_shows_unsupported_mechanism() {
+        let presentation = present_smtp_error(
+            &SmtpCheckError::MechanismUnavailable,
+            None,
+            "user@example.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::UnsupportedMechanism);
+        assert!(presentation.user_message.contains("outgoing mail server"));
+    }
+
+    #[test]
+    fn smtp_all_mechanisms_disabled_mentions_advanced_settings() {
+        let presentation = present_smtp_error(
+            &SmtpCheckError::AllMechanismsDisabled,
+            None,
+            "user@example.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::MechanismDisabled);
+        assert!(presentation
+            .user_message
+            .contains("disabled in advanced settings"));
+    }
+
+    #[test]
+    fn smtp_token_expired_shows_expired_token_kind() {
+        let presentation = present_smtp_error(
+            &SmtpCheckError::TokenExpired("token revoked".to_string()),
+            None,
+            "user@example.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::ExpiredToken);
+        assert!(presentation.user_message.contains("outgoing mail server"));
+        assert!(presentation
+            .user_message
+            .contains("expired or been revoked"));
+    }
+
+    #[test]
+    fn smtp_server_error_shows_server_error_kind() {
+        let presentation = present_smtp_error(
+            &SmtpCheckError::ServerError("502 Bad Gateway".to_string()),
+            None,
+            "user@example.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::ServerError);
+        assert!(presentation.user_message.contains("internal error"));
+    }
+
+    #[test]
+    fn smtp_untrusted_cert_shows_certificate_rejected() {
+        use crate::core::certificate::CertificateInfo;
+        let presentation = present_smtp_error(
+            &SmtpCheckError::UntrustedCertificate(Box::new(CertificateInfo {
+                fingerprint: "DD:EE:FF".to_string(),
+                dns_names: vec!["smtp.example.com".to_string()],
+                server_hostname: "smtp.example.com".to_string(),
+            })),
+            None,
+            "user@example.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::CertificateRejected);
+        assert!(presentation.user_message.contains("certificate"));
+    }
+
+    // --- NFR-7: Deprecated mechanism guidance ---
+
+    #[test]
+    fn oauth_provider_with_app_password_shows_deprecated_guidance() {
+        let provider = make_oauth_provider("google", true, Some("https://support.google.com"));
+        let hint = build_provider_hint(&provider, "user@google.com");
+        assert!(hint.supports_oauth);
+        assert!(hint.deprecated_mechanism_guidance.is_some());
+        let guidance = hint.deprecated_mechanism_guidance.unwrap();
+        assert!(guidance.contains("deprecated direct password login"));
+        assert!(guidance.contains("OAuth2"));
+        assert!(guidance.contains("app-specific password"));
+    }
+
+    #[test]
+    fn oauth_provider_without_app_password_shows_oauth_guidance() {
+        let provider = make_oauth_provider("provider", false, None);
+        let hint = build_provider_hint(&provider, "user@provider.com");
+        assert!(hint.supports_oauth);
+        assert!(hint.deprecated_mechanism_guidance.is_some());
+        let guidance = hint.deprecated_mechanism_guidance.unwrap();
+        assert!(guidance.contains("OAuth2"));
+    }
+
+    #[test]
+    fn non_oauth_provider_no_deprecated_guidance() {
+        let provider = make_provider("standard", false, None);
+        let hint = build_provider_hint(&provider, "user@standard.com");
+        assert!(!hint.supports_oauth);
+        assert!(hint.deprecated_mechanism_guidance.is_none());
+    }
+
+    #[test]
+    fn auth_failure_with_oauth_provider_appends_guidance() {
+        let provider = make_oauth_provider("google", true, Some("https://support.google.com"));
+        let presentation = present_imap_error(
+            &ImapCheckError::AuthenticationFailed,
+            Some(&provider),
+            "user@google.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::InvalidCredentials);
+        assert!(presentation
+            .user_message
+            .contains("deprecated direct password login"));
+    }
+
+    #[test]
+    fn mechanism_unavailable_with_oauth_provider_appends_guidance() {
+        let provider = make_oauth_provider("google", true, Some("https://support.google.com"));
+        let presentation = present_imap_error(
+            &ImapCheckError::MechanismUnavailable,
+            Some(&provider),
+            "user@google.com",
+        );
+        assert_eq!(presentation.error_kind, AuthErrorKind::UnsupportedMechanism);
+        assert!(presentation
+            .user_message
+            .contains("deprecated direct password login"));
+    }
+
+    #[test]
+    fn token_expired_does_not_append_deprecated_guidance() {
+        let provider = make_oauth_provider("google", true, Some("https://support.google.com"));
+        let presentation = present_imap_error(
+            &ImapCheckError::TokenExpired("invalid_grant".to_string()),
+            Some(&provider),
+            "user@google.com",
+        );
+        // Token expired errors should NOT append deprecated mechanism guidance —
+        // the user is already using OAuth, so telling them to use OAuth is unhelpful.
+        assert!(!presentation.user_message.contains("deprecated"));
+    }
+
+    // --- Combined connectivity error tests with new variants ---
+
+    #[test]
+    fn combined_error_mechanism_disabled_takes_priority() {
+        let error = ConnectivityCheckError::BothFailed {
+            imap: ImapCheckError::AllMechanismsDisabled,
+            smtp: SmtpCheckError::ConnectionFailed("timeout".to_string()),
+        };
+        let presentation = present_connectivity_error(&error, None, "user@example.com");
+        assert_eq!(presentation.error_kind, AuthErrorKind::MechanismDisabled);
+        assert!(presentation
+            .user_message
+            .contains("disabled in advanced settings"));
+    }
+
+    #[test]
+    fn combined_error_token_expired_presented() {
+        let error = ConnectivityCheckError::BothFailed {
+            imap: ImapCheckError::TokenExpired("revoked".to_string()),
+            smtp: SmtpCheckError::TokenExpired("revoked".to_string()),
+        };
+        let presentation = present_connectivity_error(&error, None, "user@example.com");
+        assert_eq!(presentation.error_kind, AuthErrorKind::ExpiredToken);
+    }
+
+    #[test]
+    fn combined_error_prefers_imap_auth_error_over_smtp() {
+        let error = ConnectivityCheckError::BothFailed {
+            imap: ImapCheckError::MechanismUnavailable,
+            smtp: SmtpCheckError::AuthenticationFailed,
+        };
+        let presentation = present_connectivity_error(&error, None, "user@example.com");
+        // Should present the IMAP error (more specific: MechanismUnavailable)
+        assert_eq!(presentation.error_kind, AuthErrorKind::UnsupportedMechanism);
     }
 }

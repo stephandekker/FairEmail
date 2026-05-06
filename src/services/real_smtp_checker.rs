@@ -54,6 +54,18 @@ impl SmtpChecker for RealSmtpChecker {
                     last_error = Some(SmtpCheckError::AuthenticationFailed);
                     continue;
                 }
+                Err(SmtpClientError::NoMechanismAvailable) => {
+                    return Err(SmtpCheckError::MechanismUnavailable);
+                }
+                Err(SmtpClientError::AllMechanismsDisabled) => {
+                    return Err(SmtpCheckError::AllMechanismsDisabled);
+                }
+                Err(SmtpClientError::TokenExpired(msg)) => {
+                    return Err(SmtpCheckError::TokenExpired(msg));
+                }
+                Err(SmtpClientError::ServerAuthError(msg)) => {
+                    return Err(SmtpCheckError::ServerError(msg));
+                }
                 Err(SmtpClientError::UntrustedCertificate(info)) => {
                     return Err(SmtpCheckError::UntrustedCertificate(Box::new(info)));
                 }

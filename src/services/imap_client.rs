@@ -60,11 +60,24 @@ pub(crate) struct ImapConnectParams {
 #[derive(Debug)]
 pub(crate) enum ImapClientError {
     DnsResolution(String),
-    ConnectionRefused { host: String, port: u16 },
+    ConnectionRefused {
+        host: String,
+        port: u16,
+    },
     Timeout,
     TlsHandshake(String),
     UntrustedCertificate(CertificateInfo),
     AuthenticationFailed,
+    /// No common mechanism between client and server after negotiation.
+    NoMechanismAvailable,
+    /// All compatible mechanisms were disabled by user toggles.
+    AllMechanismsDisabled,
+    /// OAuth token expired or revoked.
+    #[allow(dead_code)]
+    TokenExpired(String),
+    /// Server-side error during authentication (5xx-like).
+    #[allow(dead_code)]
+    ServerAuthError(String),
     ProtocolMismatch(String),
     FolderListFailed(String),
     ConnectionFailed(String),
@@ -90,6 +103,12 @@ impl From<ImapClientError> for InboundTestError {
                 fingerprint: Some(info.fingerprint),
             },
             ImapClientError::AuthenticationFailed => InboundTestError::AuthenticationFailed,
+            ImapClientError::NoMechanismAvailable => InboundTestError::AuthenticationFailed,
+            ImapClientError::AllMechanismsDisabled => InboundTestError::AuthenticationFailed,
+            ImapClientError::TokenExpired(_) => InboundTestError::AuthenticationFailed,
+            ImapClientError::ServerAuthError(msg) => {
+                InboundTestError::ConnectionFailed(format!("server auth error: {msg}"))
+            }
             ImapClientError::ProtocolMismatch(msg) => InboundTestError::ProtocolMismatch(msg),
             ImapClientError::FolderListFailed(msg) => {
                 InboundTestError::ConnectionFailed(format!("folder listing failed: {msg}"))
@@ -397,6 +416,33 @@ impl ImapSession {
             crate::core::auth_mechanism::AuthProtocol::Imap,
             &allowed,
         );
+
+        // If no mechanism was negotiated, distinguish between "no common mechanism"
+        // and "all mechanisms disabled by toggles".
+        if negotiated.is_none() {
+            // Check if there were server mechanisms before toggle filtering.
+            let pre_toggle = crate::core::auth_mechanism::negotiate_password_mechanism(
+                crate::core::auth_mechanism::AuthProtocol::Imap,
+                &server_mechs,
+            );
+            if pre_toggle.is_some() {
+                // Server had mechanisms, but toggles removed them all.
+                logs.push(ConnectionLogRecord::new(
+                    params.account_id.clone(),
+                    ConnectionLogEventType::Error,
+                    "All compatible authentication mechanisms have been disabled in settings"
+                        .to_string(),
+                ));
+                return Err(ImapClientError::AllMechanismsDisabled);
+            }
+            // Server didn't advertise any compatible mechanisms.
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                "No common authentication mechanism found between client and server".to_string(),
+            ));
+            return Err(ImapClientError::NoMechanismAvailable);
+        }
 
         // If NTLM is negotiated (or only available), use NTLM with domain.
         if negotiated == Some(crate::core::auth_mechanism::AuthMechanism::Ntlm) {

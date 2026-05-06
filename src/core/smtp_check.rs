@@ -46,6 +46,14 @@ pub enum SmtpCheckError {
     ConnectionFailed(String),
     #[error("authentication failed for all username formats")]
     AuthenticationFailed,
+    #[error("no common authentication mechanism supported by both client and server")]
+    MechanismUnavailable,
+    #[error("all compatible authentication mechanisms have been disabled in settings")]
+    AllMechanismsDisabled,
+    #[error("authentication token expired or revoked: {0}")]
+    TokenExpired(String),
+    #[error("server error during authentication: {0}")]
+    ServerError(String),
     #[error("untrusted certificate from server")]
     UntrustedCertificate(Box<CertificateInfo>),
 }

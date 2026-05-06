@@ -144,6 +144,8 @@ mod tests {
             documentation_url: Some("https://example.com/docs".to_string()),
             is_outlook_provider: false,
             outlook_guidance: None,
+            supports_oauth: false,
+            deprecated_mechanism_guidance: None,
         };
         let notification = build_revocation_notification_with_hint(&event, &hint);
         assert!(notification.provider_guidance.is_some());
@@ -163,6 +165,8 @@ mod tests {
             documentation_url: None,
             is_outlook_provider: true,
             outlook_guidance: Some("Use OAuth".to_string()),
+            supports_oauth: false,
+            deprecated_mechanism_guidance: None,
         };
         let notification = build_revocation_notification_with_hint(&event, &hint);
         assert!(notification.provider_guidance.is_some());
@@ -178,6 +182,8 @@ mod tests {
             documentation_url: None,
             is_outlook_provider: false,
             outlook_guidance: None,
+            supports_oauth: false,
+            deprecated_mechanism_guidance: None,
         };
         let notification = build_revocation_notification_with_hint(&event, &hint);
         assert!(notification.provider_guidance.is_none());
