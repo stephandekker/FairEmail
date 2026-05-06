@@ -12,7 +12,9 @@ use crate::core::account_review::{build_review_data, AccountReviewData};
 use crate::core::detection_failure::build_detection_failure_fallback;
 use crate::core::detection_progress::{detection_sequence, DetectionStep};
 use crate::core::oauth_flow::OAuthSession;
-use crate::core::oauth_signin::determine_auth_options;
+use crate::core::oauth_signin::{
+    determine_auth_options, oauth_unavailable_message, OAuthUnavailableReason,
+};
 use crate::core::oauth_wizard::{build_oauth_connection_error, create_oauth_account};
 use crate::core::privacy;
 use crate::core::proprietary_provider::check_proprietary_provider;
@@ -340,6 +342,29 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
 
     vbox.append(&oauth_box);
 
+    // -- OAuth unavailable info section (FR-29, US-15, AC-6, N-7) --
+    // Shown when the provider supports OAuth but this build lacks client credentials.
+    let oauth_unavailable_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(8)
+        .margin_top(8)
+        .visible(false)
+        .build();
+    oauth_unavailable_box.update_property(&[gtk::accessible::Property::Label(
+        &gettextrs::gettext("OAuth unavailable notice"),
+    )]);
+
+    let oauth_unavailable_label = gtk::Label::builder()
+        .css_classes(["dim-label", "body"])
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .margin_end(12)
+        .wrap(true)
+        .build();
+    oauth_unavailable_box.append(&oauth_unavailable_label);
+
+    vbox.append(&oauth_unavailable_box);
+
     // Shared state for OAuth setup (passed between async steps).
     let oauth_state: Rc<RefCell<Option<OAuthSetupState>>> = Rc::new(RefCell::new(None));
 
@@ -576,6 +601,10 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         #[weak]
         oauth_error_box,
         #[weak]
+        oauth_unavailable_box,
+        #[weak]
+        oauth_unavailable_label,
+        #[weak]
         tenant_group,
         #[weak]
         shared_mailbox_group,
@@ -593,6 +622,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
 
             // Reset OAuth error on email change.
             oauth_error_box.set_visible(false);
+            oauth_unavailable_box.set_visible(false);
 
             // Extract domain and attempt provider detection.
             if let Some(at_pos) = email.rfind('@') {
@@ -601,7 +631,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                     let db = load_merged_provider_database();
                     if let Some(candidate) = db.lookup_by_domain(domain) {
                         let options = determine_auth_options(&candidate.provider);
-                        if options.oauth_available {
+                        if options.oauth_available && options.oauth_credentials_present {
                             // Show OAuth as recommended (AC-1, AC-2).
                             let btn_label = gettextrs::gettext("Sign in with %s")
                                 .replace("%s", &options.provider_name);
@@ -628,11 +658,20 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                             check_btn.set_visible(false);
                             return;
                         }
+
+                        // Provider supports OAuth but credentials are missing (FR-29, AC-6, N-7).
+                        if options.oauth_unavailable_reason
+                            == Some(OAuthUnavailableReason::MissingCredentials)
+                        {
+                            oauth_unavailable_label
+                                .set_label(&oauth_unavailable_message(&options.provider_name));
+                            oauth_unavailable_box.set_visible(true);
+                        }
                     }
                 }
             }
 
-            // No OAuth — show password flow.
+            // No OAuth (or credentials missing) — show password flow.
             oauth_box.set_visible(false);
             password_group.set_visible(true);
             check_btn.set_visible(true);
@@ -1298,6 +1337,10 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         #[weak]
         oauth_box,
         #[weak]
+        oauth_unavailable_box,
+        #[weak]
+        oauth_unavailable_label,
+        #[weak]
         email_row,
         #[weak]
         check_btn,
@@ -1312,6 +1355,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             email_group.set_visible(true);
             privacy_box.set_visible(true);
             btn_box.set_visible(true);
+            oauth_unavailable_box.set_visible(false);
 
             // Re-detect provider to decide whether to show OAuth or password.
             let email = email_row.text().to_string();
@@ -1323,8 +1367,14 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                     let db = load_merged_provider_database();
                     if let Some(candidate) = db.lookup_by_domain(domain) {
                         let options = determine_auth_options(&candidate.provider);
-                        if options.oauth_available {
+                        if options.oauth_available && options.oauth_credentials_present {
                             show_oauth = true;
+                        } else if options.oauth_unavailable_reason
+                            == Some(OAuthUnavailableReason::MissingCredentials)
+                        {
+                            oauth_unavailable_label
+                                .set_label(&oauth_unavailable_message(&options.provider_name));
+                            oauth_unavailable_box.set_visible(true);
                         }
                     }
                 }

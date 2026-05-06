@@ -130,8 +130,9 @@ pub use oauth_identity::{
     userinfo_url, validate_userinfo_response, IdentityExtractionResult, IdentityInfo,
 };
 pub use oauth_signin::{
-    determine_auth_options, is_oauth_provider, resolve_auth_from_choice, AuthChoice, AuthOptions,
-    OAuthTokenResult,
+    determine_auth_options, has_oauth_credentials, is_oauth_provider,
+    oauth_credentials_file_exists, oauth_unavailable_message, resolve_auth_from_choice, AuthChoice,
+    AuthOptions, OAuthTokenResult, OAuthUnavailableReason, OAUTH_CREDENTIALS_FILENAME,
 };
 pub use oauth_wizard::{
     build_oauth_connection_error, create_oauth_account, derive_oauth_username, OAuthConnectionError,

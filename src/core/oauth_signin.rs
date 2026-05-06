@@ -14,17 +14,35 @@ const OAUTH_PROVIDER_IDS: &[&str] = &[
     "163",
 ];
 
+/// Reason why OAuth is not available for a provider that otherwise supports it (FR-29, US-15).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OAuthUnavailableReason {
+    /// The provider supports OAuth, but this build does not include the required
+    /// client credentials (e.g. a community-maintained package without bundled
+    /// OAuth client IDs). The user should use password or app-password authentication.
+    MissingCredentials,
+}
+
 /// Represents the authentication options available after provider detection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthOptions {
-    /// Whether OAuth sign-in is available for this provider.
+    /// Whether the provider supports OAuth and is in the known whitelist.
+    /// This indicates the provider *could* use OAuth if credentials are present.
     pub oauth_available: bool,
-    /// The OAuth configuration, if available.
+    /// The OAuth configuration, if the provider supports OAuth.
     pub oauth_config: Option<OAuthConfig>,
     /// Whether password-based authentication is available.
     pub password_available: bool,
     /// The provider display name (for UI labeling).
     pub provider_name: String,
+    /// Whether this build has the OAuth client credentials needed to actually
+    /// perform the OAuth flow (FR-29, N-7). When `oauth_available` is true but
+    /// `oauth_credentials_present` is false, the UI should hide the OAuth option
+    /// and show a message guiding the user to password authentication.
+    pub oauth_credentials_present: bool,
+    /// When the provider supports OAuth but credentials are missing, this
+    /// explains why OAuth cannot be used (FR-29, AC-6, N-7).
+    pub oauth_unavailable_reason: Option<OAuthUnavailableReason>,
 }
 
 /// The result of an OAuth token acquisition (passed back from epic 1.5's flow).
@@ -50,11 +68,23 @@ pub enum AuthChoice {
 /// Determine the authentication options available for a detected provider (FR-39, AC-18).
 ///
 /// Returns `AuthOptions` indicating whether OAuth is available and whether
-/// password-based auth is also offered.
+/// password-based auth is also offered. When a provider defines OAuth endpoints
+/// but the build lacks client credentials, `oauth_available` is false and
+/// `oauth_unavailable_reason` explains why (FR-29, AC-6, N-7).
 pub fn determine_auth_options(provider: &Provider) -> AuthOptions {
     let oauth_available = provider.oauth.is_some()
         && provider.enabled
         && OAUTH_PROVIDER_IDS.contains(&provider.id.as_str());
+
+    let oauth_credentials_present =
+        oauth_available && provider.oauth.as_ref().is_some_and(has_oauth_credentials);
+
+    // Provider supports OAuth in theory but this build lacks credentials (N-7).
+    let oauth_unavailable_reason = if oauth_available && !oauth_credentials_present {
+        Some(OAuthUnavailableReason::MissingCredentials)
+    } else {
+        None
+    };
 
     AuthOptions {
         oauth_available,
@@ -65,7 +95,66 @@ pub fn determine_auth_options(provider: &Provider) -> AuthOptions {
         },
         password_available: true,
         provider_name: provider.display_name.clone(),
+        oauth_credentials_present,
+        oauth_unavailable_reason,
     }
+}
+
+/// Check whether OAuth client credentials are available for a provider.
+///
+/// Credentials are detected from two sources, checked in order:
+/// 1. The provider's bundled `client_id` field — populated in official builds
+///    that embed OAuth credentials at compile time.
+/// 2. A runtime credentials file at `$XDG_CONFIG_HOME/fairmail/oauth_credentials.json`
+///    — allows community builds or self-compiled users to supply their own
+///    OAuth client IDs without modifying the source.
+///
+/// Returns true if either source provides credentials (FR-29, N-7).
+pub fn has_oauth_credentials(config: &OAuthConfig) -> bool {
+    // Source 1: bundled client_id in the provider config.
+    if config
+        .client_id
+        .as_ref()
+        .is_some_and(|id| !id.trim().is_empty())
+    {
+        return true;
+    }
+
+    // Source 2: runtime credentials file on disk.
+    oauth_credentials_file_exists()
+}
+
+/// Path to the runtime OAuth credentials file.
+pub const OAUTH_CREDENTIALS_FILENAME: &str = "oauth_credentials.json";
+
+/// Check whether a runtime OAuth credentials file exists and is non-empty.
+///
+/// The file is expected at `$XDG_CONFIG_HOME/fairmail/oauth_credentials.json`
+/// (defaulting to `~/.config/fairmail/oauth_credentials.json`). Its presence
+/// with non-empty content signals that the user has supplied their own OAuth
+/// client credentials.
+pub fn oauth_credentials_file_exists() -> bool {
+    let config_dir = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_default();
+        format!("{home}/.config")
+    });
+    let path = std::path::Path::new(&config_dir)
+        .join(super::user_provider_file::APP_CONFIG_DIR)
+        .join(OAUTH_CREDENTIALS_FILENAME);
+    path.is_file()
+        && std::fs::metadata(&path)
+            .map(|m| m.len() > 0)
+            .unwrap_or(false)
+}
+
+/// Build a user-facing message explaining why OAuth is unavailable and guiding
+/// the user to password-based authentication (FR-29, US-15, AC-6).
+pub fn oauth_unavailable_message(provider_name: &str) -> String {
+    gettextrs::gettext(
+        "OAuth sign-in is not available for %s in this build. \
+         Please use password or app-password authentication instead.",
+    )
+    .replace("%s", provider_name)
 }
 
 /// Check whether a provider ID is in the known OAuth-supporting list (FR-40).
@@ -120,7 +209,7 @@ mod tests {
                 token_url: "https://auth.example.com/token".to_string(),
                 redirect_uri: "http://127.0.0.1/callback".to_string(),
                 scopes: vec!["mail".to_string()],
-                client_id: None,
+                client_id: Some("test-client-id".to_string()),
                 extra_params: vec![],
                 userinfo_url: None,
             }),
@@ -128,6 +217,14 @@ mod tests {
             enabled: true,
             supports_shared_mailbox: false,
         }
+    }
+
+    /// Create a provider in the OAuth whitelist with OAuth config but NO client credentials.
+    /// Simulates a community build that lacks bundled OAuth client IDs.
+    fn make_oauth_provider_no_credentials(id: &str) -> Provider {
+        let mut provider = make_oauth_provider(id);
+        provider.oauth.as_mut().unwrap().client_id = None;
+        provider
     }
 
     fn make_no_oauth_provider() -> Provider {
@@ -481,5 +578,206 @@ mod tests {
                 "Expected non-empty scopes for {domain}"
             );
         }
+    }
+
+    // --- Distribution-channel gating & credential detection (story 12, FR-29, AC-6, N-7) ---
+
+    #[test]
+    fn has_oauth_credentials_true_when_client_id_present() {
+        let config = OAuthConfig {
+            auth_url: "https://example.com/auth".to_string(),
+            token_url: "https://example.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
+            scopes: vec!["mail".to_string()],
+            client_id: Some("my-client-id".to_string()),
+            extra_params: vec![],
+            userinfo_url: None,
+        };
+        assert!(super::has_oauth_credentials(&config));
+    }
+
+    #[test]
+    fn has_oauth_credentials_false_when_client_id_none_and_no_file() {
+        // has_oauth_credentials checks client_id first, then falls back to
+        // runtime credentials file. When client_id is None and no file exists,
+        // it should return false. (If a credentials file exists on disk, this
+        // test will return true, which is correct behavior.)
+        let config = OAuthConfig {
+            auth_url: "https://example.com/auth".to_string(),
+            token_url: "https://example.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
+            scopes: vec!["mail".to_string()],
+            client_id: None,
+            extra_params: vec![],
+            userinfo_url: None,
+        };
+        // When no runtime file, should be false. With file, true is correct.
+        let result = super::has_oauth_credentials(&config);
+        let file_exists = super::oauth_credentials_file_exists();
+        if file_exists {
+            assert!(result, "With credentials file present, should be true");
+        } else {
+            assert!(
+                !result,
+                "Without client_id or credentials file, should be false"
+            );
+        }
+    }
+
+    #[test]
+    fn has_oauth_credentials_false_when_client_id_empty_and_no_file() {
+        let config = OAuthConfig {
+            auth_url: "https://example.com/auth".to_string(),
+            token_url: "https://example.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
+            scopes: vec!["mail".to_string()],
+            client_id: Some("".to_string()),
+            extra_params: vec![],
+            userinfo_url: None,
+        };
+        let result = super::has_oauth_credentials(&config);
+        let file_exists = super::oauth_credentials_file_exists();
+        if file_exists {
+            assert!(result);
+        } else {
+            assert!(!result);
+        }
+    }
+
+    #[test]
+    fn has_oauth_credentials_false_when_client_id_whitespace_and_no_file() {
+        let config = OAuthConfig {
+            auth_url: "https://example.com/auth".to_string(),
+            token_url: "https://example.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
+            scopes: vec!["mail".to_string()],
+            client_id: Some("   ".to_string()),
+            extra_params: vec![],
+            userinfo_url: None,
+        };
+        let result = super::has_oauth_credentials(&config);
+        let file_exists = super::oauth_credentials_file_exists();
+        if file_exists {
+            assert!(result);
+        } else {
+            assert!(!result);
+        }
+    }
+
+    #[test]
+    fn oauth_unavailable_when_credentials_missing() {
+        let provider = make_oauth_provider_no_credentials("gmail");
+        assert!(provider.oauth.as_ref().unwrap().client_id.is_none());
+        let options = determine_auth_options(&provider);
+        // Provider supports OAuth (config present + in whitelist).
+        assert!(options.oauth_available);
+        assert!(options.oauth_config.is_some());
+        // But this build lacks credentials.
+        assert!(!options.oauth_credentials_present);
+        assert_eq!(
+            options.oauth_unavailable_reason,
+            Some(OAuthUnavailableReason::MissingCredentials)
+        );
+        assert!(options.password_available);
+    }
+
+    #[test]
+    fn oauth_available_when_credentials_present() {
+        let provider = make_oauth_provider("gmail");
+        assert!(provider.oauth.as_ref().unwrap().client_id.is_some());
+        let options = determine_auth_options(&provider);
+        assert!(options.oauth_available);
+        assert!(options.oauth_credentials_present);
+        assert!(options.oauth_config.is_some());
+        assert!(options.oauth_unavailable_reason.is_none());
+        assert!(options.password_available);
+    }
+
+    #[test]
+    fn no_unavailable_reason_for_non_oauth_provider() {
+        let provider = make_no_oauth_provider();
+        let options = determine_auth_options(&provider);
+        assert!(!options.oauth_available);
+        // No reason because the provider doesn't support OAuth at all.
+        assert!(options.oauth_unavailable_reason.is_none());
+    }
+
+    #[test]
+    fn no_unavailable_reason_for_unknown_provider_with_config() {
+        // Provider has OAuth config but is not in the known whitelist.
+        let mut provider = make_no_oauth_provider();
+        provider.oauth = Some(OAuthConfig {
+            auth_url: "https://auth.example.com".to_string(),
+            token_url: "https://token.example.com".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
+            scopes: vec!["mail".to_string()],
+            client_id: Some("has-credentials".to_string()),
+            extra_params: vec![],
+            userinfo_url: None,
+        });
+        let options = determine_auth_options(&provider);
+        assert!(!options.oauth_available);
+        // Not in whitelist, so not a "missing credentials" situation.
+        assert!(options.oauth_unavailable_reason.is_none());
+    }
+
+    #[test]
+    fn bundled_providers_without_credentials_report_missing() {
+        // All bundled OAuth providers ship with client_id: None by default.
+        // They support OAuth (oauth_available=true) but lack credentials.
+        let db = crate::core::provider::ProviderDatabase::bundled();
+        let oauth_domains = [
+            "gmail.com",
+            "outlook.com",
+            "yahoo.com",
+            "aol.com",
+            "yandex.ru",
+            "mail.ru",
+            "fastmail.com",
+            "163.com",
+        ];
+        for domain in &oauth_domains {
+            let candidate = db.lookup_by_domain(domain).unwrap();
+            let options = determine_auth_options(&candidate.provider);
+            // Provider supports OAuth.
+            assert!(
+                options.oauth_available,
+                "Provider for {domain} should support OAuth"
+            );
+            // But this build has no bundled credentials (client_id is None).
+            // Note: oauth_credentials_present may still be true if a runtime
+            // credentials file exists on disk. We only check the reason field.
+            if !options.oauth_credentials_present {
+                assert_eq!(
+                    options.oauth_unavailable_reason,
+                    Some(OAuthUnavailableReason::MissingCredentials),
+                    "Expected MissingCredentials reason for {domain}"
+                );
+            }
+            // Password fallback always available.
+            assert!(options.password_available);
+        }
+    }
+
+    #[test]
+    fn oauth_unavailable_message_contains_provider_name() {
+        let msg = super::oauth_unavailable_message("Gmail");
+        assert!(msg.contains("Gmail"));
+        assert!(msg.contains("password"));
+    }
+
+    #[test]
+    fn password_always_available_regardless_of_credentials() {
+        // With credentials
+        let provider = make_oauth_provider("gmail");
+        assert!(determine_auth_options(&provider).password_available);
+
+        // Without credentials
+        let provider2 = make_oauth_provider_no_credentials("gmail");
+        assert!(determine_auth_options(&provider2).password_available);
+
+        // No OAuth at all
+        let provider3 = make_no_oauth_provider();
+        assert!(determine_auth_options(&provider3).password_available);
     }
 }
