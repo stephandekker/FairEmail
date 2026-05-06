@@ -4,6 +4,7 @@ pub mod account_order;
 pub mod account_review;
 pub mod auth_conversion;
 pub mod auth_error;
+pub mod auth_mechanism;
 pub mod auto_config;
 pub(crate) mod browser_selection;
 pub mod certificate;
@@ -78,6 +79,10 @@ pub use auth_error::{
     app_password_hint_text, build_provider_hint, is_outlook_domain, outlook_documentation_url,
     present_connectivity_error, present_imap_error, present_smtp_error, AuthErrorKind,
     AuthErrorPresentation, ProviderHint, GENERAL_SUPPORT_URL,
+};
+pub use auth_mechanism::{
+    log_negotiation, negotiate_password_mechanism, parse_imap_capabilities, parse_pop3_capa,
+    parse_smtp_ehlo, supported_mechanisms, AuthMechanism, AuthProtocol,
 };
 pub use browser_selection::{
     detect_installed_browsers, select_browser, BrowserInfo, BrowserSelectionResult,
