@@ -11,6 +11,16 @@ use tokio::sync::broadcast;
 /// Type alias for the account-params lookup function.
 type AccountParamsFn = dyn Fn(&str) -> Option<ImapConnectParams> + Send + Sync;
 
+/// Type alias for the pre-sync token refresh function.
+///
+/// Called before each sync cycle for OAuth2 accounts. The function receives the
+/// account ID string and returns an updated access token on success, or `None`
+/// if no refresh was needed/possible (the existing token should be used as-is).
+/// This integrates `TokenRefreshManager::ensure_fresh_token` into the sync loop
+/// so that tokens are refreshed automatically before they expire (FR-15, FR-16).
+pub(crate) type TokenRefreshFn = dyn Fn(&str) -> Option<String> + Send + Sync;
+
+use crate::core::account::AuthMethod;
 use crate::core::content_store::ContentStore;
 use crate::core::message::FLAG_SEEN;
 use crate::core::pending_operation::{
@@ -892,6 +902,7 @@ pub(crate) fn start_sync_engine(
     event_sender: broadcast::Sender<SyncEvent>,
     flag_store: Arc<dyn ImapFlagStore>,
     account_params_fn: Arc<AccountParamsFn>,
+    token_refresh_fn: Option<Arc<TokenRefreshFn>>,
 ) -> SyncEngineHandle {
     start_sync_engine_with_idle(
         db_path,
@@ -901,10 +912,12 @@ pub(crate) fn start_sync_engine(
         Arc::new(RealIdleWaiter),
         None,
         Arc::new(RealImapFolderOps),
+        token_refresh_fn,
     )
 }
 
 /// Start the sync engine with explicit idle waiter and content store (for testing).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn start_sync_engine_with_idle(
     db_path: PathBuf,
     event_sender: broadcast::Sender<SyncEvent>,
@@ -913,6 +926,7 @@ pub(crate) fn start_sync_engine_with_idle(
     idle_waiter: Arc<dyn IdleWaiter>,
     content_store: Option<Arc<dyn ContentStore + Send + Sync>>,
     folder_ops: Arc<dyn ImapFolderOps>,
+    token_refresh_fn: Option<Arc<TokenRefreshFn>>,
 ) -> SyncEngineHandle {
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let (notify_tx, notify_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
@@ -935,6 +949,7 @@ pub(crate) fn start_sync_engine_with_idle(
                 idle_waiter,
                 content_store,
                 folder_ops,
+                token_refresh_fn,
                 shutdown_rx,
                 notify_rx,
                 idle_rx,
@@ -959,6 +974,7 @@ async fn engine_loop(
     idle_waiter: Arc<dyn IdleWaiter>,
     content_store: Option<Arc<dyn ContentStore + Send + Sync>>,
     folder_ops: Arc<dyn ImapFolderOps>,
+    token_refresh_fn: Option<Arc<TokenRefreshFn>>,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
     mut notify_rx: tokio::sync::mpsc::UnboundedReceiver<String>,
     mut idle_rx: tokio::sync::mpsc::UnboundedReceiver<IdleCommand>,
@@ -974,6 +990,7 @@ async fn engine_loop(
                 let flag_store = flag_store.clone();
                 let account_params_fn = account_params_fn.clone();
                 let folder_ops = folder_ops.clone();
+                let token_refresh_fn = token_refresh_fn.clone();
 
                 tokio::spawn(async move {
                     process_account_ops(
@@ -983,6 +1000,7 @@ async fn engine_loop(
                         flag_store,
                         account_params_fn.as_ref(),
                         folder_ops,
+                        token_refresh_fn.as_deref(),
                     ).await;
                 });
             }
@@ -1020,6 +1038,7 @@ async fn process_account_ops(
     flag_store: Arc<dyn ImapFlagStore>,
     account_params_fn: &(dyn Fn(&str) -> Option<ImapConnectParams> + Send + Sync),
     folder_ops: Arc<dyn ImapFolderOps>,
+    token_refresh_fn: Option<&TokenRefreshFn>,
 ) {
     process_account_ops_full(
         db_path,
@@ -1032,6 +1051,7 @@ async fn process_account_ops(
         None,
         None,
         folder_ops,
+        token_refresh_fn,
     )
     .await;
 }
@@ -1054,6 +1074,7 @@ async fn process_account_ops_full(
     smtp_params_fn: Option<Arc<SmtpParamsFn>>,
     content_reader_fn: Option<Arc<ContentReaderFn>>,
     folder_ops: Arc<dyn ImapFolderOps>,
+    token_refresh_fn: Option<&TokenRefreshFn>,
 ) {
     let conn = match open_and_migrate(db_path) {
         Ok(c) => c,
@@ -1075,13 +1096,23 @@ async fn process_account_ops_full(
         return;
     }
 
-    let params = match account_params_fn(account_id) {
+    let mut params = match account_params_fn(account_id) {
         Some(p) => p,
         None => {
             eprintln!("sync engine: no connection params for account {account_id}");
             return;
         }
     };
+
+    // For OAuth2 accounts, refresh the access token before sync (FR-15, FR-16).
+    // This ensures the token is fresh without delaying the sync operation.
+    if params.auth_method == AuthMethod::OAuth2 {
+        if let Some(refresh_fn) = token_refresh_fn {
+            if let Some(fresh_token) = refresh_fn(account_id) {
+                params.password = fresh_token;
+            }
+        }
+    }
 
     let mut i = 0;
     while i < ops.len() {
@@ -1927,6 +1958,7 @@ mod tests {
             flag_store.clone(),
             account_params_fn.as_ref(),
             Arc::new(MockImapFolderOps { should_fail: None }),
+            None,
         )
         .await;
 
@@ -1988,6 +2020,7 @@ mod tests {
                 flag_store.clone(),
                 account_params_fn.as_ref(),
                 Arc::new(MockImapFolderOps { should_fail: None }),
+                None,
             ),
         )
         .await;
@@ -2036,6 +2069,7 @@ mod tests {
             flag_store.clone(),
             account_params_fn.as_ref(),
             Arc::new(MockImapFolderOps { should_fail: None }),
+            None,
         )
         .await;
 
@@ -2081,7 +2115,13 @@ mod tests {
         let params = make_test_params();
         let account_params_fn: Arc<AccountParamsFn> = Arc::new(move |_| Some(params.clone()));
 
-        let handle = start_sync_engine(db_path.clone(), event_tx, flag_store, account_params_fn);
+        let handle = start_sync_engine(
+            db_path.clone(),
+            event_tx,
+            flag_store,
+            account_params_fn,
+            None,
+        );
         handle.notify_account("acct-1");
 
         // Wait for the event
@@ -2337,6 +2377,7 @@ mod tests {
             Some(smtp_params_fn),
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
+            None,
         )
         .await;
 
@@ -2385,6 +2426,7 @@ mod tests {
                 Some(smtp_params_fn),
                 None,
                 Arc::new(MockImapFolderOps { should_fail: None }),
+                None,
             ),
         )
         .await;
@@ -2427,6 +2469,7 @@ mod tests {
             Some(smtp_params_fn),
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
+            None,
         )
         .await;
 
@@ -2476,6 +2519,7 @@ mod tests {
             Some(smtp_params_fn),
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
+            None,
         )
         .await;
 
@@ -2525,5 +2569,130 @@ mod tests {
         assert!(!is_transient_error(&SyncError::ContentStore(
             "not found".to_string()
         )));
+    }
+
+    #[tokio::test]
+    async fn token_refresh_called_for_oauth2_accounts() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let (_dir, db_path) = setup_db();
+
+        // Create a pending operation
+        let conn = open_and_migrate(&db_path).unwrap();
+        let payload = StoreFlagsPayload {
+            message_id: 1,
+            uid: 100,
+            folder_name: "INBOX".to_string(),
+            new_flags: FLAG_SEEN,
+        };
+        let payload_json = serde_json::to_string(&payload).unwrap();
+        pending_ops_store::insert_pending_op(
+            &conn,
+            "acct-1",
+            &OperationKind::StoreFlags,
+            &payload_json,
+        )
+        .unwrap();
+        drop(conn);
+
+        let (event_tx, _event_rx) = broadcast::channel::<SyncEvent>(16);
+        let flag_store: Arc<dyn ImapFlagStore> = Arc::new(MockImapFlagStore { should_fail: None });
+
+        // OAuth2 account params
+        let params = ImapConnectParams {
+            host: "imap.example.com".to_string(),
+            port: 993,
+            encryption: EncryptionMode::SslTls,
+            username: "user".to_string(),
+            password: "old-token".to_string(),
+            accepted_fingerprint: None,
+            insecure: false,
+            account_id: "acct-1".to_string(),
+            client_certificate: None,
+            dane: false,
+            dnssec: false,
+            auth_realm: None,
+            auth_method: AuthMethod::OAuth2,
+        };
+        let account_params_fn: Arc<AccountParamsFn> = Arc::new(move |_| Some(params.clone()));
+
+        // Token refresh function that records it was called
+        let refresh_called = Arc::new(AtomicBool::new(false));
+        let refresh_called_clone = refresh_called.clone();
+        let token_refresh_fn: Arc<TokenRefreshFn> = Arc::new(move |_account_id| {
+            refresh_called_clone.store(true, Ordering::SeqCst);
+            Some("fresh-token".to_string())
+        });
+
+        process_account_ops(
+            &db_path,
+            "acct-1",
+            &event_tx,
+            flag_store,
+            account_params_fn.as_ref(),
+            Arc::new(MockImapFolderOps { should_fail: None }),
+            Some(token_refresh_fn.as_ref()),
+        )
+        .await;
+
+        assert!(
+            refresh_called.load(Ordering::SeqCst),
+            "token refresh should be called for OAuth2 accounts"
+        );
+    }
+
+    #[tokio::test]
+    async fn token_refresh_not_called_for_plain_accounts() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let (_dir, db_path) = setup_db();
+
+        // Create a pending operation
+        let conn = open_and_migrate(&db_path).unwrap();
+        let payload = StoreFlagsPayload {
+            message_id: 1,
+            uid: 100,
+            folder_name: "INBOX".to_string(),
+            new_flags: FLAG_SEEN,
+        };
+        let payload_json = serde_json::to_string(&payload).unwrap();
+        pending_ops_store::insert_pending_op(
+            &conn,
+            "acct-1",
+            &OperationKind::StoreFlags,
+            &payload_json,
+        )
+        .unwrap();
+        drop(conn);
+
+        let (event_tx, _event_rx) = broadcast::channel::<SyncEvent>(16);
+        let flag_store: Arc<dyn ImapFlagStore> = Arc::new(MockImapFlagStore { should_fail: None });
+
+        // Plain auth account params
+        let params = make_test_params(); // uses AuthMethod::Plain
+        let account_params_fn: Arc<AccountParamsFn> = Arc::new(move |_| Some(params.clone()));
+
+        let refresh_called = Arc::new(AtomicBool::new(false));
+        let refresh_called_clone = refresh_called.clone();
+        let token_refresh_fn: Arc<TokenRefreshFn> = Arc::new(move |_account_id| {
+            refresh_called_clone.store(true, Ordering::SeqCst);
+            Some("fresh-token".to_string())
+        });
+
+        process_account_ops(
+            &db_path,
+            "acct-1",
+            &event_tx,
+            flag_store,
+            account_params_fn.as_ref(),
+            Arc::new(MockImapFolderOps { should_fail: None }),
+            Some(token_refresh_fn.as_ref()),
+        )
+        .await;
+
+        assert!(
+            !refresh_called.load(Ordering::SeqCst),
+            "token refresh should NOT be called for plain auth accounts"
+        );
     }
 }
