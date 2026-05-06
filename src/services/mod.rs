@@ -39,6 +39,8 @@ pub mod sqlite_settings_store;
 #[allow(dead_code)]
 pub mod sync_engine;
 pub mod sync_state_store;
+#[allow(dead_code)]
+pub(crate) mod token_refresh_service;
 pub mod user_provider_service;
 pub(crate) mod userinfo_service;
 

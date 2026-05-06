@@ -51,6 +51,8 @@ pub mod smtp_test_diagnostics;
 pub mod sync_conditions;
 pub mod sync_event;
 pub mod sync_state;
+#[allow(dead_code)]
+pub(crate) mod token_refresh;
 pub mod user_provider_file;
 #[allow(dead_code)]
 pub(crate) mod vendor_discovery;
