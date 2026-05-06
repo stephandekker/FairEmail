@@ -1122,8 +1122,9 @@ pub(crate) fn build(
                         new_password,
                     }) => {
                         // FR-30: Convert OAuth → password. Remove old OAuth tokens,
-                        // store the new password, and update the account auth method.
-                        // All other account state (folders, identities, etc.) is preserved.
+                        // store the new password for both IMAP and SMTP, and update
+                        // the account auth method. All other account state (folders,
+                        // identities, etc.) is preserved.
                         let _ =
                             credential_store.delete(account_id, CredentialRole::OAuthRefreshToken);
                         let _ =
@@ -1136,13 +1137,18 @@ pub(crate) fn build(
                             eprintln!("Failed to store new password: {e}");
                             return;
                         }
+                        // Store the same password for SMTP so outgoing mail works.
+                        if let Err(e) = credential_store.write(
+                            account_id,
+                            CredentialRole::SmtpPassword,
+                            &SecretValue::new(new_password.clone()),
+                        ) {
+                            eprintln!("Failed to store SMTP password: {e}");
+                        }
                         {
                             let mut list = accounts.borrow_mut();
                             if let Some(acct) = list.iter_mut().find(|a| a.id() == account_id) {
-                                acct.update_credentials(
-                                    new_password,
-                                    crate::core::AuthMethod::Plain,
-                                );
+                                acct.switch_auth_type(new_password, crate::core::AuthMethod::Plain);
                                 let _ = store.update(acct.clone());
                             }
                         }
@@ -1161,8 +1167,8 @@ pub(crate) fn build(
                         expires_in,
                     }) => {
                         // FR-30: Convert password → OAuth. Store new OAuth tokens,
-                        // remove the old password role (overwritten by access token),
-                        // and update the account auth method.
+                        // remove the old SMTP password (OAuth uses the access token
+                        // for both IMAP and SMTP), and update the account auth method.
                         // All other account state (folders, identities, etc.) is preserved.
                         let validated = crate::core::ValidatedTokenResponse {
                             access_token: access_token.clone(),
@@ -1177,10 +1183,12 @@ pub(crate) fn build(
                             eprintln!("Failed to store OAuth tokens: {e}");
                             return;
                         }
+                        // Remove old SMTP password — OAuth uses the access token.
+                        let _ = credential_store.delete(account_id, CredentialRole::SmtpPassword);
                         {
                             let mut list = accounts.borrow_mut();
                             if let Some(acct) = list.iter_mut().find(|a| a.id() == account_id) {
-                                acct.update_credentials(
+                                acct.switch_auth_type(
                                     access_token,
                                     crate::core::AuthMethod::OAuth2,
                                 );

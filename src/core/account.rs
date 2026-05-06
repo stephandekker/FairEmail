@@ -1074,6 +1074,20 @@ impl Account {
         self.auth_method = auth_method;
     }
 
+    /// Switch the authentication type for both IMAP and SMTP (FR-30, N-5).
+    ///
+    /// Updates the account-level auth method and credential, and also updates the
+    /// SMTP configuration's auth method and credential to match. All other account
+    /// properties (folders, messages, settings) are preserved.
+    pub fn switch_auth_type(&mut self, credential: String, auth_method: AuthMethod) {
+        self.credential = credential.clone();
+        self.auth_method = auth_method;
+        if let Some(ref mut smtp) = self.smtp {
+            smtp.auth_method = auth_method;
+            smtp.credential = credential;
+        }
+    }
+
     /// Extract the configuration of this account into `NewAccountParams` suitable for
     /// creating a duplicate. The duplicate will NOT inherit:
     /// - The source's unique identifier (a new UUID is assigned on creation)
@@ -3394,5 +3408,96 @@ mod tests {
         up.shared_mailbox = Some("shared@example.com".into());
         acct.update(up).unwrap();
         assert_eq!(acct.shared_mailbox(), Some("shared@example.com"));
+    }
+
+    // -- switch_auth_type tests (FR-30, US-17) --
+
+    fn oauth_account_with_smtp() -> Account {
+        let mut p = valid_params();
+        p.auth_method = AuthMethod::OAuth2;
+        p.credential = "access-token".into();
+        p.smtp = Some(SmtpConfig {
+            host: "smtp.example.com".into(),
+            port: 465,
+            encryption: EncryptionMode::SslTls,
+            auth_method: AuthMethod::OAuth2,
+            username: "user@example.com".into(),
+            credential: "access-token".into(),
+        });
+        Account::new(p).unwrap()
+    }
+
+    fn password_account_with_smtp() -> Account {
+        let mut p = valid_params();
+        p.auth_method = AuthMethod::Plain;
+        p.credential = "password123".into();
+        p.smtp = Some(SmtpConfig {
+            host: "smtp.example.com".into(),
+            port: 465,
+            encryption: EncryptionMode::SslTls,
+            auth_method: AuthMethod::Plain,
+            username: "user@example.com".into(),
+            credential: "password123".into(),
+        });
+        Account::new(p).unwrap()
+    }
+
+    #[test]
+    fn switch_auth_type_oauth_to_password() {
+        let mut acct = oauth_account_with_smtp();
+        assert_eq!(acct.auth_method(), AuthMethod::OAuth2);
+
+        acct.switch_auth_type("new-password".into(), AuthMethod::Plain);
+
+        assert_eq!(acct.auth_method(), AuthMethod::Plain);
+        assert_eq!(acct.credential(), "new-password");
+        let smtp = acct.smtp().unwrap();
+        assert_eq!(smtp.auth_method, AuthMethod::Plain);
+        assert_eq!(smtp.credential, "new-password");
+    }
+
+    #[test]
+    fn switch_auth_type_password_to_oauth() {
+        let mut acct = password_account_with_smtp();
+        assert_eq!(acct.auth_method(), AuthMethod::Plain);
+
+        acct.switch_auth_type("oauth-token".into(), AuthMethod::OAuth2);
+
+        assert_eq!(acct.auth_method(), AuthMethod::OAuth2);
+        assert_eq!(acct.credential(), "oauth-token");
+        let smtp = acct.smtp().unwrap();
+        assert_eq!(smtp.auth_method, AuthMethod::OAuth2);
+        assert_eq!(smtp.credential, "oauth-token");
+    }
+
+    #[test]
+    fn switch_auth_type_preserves_all_other_properties() {
+        let mut acct = oauth_account_with_smtp();
+        let original_id = acct.id();
+        let original_host = acct.host().to_string();
+        let original_username = acct.username().to_string();
+        let original_display_name = acct.display_name().to_string();
+        let original_smtp_host = acct.smtp().unwrap().host.clone();
+
+        acct.switch_auth_type("new-password".into(), AuthMethod::Plain);
+
+        assert_eq!(acct.id(), original_id);
+        assert_eq!(acct.host(), original_host);
+        assert_eq!(acct.username(), original_username);
+        assert_eq!(acct.display_name(), original_display_name);
+        assert_eq!(acct.smtp().unwrap().host, original_smtp_host);
+        assert_eq!(acct.smtp().unwrap().username, original_username);
+    }
+
+    #[test]
+    fn switch_auth_type_without_smtp_config() {
+        let mut acct = valid_account(); // no SMTP config
+        assert!(acct.smtp().is_none());
+
+        acct.switch_auth_type("new-cred".into(), AuthMethod::OAuth2);
+
+        assert_eq!(acct.auth_method(), AuthMethod::OAuth2);
+        assert_eq!(acct.credential(), "new-cred");
+        assert!(acct.smtp().is_none()); // still none, no panic
     }
 }

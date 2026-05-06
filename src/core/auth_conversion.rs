@@ -168,4 +168,46 @@ mod tests {
         assert_eq!(acct.username(), original_username);
         assert_eq!(acct.auth_method(), AuthMethod::Plain);
     }
+
+    #[test]
+    fn switch_oauth_to_password_uses_mechanism_negotiation() {
+        // After switching from OAuth to password, auth_method should be Plain
+        // so that password-based mechanism negotiation (story 1) is used.
+        let mut acct = make_account(AuthMethod::OAuth2, "user@gmail.com", "imap.gmail.com");
+        assert_eq!(acct.auth_method(), AuthMethod::OAuth2);
+
+        acct.switch_auth_type("app-password".into(), AuthMethod::Plain);
+
+        assert_eq!(acct.auth_method(), AuthMethod::Plain);
+        assert_eq!(acct.credential(), "app-password");
+    }
+
+    #[test]
+    fn switch_password_to_oauth_uses_xoauth2() {
+        // After switching from password to OAuth, auth_method should be OAuth2
+        // so that XOAUTH2 is used exclusively (story 3).
+        let mut acct = make_account(AuthMethod::Plain, "user@gmail.com", "imap.gmail.com");
+        let db = ProviderDatabase::bundled();
+        assert!(find_oauth_config_for_conversion(&acct, &db).is_some());
+
+        acct.switch_auth_type("access-token".into(), AuthMethod::OAuth2);
+
+        assert_eq!(acct.auth_method(), AuthMethod::OAuth2);
+        assert_eq!(acct.credential(), "access-token");
+    }
+
+    #[test]
+    fn switch_preserves_account_identity() {
+        // Switching auth type must preserve the account ID, folders, and settings.
+        let mut acct = make_account(AuthMethod::OAuth2, "user@gmail.com", "imap.gmail.com");
+        let original_id = acct.id();
+        let original_host = acct.host().to_string();
+        let original_username = acct.username().to_string();
+
+        acct.switch_auth_type("app-password".into(), AuthMethod::Plain);
+
+        assert_eq!(acct.id(), original_id);
+        assert_eq!(acct.host(), original_host);
+        assert_eq!(acct.username(), original_username);
+    }
 }
