@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 12;
+const CURRENT_VERSION: u32 = 13;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -74,10 +74,19 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 12 {
         migrate_v12(conn)?;
     }
+    if version < 13 {
+        migrate_v13(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v13: Add shared_mailbox column to accounts table (FR-40, N-8).
+fn migrate_v13(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch("ALTER TABLE accounts ADD COLUMN shared_mailbox TEXT;")?;
     Ok(())
 }
 

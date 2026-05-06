@@ -86,6 +86,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap()
     }

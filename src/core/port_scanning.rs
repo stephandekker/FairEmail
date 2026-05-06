@@ -108,6 +108,7 @@ pub(crate) fn discover_by_port_scan(
         oauth: None,
         display_order: 0,
         enabled: true,
+        supports_shared_mailbox: false,
     };
 
     Ok(PortScanResult {

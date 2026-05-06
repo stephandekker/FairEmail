@@ -289,6 +289,7 @@ mod tests {
             oauth: None,
             display_order: 0,
             enabled: true,
+            supports_shared_mailbox: false,
         }
     }
 

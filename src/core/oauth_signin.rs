@@ -126,6 +126,7 @@ mod tests {
             }),
             display_order: 1,
             enabled: true,
+            supports_shared_mailbox: false,
         }
     }
 
@@ -156,6 +157,7 @@ mod tests {
             oauth: None,
             display_order: 1,
             enabled: true,
+            supports_shared_mailbox: false,
         }
     }
 

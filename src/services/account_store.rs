@@ -131,6 +131,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap()
     }
@@ -215,6 +216,7 @@ mod tests {
                 fetch_settings: None,
                 keep_alive_settings: None,
                 oauth_tenant: None,
+                shared_mailbox: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();
@@ -277,6 +279,7 @@ mod tests {
                 fetch_settings: None,
                 keep_alive_settings: None,
                 oauth_tenant: None,
+                shared_mailbox: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();

@@ -423,6 +423,10 @@ pub struct NewAccountParams {
     /// OAuth tenant identifier for multi-tenant providers (FR-10, US-4).
     /// Stored so that re-authorization uses the same tenant.
     pub oauth_tenant: Option<String>,
+    /// Shared mailbox address for providers that support delegation (FR-40, N-8).
+    /// When set, the application encodes the username as `shared@domain\user@domain`
+    /// so the user authenticates with their own credentials but accesses the shared mailbox.
+    pub shared_mailbox: Option<String>,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -473,6 +477,8 @@ pub struct UpdateAccountParams {
     pub keep_alive_settings: Option<KeepAliveSettings>,
     /// OAuth tenant identifier for multi-tenant providers (FR-10, US-4).
     pub oauth_tenant: Option<String>,
+    /// Shared mailbox address for providers that support delegation (FR-40, N-8).
+    pub shared_mailbox: Option<String>,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -560,6 +566,11 @@ pub struct Account {
     /// Stored with the account so re-authorization uses the same tenant.
     #[serde(default)]
     oauth_tenant: Option<String>,
+    /// Shared mailbox address for providers that support delegation (FR-40, N-8).
+    /// When set, the effective username for IMAP/SMTP is encoded as
+    /// `shared@domain\user@domain` so the user's own credentials access the shared mailbox.
+    #[serde(default)]
+    shared_mailbox: Option<String>,
 }
 
 /// A local folder associated with an account.
@@ -703,6 +714,7 @@ impl Account {
             keep_alive_settings: params.keep_alive_settings,
             pop3_needs_store_reevaluation: false,
             oauth_tenant: params.oauth_tenant,
+            shared_mailbox: params.shared_mailbox,
         })
     }
 
@@ -757,6 +769,7 @@ impl Account {
             keep_alive_settings: params.keep_alive_settings,
             pop3_needs_store_reevaluation: false,
             oauth_tenant: params.oauth_tenant,
+            shared_mailbox: params.shared_mailbox,
         })
     }
 
@@ -810,6 +823,7 @@ impl Account {
             keep_alive_settings: params.keep_alive_settings,
             pop3_needs_store_reevaluation: false,
             oauth_tenant: params.oauth_tenant,
+            shared_mailbox: params.shared_mailbox,
         })
     }
 
@@ -1039,6 +1053,19 @@ impl Account {
         self.oauth_tenant.as_deref()
     }
 
+    /// Shared mailbox address for providers that support delegation (FR-40, N-8).
+    pub fn shared_mailbox(&self) -> Option<&str> {
+        self.shared_mailbox.as_deref()
+    }
+
+    /// Returns the effective username for IMAP/SMTP authentication.
+    /// When a shared mailbox is configured, encodes the username as
+    /// `shared@domain\user@domain` (Design Note N-8). Otherwise returns the
+    /// plain username.
+    pub fn effective_username(&self) -> String {
+        encode_shared_mailbox_username(&self.username, self.shared_mailbox.as_deref())
+    }
+
     /// Update only the credential and authentication method (FR-33, FR-34).
     /// Used by the re-authorization flow to refresh expired/revoked credentials
     /// without touching any other account properties.
@@ -1080,6 +1107,7 @@ impl Account {
             fetch_settings: self.fetch_settings.clone(),
             keep_alive_settings: self.keep_alive_settings.clone(),
             oauth_tenant: self.oauth_tenant.clone(),
+            shared_mailbox: self.shared_mailbox.clone(),
         }
     }
 
@@ -1132,7 +1160,20 @@ impl Account {
         self.fetch_settings = params.fetch_settings;
         self.keep_alive_settings = params.keep_alive_settings;
         self.oauth_tenant = params.oauth_tenant;
+        self.shared_mailbox = params.shared_mailbox;
         Ok(())
+    }
+}
+
+/// Encode a username for shared mailbox access (Design Note N-8).
+/// When `shared_mailbox` is `Some` and non-empty, returns `shared@domain\user@domain`.
+/// Otherwise returns the plain username unchanged.
+pub fn encode_shared_mailbox_username(username: &str, shared_mailbox: Option<&str>) -> String {
+    match shared_mailbox {
+        Some(shared) if !shared.trim().is_empty() => {
+            format!("{}\\{}", shared.trim(), username)
+        }
+        _ => username.to_string(),
     }
 }
 
@@ -1203,6 +1244,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         }
     }
 
@@ -1307,6 +1349,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         }
     }
 
@@ -1539,6 +1582,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         };
         acct.update(up).unwrap();
         assert_eq!(acct.id(), original_id);
@@ -1626,6 +1670,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         };
         acct.update(up).unwrap();
         assert!(acct.pop3_needs_store_reevaluation());
@@ -1666,6 +1711,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         };
         acct.update(up).unwrap();
         assert!(!acct.pop3_needs_store_reevaluation());
@@ -1710,6 +1756,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         };
         acct.update(up).unwrap();
         assert!(acct.pop3_needs_store_reevaluation());
@@ -3278,5 +3325,74 @@ mod tests {
             dup_params.keep_alive_settings,
             acct.keep_alive_settings().cloned()
         );
+    }
+
+    // -- Shared mailbox tests (FR-40, N-8) --
+
+    #[test]
+    fn encode_shared_mailbox_username_with_shared() {
+        let result = encode_shared_mailbox_username("user@contoso.com", Some("shared@contoso.com"));
+        assert_eq!(result, "shared@contoso.com\\user@contoso.com");
+    }
+
+    #[test]
+    fn encode_shared_mailbox_username_without_shared() {
+        let result = encode_shared_mailbox_username("user@contoso.com", None);
+        assert_eq!(result, "user@contoso.com");
+    }
+
+    #[test]
+    fn encode_shared_mailbox_username_empty_shared() {
+        let result = encode_shared_mailbox_username("user@contoso.com", Some(""));
+        assert_eq!(result, "user@contoso.com");
+    }
+
+    #[test]
+    fn encode_shared_mailbox_username_whitespace_shared() {
+        let result = encode_shared_mailbox_username("user@contoso.com", Some("   "));
+        assert_eq!(result, "user@contoso.com");
+    }
+
+    #[test]
+    fn encode_shared_mailbox_username_trims_shared() {
+        let result =
+            encode_shared_mailbox_username("user@contoso.com", Some("  shared@contoso.com  "));
+        assert_eq!(result, "shared@contoso.com\\user@contoso.com");
+    }
+
+    #[test]
+    fn effective_username_without_shared_mailbox() {
+        let acct = valid_account();
+        assert_eq!(acct.effective_username(), "user@example.com");
+    }
+
+    #[test]
+    fn effective_username_with_shared_mailbox() {
+        let mut p = valid_params();
+        p.shared_mailbox = Some("shared@example.com".into());
+        let acct = Account::new(p).unwrap();
+        assert_eq!(
+            acct.effective_username(),
+            "shared@example.com\\user@example.com"
+        );
+    }
+
+    #[test]
+    fn shared_mailbox_preserved_in_to_new_account_params() {
+        let mut p = valid_params();
+        p.shared_mailbox = Some("shared@example.com".into());
+        let acct = Account::new(p).unwrap();
+        let dup = acct.to_new_account_params();
+        assert_eq!(dup.shared_mailbox, Some("shared@example.com".into()));
+    }
+
+    #[test]
+    fn shared_mailbox_updated_via_update() {
+        let mut acct = valid_account();
+        assert!(acct.shared_mailbox().is_none());
+        let mut up = valid_update_params();
+        up.shared_mailbox = Some("shared@example.com".into());
+        acct.update(up).unwrap();
+        assert_eq!(acct.shared_mailbox(), Some("shared@example.com"));
     }
 }

@@ -696,7 +696,20 @@ fn show_inner(
         .build();
     auth_group.add(&password_row);
 
+    // -- Shared mailbox (FR-40, N-8) --
+    let shared_mailbox_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Shared Mailbox"))
+        .build();
+    let shared_mailbox_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Shared mailbox (optional)"))
+        .build();
+    shared_mailbox_row.set_tooltip_text(Some(&gettextrs::gettext(
+        "Enter the email address of a shared mailbox you have access to, or leave blank",
+    )));
+    shared_mailbox_group.add(&shared_mailbox_row);
+
     vbox.append(&auth_group);
+    vbox.append(&shared_mailbox_group);
 
     // -- POP3-specific settings (US-31, US-32, US-33, US-34, FR-9) --
     let pop3_group = adw::PreferencesGroup::builder()
@@ -1323,6 +1336,8 @@ fn show_inner(
         #[weak]
         category_row,
         #[weak]
+        shared_mailbox_row,
+        #[weak]
         host_row,
         #[weak]
         port_row,
@@ -1607,6 +1622,14 @@ fn show_inner(
                 },
                 keep_alive_settings: None,
                 oauth_tenant: None,
+                shared_mailbox: {
+                    let text = shared_mailbox_row.text().trim().to_string();
+                    if text.is_empty() {
+                        None
+                    } else {
+                        Some(text)
+                    }
+                },
             }) {
                 Ok(account) => {
                     on_done(Some(SaveResult {
@@ -1788,5 +1811,6 @@ fn build_smtp_provider(
         oauth: None,
         display_order: 0,
         enabled: false,
+        supports_shared_mailbox: false,
     }
 }

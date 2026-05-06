@@ -320,7 +320,7 @@ mod dev_fetch {
             host: account.host().to_string(),
             port: account.port(),
             encryption: account.encryption(),
-            username: account.username().to_string(),
+            username: account.effective_username(),
             password: password.to_string(),
             accepted_fingerprint: account
                 .security_settings()

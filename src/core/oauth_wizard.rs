@@ -80,6 +80,7 @@ pub fn derive_oauth_username(email: &str, provider: &Provider) -> String {
 /// This is the final step of the OAuth wizard flow: after connections have been
 /// tested successfully, the account and a default sending identity are created
 /// in a single call.
+#[allow(clippy::too_many_arguments)]
 pub fn create_oauth_account(
     provider: Provider,
     email: String,
@@ -88,6 +89,7 @@ pub fn create_oauth_account(
     imap_result: ImapCheckSuccess,
     smtp_result: SmtpCheckSuccess,
     oauth_tenant: Option<String>,
+    shared_mailbox: Option<String>,
 ) -> Result<AccountCreationResult, crate::core::account::AccountValidationError> {
     create_account_and_identity(AccountCreationParams {
         provider,
@@ -99,6 +101,7 @@ pub fn create_oauth_account(
         smtp_result,
         accepted_certificate_fingerprint: None,
         oauth_tenant,
+        shared_mailbox,
     })
 }
 
@@ -145,6 +148,7 @@ mod tests {
             }),
             display_order: 1,
             enabled: true,
+            supports_shared_mailbox: false,
         }
     }
 
@@ -281,6 +285,7 @@ mod tests {
             imap_result,
             smtp_result,
             None,
+            None,
         )
         .unwrap();
 
@@ -314,6 +319,7 @@ mod tests {
             "token".to_string(),
             imap_result,
             smtp_result,
+            None,
             None,
         )
         .unwrap();
@@ -352,6 +358,7 @@ mod tests {
             imap_result,
             smtp_result,
             None,
+            None,
         )
         .unwrap();
 
@@ -379,6 +386,7 @@ mod tests {
             "token".to_string(),
             imap_result,
             smtp_result,
+            None,
             None,
         )
         .unwrap();

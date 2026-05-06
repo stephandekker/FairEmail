@@ -164,6 +164,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
         if !sync_enabled {
@@ -432,6 +433,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap()
     }
@@ -485,6 +487,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
         let config = find_oauth_config_for_reauth(&acct, &db);

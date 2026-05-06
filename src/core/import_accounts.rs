@@ -287,6 +287,7 @@ fn exported_to_new_params(
             None
         },
         oauth_tenant: None,
+        shared_mailbox: None,
     }
 }
 
@@ -438,6 +439,7 @@ fn exported_to_update_params(
             existing.keep_alive_settings().cloned()
         },
         oauth_tenant: None,
+        shared_mailbox: None,
     }
 }
 
@@ -583,6 +585,7 @@ mod tests {
                 use_noop_instead_of_idle: true,
             }),
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap()
     }
@@ -718,6 +721,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 

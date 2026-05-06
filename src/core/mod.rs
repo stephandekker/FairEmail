@@ -59,11 +59,12 @@ pub(crate) mod vendor_discovery;
 pub mod wizard_validation;
 
 pub use account::{
-    collect_categories, detect_system_folders, notification_channel_id, resolve_color, Account,
-    AccountColor, AccountValidationError, AuthMethod, DateHeaderPreference, EncryptionMode,
-    FetchSettings, Folder, FolderRole, KeepAliveSettings, NewAccountParams, Pop3Settings, Protocol,
-    QuotaInfo, SecuritySettings, SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders,
-    UpdateAccountParams, QUOTA_HIGH_THRESHOLD_PERCENT,
+    collect_categories, detect_system_folders, encode_shared_mailbox_username,
+    notification_channel_id, resolve_color, Account, AccountColor, AccountValidationError,
+    AuthMethod, DateHeaderPreference, EncryptionMode, FetchSettings, Folder, FolderRole,
+    KeepAliveSettings, NewAccountParams, Pop3Settings, Protocol, QuotaInfo, SecuritySettings,
+    SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders, UpdateAccountParams,
+    QUOTA_HIGH_THRESHOLD_PERCENT,
 };
 pub use account_creation::{
     create_account_and_identity, AccountCreationParams, AccountCreationResult, SendingIdentity,

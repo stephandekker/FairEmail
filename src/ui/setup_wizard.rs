@@ -81,6 +81,7 @@ struct OAuthSetupState {
     imap_result: crate::core::imap_check::ImapCheckSuccess,
     smtp_result: crate::core::smtp_check::SmtpCheckSuccess,
     oauth_tenant: Option<String>,
+    shared_mailbox: Option<String>,
 }
 
 /// Build and present the quick-setup wizard dialog (FR-1, FR-2, FR-3).
@@ -269,6 +270,30 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         .build();
     tenant_group.add(&tenant_hint);
     oauth_box.append(&tenant_group);
+
+    // Shared mailbox input field for providers that support delegation (FR-40, N-8).
+    // Hidden by default; shown when the detected provider supports shared mailboxes.
+    let shared_mailbox_group = adw::PreferencesGroup::builder()
+        .margin_start(12)
+        .margin_end(12)
+        .margin_top(4)
+        .visible(false)
+        .build();
+    let shared_mailbox_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Shared mailbox (optional)"))
+        .build();
+    shared_mailbox_group.add(&shared_mailbox_row);
+    let shared_mailbox_hint = gtk::Label::builder()
+        .label(gettextrs::gettext(
+            "Enter the email address of a shared mailbox you have access to, or leave blank",
+        ))
+        .css_classes(["dim-label", "caption"])
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .wrap(true)
+        .build();
+    shared_mailbox_group.add(&shared_mailbox_hint);
+    oauth_box.append(&shared_mailbox_group);
 
     let oauth_password_fallback_btn = gtk::Button::builder()
         .label(gettextrs::gettext("Use password instead"))
@@ -552,6 +577,8 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         #[weak]
         tenant_group,
         #[weak]
+        shared_mailbox_group,
+        #[weak]
         password_group,
         #[weak]
         password_error,
@@ -589,6 +616,10 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                                 .is_some_and(|c| c.requires_tenant());
                             tenant_group.set_visible(needs_tenant);
 
+                            // Show shared mailbox field for providers that support it.
+                            shared_mailbox_group
+                                .set_visible(candidate.provider.supports_shared_mailbox);
+
                             oauth_box.set_visible(true);
                             password_group.set_visible(false);
                             password_error.set_visible(false);
@@ -615,6 +646,8 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         email_row,
         #[weak]
         tenant_row,
+        #[weak]
+        shared_mailbox_row,
         #[weak]
         name_error,
         #[weak]
@@ -666,6 +699,12 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             } else {
                 Some(tenant_input)
             };
+            let shared_mailbox_input = shared_mailbox_row.text().trim().to_string();
+            let shared_mailbox_value = if shared_mailbox_input.is_empty() {
+                None
+            } else {
+                Some(shared_mailbox_input)
+            };
 
             // Validate name and email only (password not needed for OAuth).
             name_error.set_visible(false);
@@ -716,6 +755,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             let email_clone = email.clone();
             let display_name_clone = display_name.clone();
             let tenant_clone = tenant_value.clone();
+            let shared_mailbox_clone = shared_mailbox_value.clone();
 
             // Run the full OAuth flow on a background thread (FR-5).
             // Results are polled from the main loop via glib::timeout_add_local.
@@ -835,6 +875,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                                 let email_result = email_clone.clone();
                                 let display_name_result = display_name_clone.clone();
                                 let tenant_result = tenant_clone.clone();
+                                let shared_mailbox_result = shared_mailbox_clone.clone();
                                 let oauth_state_inner = oauth_state_clone.clone();
                                 glib::timeout_add_local(
                                     std::time::Duration::from_millis(50),
@@ -921,6 +962,8 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                                                                 imap_result: imap_success,
                                                                 smtp_result: smtp_success,
                                                                 oauth_tenant: tenant_result.clone(),
+                                                                shared_mailbox:
+                                                                    shared_mailbox_result.clone(),
                                                             });
 
                                                         show_review_screen(
@@ -1336,6 +1379,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                     state.imap_result,
                     state.smtp_result,
                     state.oauth_tenant,
+                    state.shared_mailbox,
                 ) {
                     Ok(_result) => {
                         on_done(Some(WizardAction::OAuthComplete(WizardData {

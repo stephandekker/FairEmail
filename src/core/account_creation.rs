@@ -105,6 +105,8 @@ pub struct AccountCreationParams {
     pub accepted_certificate_fingerprint: Option<String>,
     /// OAuth tenant identifier for multi-tenant providers (FR-10, US-4).
     pub oauth_tenant: Option<String>,
+    /// Shared mailbox email address for delegated access.
+    pub shared_mailbox: Option<String>,
 }
 
 /// The result of a successful account + identity creation (US-21).
@@ -201,6 +203,7 @@ pub fn create_account_and_identity(
         fetch_settings,
         keep_alive_settings,
         oauth_tenant: params.oauth_tenant,
+        shared_mailbox: params.shared_mailbox,
     })?;
 
     let identity = SendingIdentity {
@@ -254,6 +257,7 @@ mod tests {
             oauth: None,
             display_order: 1,
             enabled: true,
+            supports_shared_mailbox: false,
         }
     }
 
@@ -288,6 +292,7 @@ mod tests {
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 
@@ -317,6 +322,7 @@ mod tests {
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 
@@ -338,6 +344,7 @@ mod tests {
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 
@@ -364,6 +371,7 @@ mod tests {
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 
@@ -387,6 +395,7 @@ mod tests {
             smtp_result: smtp,
             accepted_certificate_fingerprint: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 
@@ -407,6 +416,7 @@ mod tests {
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: Some(fingerprint.clone()),
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 
@@ -429,6 +439,7 @@ mod tests {
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 
@@ -452,6 +463,7 @@ mod tests {
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 
@@ -474,6 +486,7 @@ mod tests {
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 
@@ -493,6 +506,7 @@ mod tests {
             },
             accepted_certificate_fingerprint: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 
@@ -524,6 +538,7 @@ mod tests {
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         });
 
         assert!(result.is_ok());

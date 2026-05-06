@@ -122,6 +122,12 @@ pub struct Provider {
     pub display_order: u32,
     /// Enabled/disabled flag (FR-15p)
     pub enabled: bool,
+    /// Whether this provider supports shared mailbox access (FR-40, N-8).
+    /// When true, the UI allows the user to specify a shared mailbox address
+    /// and the application encodes the username appropriately (e.g.
+    /// `shared@domain\user@domain` for Outlook).
+    #[serde(default)]
+    pub supports_shared_mailbox: bool,
 }
 
 /// Confidence score for a provider match.
@@ -354,6 +360,7 @@ mod tests {
             oauth: None,
             display_order: 0,
             enabled: true,
+            supports_shared_mailbox: false,
         }
     }
 
@@ -512,6 +519,7 @@ mod tests {
             oauth: None,
             display_order: 0,
             enabled: true,
+            supports_shared_mailbox: false,
         };
 
         let candidate = ProviderCandidate {
@@ -565,6 +573,7 @@ mod tests {
             oauth: None,
             display_order: 0,
             enabled: true,
+            supports_shared_mailbox: false,
         };
 
         let candidate = ProviderCandidate {
@@ -629,6 +638,7 @@ mod tests {
             oauth: None,
             display_order: 0,
             enabled: true,
+            supports_shared_mailbox: false,
         };
 
         let candidate = ProviderCandidate {
@@ -787,6 +797,27 @@ mod tests {
         let candidate = db.lookup_by_domain("office365.com").unwrap();
         let oauth = candidate.provider.oauth.as_ref().unwrap();
         assert!(oauth.requires_tenant());
+    }
+
+    #[test]
+    fn bundled_outlook_supports_shared_mailbox() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("outlook.com").unwrap();
+        assert!(candidate.provider.supports_shared_mailbox);
+    }
+
+    #[test]
+    fn bundled_office365_supports_shared_mailbox() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("office365.com").unwrap();
+        assert!(candidate.provider.supports_shared_mailbox);
+    }
+
+    #[test]
+    fn bundled_gmail_does_not_support_shared_mailbox() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("gmail.com").unwrap();
+        assert!(!candidate.provider.supports_shared_mailbox);
     }
 
     #[test]

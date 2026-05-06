@@ -430,6 +430,7 @@ mod tests {
                 use_noop_instead_of_idle: true,
             }),
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap()
     }

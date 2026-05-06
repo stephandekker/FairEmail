@@ -44,7 +44,7 @@ impl SqliteAccountStore {
                     error_state, system_folders, swipe_defaults,
                     notifications_enabled, quota_used_bytes, quota_limit_bytes,
                     security_settings, fetch_settings, keep_alive_settings,
-                    oauth_tenant
+                    oauth_tenant, shared_mailbox
              FROM accounts",
         )?;
 
@@ -83,6 +83,7 @@ impl SqliteAccountStore {
                 fetch_settings: row.get(30)?,
                 keep_alive_settings: row.get(31)?,
                 oauth_tenant: row.get(32)?,
+                shared_mailbox: row.get(33)?,
             })
         })?;
 
@@ -146,7 +147,7 @@ impl SqliteAccountStore {
                     error_state, system_folders, swipe_defaults,
                     notifications_enabled, quota_used_bytes, quota_limit_bytes,
                     security_settings, fetch_settings, keep_alive_settings,
-                    oauth_tenant
+                    oauth_tenant, shared_mailbox
              FROM accounts WHERE id = ?1",
                 [&id_str],
                 |row| {
@@ -184,6 +185,7 @@ impl SqliteAccountStore {
                         fetch_settings: row.get(30)?,
                         keep_alive_settings: row.get(31)?,
                         oauth_tenant: row.get(32)?,
+                        shared_mailbox: row.get(33)?,
                     })
                 },
             )
@@ -324,6 +326,7 @@ struct AccountRow {
     fetch_settings: Option<String>,
     keep_alive_settings: Option<String>,
     oauth_tenant: Option<String>,
+    shared_mailbox: Option<String>,
 }
 
 fn parse_protocol(s: &str) -> Protocol {
@@ -436,6 +439,7 @@ fn row_to_account(row: AccountRow) -> Result<Account, StoreError> {
         fetch_settings,
         keep_alive_settings,
         oauth_tenant: row.oauth_tenant,
+        shared_mailbox: row.shared_mailbox,
     };
 
     let mut account = Account::new_from_store(id, params)
@@ -529,11 +533,11 @@ fn insert_account(conn: &Connection, account: &Account) -> Result<(), StoreError
             error_state, system_folders, swipe_defaults,
             notifications_enabled, quota_used_bytes, quota_limit_bytes,
             security_settings, fetch_settings, keep_alive_settings,
-            oauth_tenant
+            oauth_tenant, shared_mailbox
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
             ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-            ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33
+            ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34
         )",
         rusqlite::params![
             id_str,
@@ -569,6 +573,7 @@ fn insert_account(conn: &Connection, account: &Account) -> Result<(), StoreError
             fetch_json,
             keep_alive_json,
             account.oauth_tenant(),
+            account.shared_mailbox(),
         ],
     )?;
     Ok(())
@@ -649,11 +654,12 @@ fn insert_account_tx(tx: &rusqlite::Transaction, account: &Account) -> Result<()
             unmetered_only, vpn_only, schedule_exempt, is_primary,
             error_state, system_folders, swipe_defaults,
             notifications_enabled, quota_used_bytes, quota_limit_bytes,
-            security_settings, fetch_settings, keep_alive_settings
+            security_settings, fetch_settings, keep_alive_settings,
+            oauth_tenant, shared_mailbox
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
             ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21,
-            ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32
+            ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34
         )",
         rusqlite::params![
             id_str,
@@ -688,6 +694,8 @@ fn insert_account_tx(tx: &rusqlite::Transaction, account: &Account) -> Result<()
             security_json,
             fetch_json,
             keep_alive_json,
+            account.oauth_tenant(),
+            account.shared_mailbox(),
         ],
     )?;
     Ok(())
@@ -727,6 +735,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap()
     }
@@ -794,6 +803,7 @@ mod tests {
                 fetch_settings: None,
                 keep_alive_settings: None,
                 oauth_tenant: None,
+                shared_mailbox: None,
             })
             .unwrap();
         store.update(loaded[0].clone()).unwrap();
@@ -916,6 +926,7 @@ mod tests {
                 use_noop_instead_of_idle: true,
             }),
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 
@@ -986,6 +997,7 @@ mod tests {
             fetch_settings: None,
             keep_alive_settings: None,
             oauth_tenant: None,
+            shared_mailbox: None,
         })
         .unwrap();
 

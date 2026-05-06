@@ -143,6 +143,7 @@ mod tests {
             oauth: None,
             display_order: order,
             enabled: true,
+            supports_shared_mailbox: false,
         }
     }
 
