@@ -49,7 +49,34 @@ done
 STORIES_DIR="docs/user-stories"
 DONE_DIR="${STORIES_DIR}/done"
 
+# Resolve script location and chdir into it so the script works from any cwd
+# (cron defaults to $HOME, which breaks every relative path and git command below).
+RALPH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$RALPH_DIR"
+
+# Cron strips PATH down to /usr/bin:/bin. Prepend the dirs we actually need
+# (claude is in ~/.local/bin; cargo/rustc are in ~/.cargo/bin) so claude and
+# the toolchain commands the prompt invokes are findable.
+export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
+
+LOCK_FILE="${RALPH_DIR}/.ralph.lock"
+TIMEOUT_FILE="${RALPH_DIR}/ralph-timeout.md"
+
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
+
+write_timeout_marker() {
+  local reset_epoch="$1"
+  local note="${2:-}"
+  {
+    echo "# Ralph Usage Limit Timeout"
+    echo ""
+    echo "Limit hit at:  $(date '+%Y-%m-%d %H:%M:%S %z')"
+    echo "Reset at:      $(date -d "@${reset_epoch}" '+%Y-%m-%d %H:%M:%S %z')"
+    [ -n "$note" ] && echo "Note:          ${note}"
+    echo ""
+    echo "reset_epoch=${reset_epoch}"
+  } > "$TIMEOUT_FILE"
+}
 
 # List open story files under each epic dir, sorted by epic.major, epic.minor, story-num.
 # Excludes anything under DONE_DIR.
@@ -138,6 +165,37 @@ pick_unblocked_story() {
 log "======================================"
 log "  ralph.sh — autonomous story loop"
 log "======================================"
+
+# Exit cleanly if another ralph instance is already running.
+# fd 200 stays open for the lifetime of this shell; the kernel releases the
+# lock automatically when the script exits (even on crash).
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
+  log "Another ralph instance is already running (lock: ${LOCK_FILE}). Exiting."
+  exit 0
+fi
+
+# Bail out cleanly on Ctrl+C / SIGTERM. Without this, claude may swallow SIGINT
+# and exit 0, causing the safety-net `git mv` below to fire as if the story
+# had been completed successfully.
+on_interrupt() {
+  echo
+  log "Interrupt received — exiting without moving the current story."
+  exit 130
+}
+trap on_interrupt INT TERM
+
+# Exit cleanly if a previous run hit the usage limit and the reset hasn't passed yet.
+if [ -f "$TIMEOUT_FILE" ]; then
+  RESET_EPOCH=$(grep -oE 'reset_epoch=[0-9]+' "$TIMEOUT_FILE" | head -1 | cut -d= -f2 || true)
+  NOW_EPOCH=$(date +%s)
+  if [ -n "${RESET_EPOCH:-}" ] && [ "$NOW_EPOCH" -lt "$RESET_EPOCH" ]; then
+    log "Usage limit reset has not passed yet (resumes at $(date -d "@${RESET_EPOCH}" '+%Y-%m-%d %H:%M:%S')). Exiting."
+    exit 0
+  fi
+  log "Usage limit reset has passed (or marker is malformed); removing ${TIMEOUT_FILE}."
+  rm -f "$TIMEOUT_FILE"
+fi
 
 if [ "$IGNORE_LOCAL_CHANGES" = "true" ]; then
   log "WARNING: --ignore-local-changes set; skipping clean-tree check."
@@ -245,10 +303,36 @@ RALPH: ${STORY_ID} - ${STORY_TITLE}
 PROMPT
 )"
 
-  if ! claude --dangerously-skip-permissions --no-session-persistence -p "$PROMPT"; then
-    log "claude exited with non-zero status — possibly hit usage limit. Stopping."
+  CLAUDE_LOG=$(mktemp -t ralph-claude.XXXXXX)
+  CLAUDE_EXIT=0
+  claude --dangerously-skip-permissions --no-session-persistence -p "$PROMPT" 2>&1 \
+    | tee "$CLAUDE_LOG" || CLAUDE_EXIT=$?
+
+  if [ "$CLAUDE_EXIT" -ne 0 ]; then
+    # Claude Code emits "Claude AI usage limit reached|<unix_epoch>" when the cap is hit.
+    PARSED_RESET=$(grep -oE 'limit reached\|[0-9]+' "$CLAUDE_LOG" | grep -oE '[0-9]+$' | head -1 || true)
+
+    if [ -n "${PARSED_RESET:-}" ]; then
+      write_timeout_marker "$PARSED_RESET" "parsed from claude output"
+      log "Usage limit hit. Wrote ${TIMEOUT_FILE}; will resume after $(date -d "@${PARSED_RESET}" '+%Y-%m-%d %H:%M:%S')."
+      rm -f "$CLAUDE_LOG"
+      exit 0
+    fi
+
+    if grep -qiE 'usage limit|rate.?limit|too many requests' "$CLAUDE_LOG"; then
+      FALLBACK_RESET=$(( $(date +%s) + 5 * 3600 ))
+      write_timeout_marker "$FALLBACK_RESET" "fallback: limit detected but no reset epoch parsed"
+      log "Usage limit hit but reset epoch not parseable. Estimating 5h cooldown."
+      rm -f "$CLAUDE_LOG"
+      exit 0
+    fi
+
+    log "claude exited with status ${CLAUDE_EXIT} (no usage-limit signal in output). Stopping."
+    rm -f "$CLAUDE_LOG"
     exit 1
   fi
+
+  rm -f "$CLAUDE_LOG"
 
   # Safety net: if Claude forgot to move the spec, do it ourselves so the loop
   # doesn't pick the same story again next iteration.
