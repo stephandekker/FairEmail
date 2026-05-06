@@ -339,6 +339,12 @@ pub struct Pop3Settings {
     /// Optional cap on the number of messages to download per sync (US-34).
     /// `None` means unlimited.
     pub max_messages_to_download: Option<u32>,
+    /// When enabled, use APOP authentication if the server greeting contains
+    /// a valid timestamp (FR-23, FR-24, US-13). Disabled by default because
+    /// APOP relies on MD5 and causes unnecessary negotiation attempts on
+    /// servers that handle it poorly (Design Note N-3).
+    #[serde(default)]
+    pub apop_enabled: bool,
 }
 
 impl Default for Pop3Settings {
@@ -348,6 +354,7 @@ impl Default for Pop3Settings {
             delete_from_server_when_deleted_on_device: false,
             keep_on_device_when_deleted_from_server: true,
             max_messages_to_download: None,
+            apop_enabled: false,
         }
     }
 }
@@ -1563,6 +1570,7 @@ mod tests {
             delete_from_server_when_deleted_on_device: true,
             keep_on_device_when_deleted_from_server: false,
             max_messages_to_download: Some(500),
+            apop_enabled: false,
         });
         let acct = Account::new(p).unwrap();
         let settings = acct.pop3_settings().unwrap();
@@ -1603,6 +1611,7 @@ mod tests {
                 delete_from_server_when_deleted_on_device: true,
                 keep_on_device_when_deleted_from_server: false,
                 max_messages_to_download: Some(100),
+                apop_enabled: false,
             }),
             color: None,
             avatar_path: None,
@@ -1641,6 +1650,7 @@ mod tests {
             delete_from_server_when_deleted_on_device: true,
             keep_on_device_when_deleted_from_server: false,
             max_messages_to_download: Some(250),
+            apop_enabled: false,
         });
         let acct = Account::new(p).unwrap();
         let json = serde_json::to_string(&acct).unwrap();

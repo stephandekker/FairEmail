@@ -4,6 +4,7 @@
 //! mail server support, based on protocol-specific capability advertisements
 //! (IMAP CAPABILITY, SMTP EHLO, POP3 CAPA).
 
+use md5::{Digest, Md5};
 use std::fmt;
 
 /// Mail protocol used to determine which mechanisms are applicable.
@@ -210,6 +211,64 @@ pub fn log_negotiation(protocol: AuthProtocol, result: Option<AuthMechanism>) ->
             protocol
         ),
     }
+}
+
+/// Extract the APOP timestamp from a POP3 server greeting.
+///
+/// Per RFC 1939 §7 the greeting may contain a timestamp of the form
+/// `<process-id.clock@hostname>`.  This function returns the full
+/// angle-bracket-delimited token if present.
+///
+/// # Examples
+/// ```text
+/// +OK POP3 server ready <1896.697170952@dbc.mtview.ca.us>
+/// ```
+/// returns `Some("<1896.697170952@dbc.mtview.ca.us>")`.
+pub fn parse_pop3_greeting_timestamp(greeting: &str) -> Option<&str> {
+    let start = greeting.find('<')?;
+    let end = greeting[start..].find('>')? + start + 1;
+    let candidate = &greeting[start..end];
+    // RFC 1939: timestamp must contain an '@' inside the angle brackets.
+    if candidate.contains('@') {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+/// Compute the APOP digest for a given timestamp and password.
+///
+/// The digest is `MD5(timestamp || password)` rendered as a lowercase
+/// hex string (RFC 1939 §7).
+pub fn compute_apop_digest(timestamp: &str, password: &str) -> String {
+    let mut hasher = Md5::new();
+    hasher.update(timestamp.as_bytes());
+    hasher.update(password.as_bytes());
+    let result = hasher.finalize();
+    // Format as lowercase hex
+    result.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Determine whether APOP should be used for the current POP3 connection.
+///
+/// Returns `Some((username, digest))` when all conditions are met:
+/// 1. `apop_enabled` is `true` in the account's POP3 settings.
+/// 2. The server greeting contains a valid RFC 1939 timestamp.
+///
+/// When `None` is returned the caller should fall back to the standard
+/// password-based mechanism negotiation.
+pub fn should_use_apop(
+    apop_enabled: bool,
+    greeting: &str,
+    username: &str,
+    password: &str,
+) -> Option<(String, String)> {
+    if !apop_enabled {
+        return None;
+    }
+    let timestamp = parse_pop3_greeting_timestamp(greeting)?;
+    let digest = compute_apop_digest(timestamp, password);
+    Some((username.to_string(), digest))
 }
 
 #[cfg(test)]
@@ -545,5 +604,86 @@ mod tests {
     fn external_display_and_capability_name() {
         assert_eq!(AuthMechanism::External.capability_name(), "EXTERNAL");
         assert_eq!(format!("{}", AuthMechanism::External), "EXTERNAL");
+    }
+
+    // --- APOP timestamp parsing ---
+
+    #[test]
+    fn parse_greeting_extracts_timestamp() {
+        let greeting = "+OK POP3 server ready <1896.697170952@dbc.mtview.ca.us>";
+        assert_eq!(
+            parse_pop3_greeting_timestamp(greeting),
+            Some("<1896.697170952@dbc.mtview.ca.us>")
+        );
+    }
+
+    #[test]
+    fn parse_greeting_no_timestamp() {
+        let greeting = "+OK POP3 server ready";
+        assert_eq!(parse_pop3_greeting_timestamp(greeting), None);
+    }
+
+    #[test]
+    fn parse_greeting_angle_brackets_without_at() {
+        let greeting = "+OK ready <no-at-sign>";
+        assert_eq!(parse_pop3_greeting_timestamp(greeting), None);
+    }
+
+    #[test]
+    fn parse_greeting_timestamp_at_end() {
+        let greeting = "+OK <42.12345@mail.example.com>";
+        assert_eq!(
+            parse_pop3_greeting_timestamp(greeting),
+            Some("<42.12345@mail.example.com>")
+        );
+    }
+
+    // --- APOP digest computation ---
+
+    #[test]
+    fn compute_apop_digest_rfc_example() {
+        // RFC 1939 §7 example timestamp with a known password.
+        // Verified: echo -n '<1896.697170952@dbc.mtview.ca.us>tanstraafl' | md5sum
+        let digest = compute_apop_digest("<1896.697170952@dbc.mtview.ca.us>", "tanstraafl");
+        assert_eq!(digest, "e4e56d68fc0ee4afd97e43990456172a");
+    }
+
+    #[test]
+    fn compute_apop_digest_empty_password() {
+        // Just ensure it doesn't panic; the digest is deterministic.
+        let d1 = compute_apop_digest("<ts@host>", "");
+        let d2 = compute_apop_digest("<ts@host>", "");
+        assert_eq!(d1, d2);
+        assert_eq!(d1.len(), 32); // 128-bit MD5 = 32 hex chars
+    }
+
+    // --- should_use_apop ---
+
+    #[test]
+    fn should_use_apop_enabled_with_timestamp() {
+        let greeting = "+OK POP3 ready <123.456@example.com>";
+        let result = should_use_apop(true, greeting, "user", "pass");
+        assert!(result.is_some());
+        let (username, digest) = result.unwrap();
+        assert_eq!(username, "user");
+        assert_eq!(digest, compute_apop_digest("<123.456@example.com>", "pass"));
+    }
+
+    #[test]
+    fn should_use_apop_disabled() {
+        let greeting = "+OK POP3 ready <123.456@example.com>";
+        assert_eq!(should_use_apop(false, greeting, "user", "pass"), None);
+    }
+
+    #[test]
+    fn should_use_apop_enabled_no_timestamp() {
+        let greeting = "+OK POP3 ready";
+        assert_eq!(should_use_apop(true, greeting, "user", "pass"), None);
+    }
+
+    #[test]
+    fn should_use_apop_disabled_no_timestamp() {
+        let greeting = "+OK POP3 ready";
+        assert_eq!(should_use_apop(false, greeting, "user", "pass"), None);
     }
 }

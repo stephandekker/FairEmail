@@ -841,6 +841,15 @@ pub(crate) fn show(
         .build();
     pop3_group.add(&max_messages_row);
 
+    let apop_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Use APOP authentication"))
+        .subtitle(gettextrs::gettext(
+            "Enable for servers that require APOP (uses MD5)",
+        ))
+        .active(existing_pop3.is_some_and(|s| s.apop_enabled))
+        .build();
+    pop3_group.add(&apop_row);
+
     vbox.append(&pop3_group);
 
     // -- IMAP system folder designation (FR-35, FR-36, US-36) --
@@ -1898,6 +1907,7 @@ pub(crate) fn show(
                     delete_from_server_when_deleted_on_device: delete_from_server_row.is_active(),
                     keep_on_device_when_deleted_from_server: keep_on_device_row.is_active(),
                     max_messages_to_download: if max_val == 0 { None } else { Some(max_val) },
+                    apop_enabled: apop_row.is_active(),
                 })
             } else {
                 None
