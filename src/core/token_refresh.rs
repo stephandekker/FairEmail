@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use crate::core::oauth_flow::{percent_encode, OAuthFlowError};
 
@@ -9,6 +9,80 @@ const REFRESH_MARGIN_SECS: u64 = 5 * 60;
 /// Minimum interval in seconds between consecutive refresh attempts for the
 /// same account, mirroring the Android app's 15-minute guard (Design Note N-3).
 pub(crate) const MIN_REFRESH_INTERVAL_SECS: u64 = 15 * 60;
+
+/// Maximum total time to retry transient failures before declaring permanent (NFR-2).
+pub(crate) const TRANSIENT_FAILURE_TIMEOUT_SECS: u64 = 90;
+
+/// Backoff schedule for retry attempts (seconds). Total: 5+10+20+30+25 = 90s (NFR-2).
+pub(crate) const RETRY_BACKOFF_SECS: &[u64] = &[5, 10, 20, 30, 25];
+
+/// Classification of a token refresh error (FR-17, FR-18).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RefreshErrorKind {
+    /// Network timeout, DNS failure, server 5xx — safe to retry.
+    Transient,
+    /// Refresh token revoked, invalid_grant, HTTP 400/401 — requires re-authorization.
+    Permanent,
+    /// Provider rate-limited or temporarily blocked (HTTP 429) — wait and retry.
+    RateLimited,
+}
+
+/// The outcome of a refresh attempt with retry (FR-17, FR-18).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RefreshOutcome {
+    /// Token was refreshed successfully.
+    Refreshed,
+    /// No refresh was needed or another refresh is in progress.
+    Skipped,
+    /// Account must be re-authorized (permanent failure or transient timeout).
+    NeedsReauthorization {
+        /// User-facing message explaining why re-auth is needed.
+        reason: String,
+    },
+    /// Provider rate-limited the request; user should wait.
+    RateLimited {
+        /// User-facing message about the rate limit.
+        reason: String,
+    },
+}
+
+/// Classify an HTTP status code and response body into a `RefreshErrorKind`.
+///
+/// HTTP 400 with `invalid_grant` → Permanent (revoked refresh token).
+/// HTTP 401 → Permanent (unauthorized / consent withdrawn).
+/// HTTP 429 → RateLimited.
+/// HTTP 5xx → Transient (server error).
+/// Network/connection errors → Transient.
+pub(crate) fn classify_refresh_error(status_code: u16, body: &str) -> RefreshErrorKind {
+    match status_code {
+        400 => {
+            let lower = body.to_lowercase();
+            if lower.contains("invalid_grant")
+                || lower.contains("consent")
+                || lower.contains("revoked")
+                || lower.contains("expired")
+            {
+                RefreshErrorKind::Permanent
+            } else {
+                // Other 400 errors (e.g. malformed request) are also permanent
+                // since retrying won't change the outcome.
+                RefreshErrorKind::Permanent
+            }
+        }
+        401 | 403 => RefreshErrorKind::Permanent,
+        429 => RefreshErrorKind::RateLimited,
+        500..=599 => RefreshErrorKind::Transient,
+        // 0 means we never got an HTTP response (connection/network error).
+        0 => RefreshErrorKind::Transient,
+        _ => RefreshErrorKind::Transient,
+    }
+}
+
+/// Return the backoff duration for a given retry attempt (0-indexed).
+pub(crate) fn retry_backoff(attempt: usize) -> Duration {
+    let idx = attempt.min(RETRY_BACKOFF_SECS.len() - 1);
+    Duration::from_secs(RETRY_BACKOFF_SECS[idx])
+}
 
 /// Determine whether an access token should be refreshed proactively.
 ///
@@ -243,5 +317,108 @@ mod tests {
     #[test]
     fn min_refresh_interval_is_fifteen_minutes() {
         assert_eq!(MIN_REFRESH_INTERVAL_SECS, 900);
+    }
+
+    // --- Error classification ---
+
+    #[test]
+    fn classify_400_invalid_grant_as_permanent() {
+        let kind = classify_refresh_error(400, r#"{"error":"invalid_grant"}"#);
+        assert_eq!(kind, RefreshErrorKind::Permanent);
+    }
+
+    #[test]
+    fn classify_400_revoked_as_permanent() {
+        let kind = classify_refresh_error(400, r#"{"error":"revoked"}"#);
+        assert_eq!(kind, RefreshErrorKind::Permanent);
+    }
+
+    #[test]
+    fn classify_400_consent_as_permanent() {
+        let kind = classify_refresh_error(400, "consent required");
+        assert_eq!(kind, RefreshErrorKind::Permanent);
+    }
+
+    #[test]
+    fn classify_400_expired_as_permanent() {
+        let kind = classify_refresh_error(400, "Token has expired");
+        assert_eq!(kind, RefreshErrorKind::Permanent);
+    }
+
+    #[test]
+    fn classify_400_other_as_permanent() {
+        let kind = classify_refresh_error(400, "bad request");
+        assert_eq!(kind, RefreshErrorKind::Permanent);
+    }
+
+    #[test]
+    fn classify_401_as_permanent() {
+        let kind = classify_refresh_error(401, "unauthorized");
+        assert_eq!(kind, RefreshErrorKind::Permanent);
+    }
+
+    #[test]
+    fn classify_403_as_permanent() {
+        let kind = classify_refresh_error(403, "forbidden");
+        assert_eq!(kind, RefreshErrorKind::Permanent);
+    }
+
+    #[test]
+    fn classify_429_as_rate_limited() {
+        let kind = classify_refresh_error(429, "too many requests");
+        assert_eq!(kind, RefreshErrorKind::RateLimited);
+    }
+
+    #[test]
+    fn classify_500_as_transient() {
+        let kind = classify_refresh_error(500, "internal server error");
+        assert_eq!(kind, RefreshErrorKind::Transient);
+    }
+
+    #[test]
+    fn classify_502_as_transient() {
+        let kind = classify_refresh_error(502, "bad gateway");
+        assert_eq!(kind, RefreshErrorKind::Transient);
+    }
+
+    #[test]
+    fn classify_503_as_transient() {
+        let kind = classify_refresh_error(503, "service unavailable");
+        assert_eq!(kind, RefreshErrorKind::Transient);
+    }
+
+    #[test]
+    fn classify_0_network_error_as_transient() {
+        let kind = classify_refresh_error(0, "");
+        assert_eq!(kind, RefreshErrorKind::Transient);
+    }
+
+    // --- Retry backoff ---
+
+    #[test]
+    fn retry_backoff_schedule() {
+        assert_eq!(retry_backoff(0), Duration::from_secs(5));
+        assert_eq!(retry_backoff(1), Duration::from_secs(10));
+        assert_eq!(retry_backoff(2), Duration::from_secs(20));
+        assert_eq!(retry_backoff(3), Duration::from_secs(30));
+        assert_eq!(retry_backoff(4), Duration::from_secs(25));
+    }
+
+    #[test]
+    fn retry_backoff_caps_at_last() {
+        assert_eq!(retry_backoff(100), Duration::from_secs(25));
+    }
+
+    #[test]
+    fn retry_backoff_total_is_90_seconds() {
+        let total: u64 = RETRY_BACKOFF_SECS.iter().sum();
+        assert_eq!(total, TRANSIENT_FAILURE_TIMEOUT_SECS);
+    }
+
+    // --- Constants ---
+
+    #[test]
+    fn transient_failure_timeout_is_90_seconds() {
+        assert_eq!(TRANSIENT_FAILURE_TIMEOUT_SECS, 90);
     }
 }
