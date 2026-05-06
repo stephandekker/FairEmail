@@ -59,6 +59,15 @@ cd "$RALPH_DIR"
 # the toolchain commands the prompt invokes are findable.
 export PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${PATH}"
 
+# Fail fast if claude isn't reachable — otherwise the loop exits with bash
+# status 127 ("command not found") much later, looking like an unexplained stop.
+if ! command -v claude >/dev/null 2>&1; then
+  echo "ralph.sh: 'claude' not found on PATH" >&2
+  echo "  HOME=${HOME:-<unset>}" >&2
+  echo "  PATH=${PATH}" >&2
+  exit 1
+fi
+
 LOCK_FILE="${RALPH_DIR}/.ralph.lock"
 TIMEOUT_FILE="${RALPH_DIR}/ralph-timeout.md"
 
