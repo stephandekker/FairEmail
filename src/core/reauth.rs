@@ -1,4 +1,6 @@
 use crate::core::account::{Account, AuthMethod, Protocol};
+use crate::core::oauth_signin::is_oauth_provider;
+use crate::core::provider::{OAuthConfig, ProviderDatabase};
 
 /// Parameters for re-authorizing an existing account (FR-32, FR-33, FR-34).
 #[derive(Debug, Clone)]
@@ -23,6 +25,39 @@ pub enum ReauthError {
     },
     #[error("credential must not be empty")]
     EmptyCredential,
+}
+
+/// Determine the OAuth configuration for re-authorization of an existing account (FR-25).
+///
+/// Looks up the provider by the account's IMAP hostname and email domain,
+/// returning the OAuth configuration if the account uses OAuth2 and the
+/// provider supports it.
+pub fn find_oauth_config_for_reauth(
+    account: &Account,
+    provider_db: &ProviderDatabase,
+) -> Option<OAuthConfig> {
+    if account.auth_method() != AuthMethod::OAuth2 {
+        return None;
+    }
+
+    // Try lookup by hostname first.
+    if let Some(provider) = provider_db.lookup_by_hostname(account.host()) {
+        if provider.oauth.is_some() && is_oauth_provider(&provider.id) {
+            return provider.oauth.clone();
+        }
+    }
+
+    // Fallback: try lookup by email domain from the username.
+    let username = account.username();
+    if let Some(domain) = username.split('@').nth(1) {
+        if let Some(candidate) = provider_db.lookup_by_domain(domain) {
+            if candidate.provider.oauth.is_some() && is_oauth_provider(&candidate.provider.id) {
+                return candidate.provider.oauth.clone();
+            }
+        }
+    }
+
+    None
 }
 
 /// Find an existing account matching by username and incoming-server protocol type (FR-34).
@@ -364,5 +399,109 @@ mod tests {
 
         assert_eq!(accounts[0].display_name(), original_display);
         assert_eq!(accounts[0].notifications_enabled(), original_notifications);
+    }
+
+    // -- find_oauth_config_for_reauth tests (FR-25) --
+
+    fn make_oauth_account(username: &str, host: &str) -> Account {
+        Account::new(NewAccountParams {
+            display_name: "OAuth Account".into(),
+            protocol: Protocol::Imap,
+            host: host.into(),
+            port: 993,
+            encryption: EncryptionMode::SslTls,
+            auth_method: AuthMethod::OAuth2,
+            username: username.into(),
+            credential: "access-token".into(),
+            smtp: None,
+            pop3_settings: None,
+            color: None,
+            avatar_path: None,
+            category: None,
+            sync_enabled: true,
+            on_demand: false,
+            polling_interval_minutes: None,
+            unmetered_only: false,
+            vpn_only: false,
+            schedule_exempt: false,
+            system_folders: None,
+            swipe_defaults: None,
+            notifications_enabled: true,
+            security_settings: None,
+            fetch_settings: None,
+            keep_alive_settings: None,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn find_oauth_config_for_gmail_account() {
+        let db = ProviderDatabase::bundled();
+        let acct = make_oauth_account("user@gmail.com", "imap.gmail.com");
+        let config = find_oauth_config_for_reauth(&acct, &db);
+        assert!(config.is_some());
+        let config = config.unwrap();
+        assert!(!config.auth_url.is_empty());
+        assert!(!config.token_url.is_empty());
+    }
+
+    #[test]
+    fn find_oauth_config_for_outlook_account() {
+        let db = ProviderDatabase::bundled();
+        let acct = make_oauth_account("user@outlook.com", "outlook.office365.com");
+        let config = find_oauth_config_for_reauth(&acct, &db);
+        assert!(config.is_some());
+    }
+
+    #[test]
+    fn find_oauth_config_returns_none_for_plain_auth() {
+        let db = ProviderDatabase::bundled();
+        let acct = Account::new(NewAccountParams {
+            display_name: "Plain Account".into(),
+            protocol: Protocol::Imap,
+            host: "imap.gmail.com".into(),
+            port: 993,
+            encryption: EncryptionMode::SslTls,
+            auth_method: AuthMethod::Plain,
+            username: "user@gmail.com".into(),
+            credential: "password".into(),
+            smtp: None,
+            pop3_settings: None,
+            color: None,
+            avatar_path: None,
+            category: None,
+            sync_enabled: true,
+            on_demand: false,
+            polling_interval_minutes: None,
+            unmetered_only: false,
+            vpn_only: false,
+            schedule_exempt: false,
+            system_folders: None,
+            swipe_defaults: None,
+            notifications_enabled: true,
+            security_settings: None,
+            fetch_settings: None,
+            keep_alive_settings: None,
+        })
+        .unwrap();
+        let config = find_oauth_config_for_reauth(&acct, &db);
+        assert!(config.is_none());
+    }
+
+    #[test]
+    fn find_oauth_config_returns_none_for_unknown_provider() {
+        let db = ProviderDatabase::bundled();
+        let acct = make_oauth_account("user@custom.example.com", "imap.custom.example.com");
+        let config = find_oauth_config_for_reauth(&acct, &db);
+        assert!(config.is_none());
+    }
+
+    #[test]
+    fn find_oauth_config_uses_domain_fallback() {
+        let db = ProviderDatabase::bundled();
+        // Use a non-matching hostname but a valid email domain.
+        let acct = make_oauth_account("user@gmail.com", "custom-imap-server.example.com");
+        let config = find_oauth_config_for_reauth(&acct, &db);
+        assert!(config.is_some());
     }
 }

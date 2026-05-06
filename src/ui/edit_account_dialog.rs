@@ -8,10 +8,12 @@ use libadwaita as adw;
 use libadwaita::prelude::*;
 
 use crate::core::inbound_test::{InboundTestError, InboundTestParams};
+use crate::core::oauth_flow::OAuthSession;
 use crate::core::provider::{
     MaxTlsVersion, ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
 };
 use crate::core::provider_dropdown;
+use crate::core::reauth::find_oauth_config_for_reauth;
 use crate::core::save_auto_test;
 use crate::core::{
     Account, AccountColor, AuthMethod, ConnectionLogEntry, ConnectionState, DateHeaderPreference,
@@ -19,6 +21,7 @@ use crate::core::{
     SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders, UpdateAccountParams,
 };
 use crate::services::inbound_tester::{InboundTester, MockInboundTester};
+use crate::services::oauth_service;
 use crate::services::smtp_checker::{MockSmtpChecker, SmtpChecker};
 use crate::ui::connection_log_dialog;
 
@@ -31,6 +34,15 @@ pub(crate) enum EditDialogResult {
     Deleted(uuid::Uuid),
     /// Account should be duplicated (FR-31, AC-10).
     Duplicated(Box<Account>),
+    /// Account was re-authorized via OAuth (FR-25, US-18, US-19).
+    /// The caller must store the new tokens in the credential store
+    /// and clear the needs-reauth flag.
+    Reauthorized {
+        account_id: uuid::Uuid,
+        access_token: String,
+        refresh_token: String,
+        expires_in: Option<u64>,
+    },
 }
 
 /// Connection diagnostics passed to the edit dialog (FR-44, FR-45, FR-46).
@@ -684,6 +696,23 @@ pub(crate) fn show(
     password_row.set_text(account.credential());
     auth_group.add(&password_row);
 
+    // -- Re-authorize button for OAuth accounts (FR-25, US-18, US-19) --
+    let provider_db = ProviderDatabase::bundled();
+    let oauth_config_for_reauth = find_oauth_config_for_reauth(&account, &provider_db);
+    let reauth_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Re-authorize (OAuth)"))
+        .css_classes(["suggested-action", "pill"])
+        .tooltip_text(gettextrs::gettext(
+            "Re-run the OAuth sign-in flow to obtain fresh tokens",
+        ))
+        .visible(oauth_config_for_reauth.is_some())
+        .build();
+    let reauth_row = adw::ActionRow::builder()
+        .child(&reauth_btn)
+        .visible(oauth_config_for_reauth.is_some())
+        .build();
+    auth_group.add(&reauth_row);
+
     vbox.append(&auth_group);
 
     // -- POP3-specific settings (US-31, US-32, US-33, US-34, FR-9) --
@@ -1259,6 +1288,7 @@ pub(crate) fn show(
     let on_done = std::rc::Rc::new(on_done);
     let on_done_close = on_done.clone();
     let on_done_save = on_done.clone();
+    let on_done_reauth = on_done.clone();
     let account = std::rc::Rc::new(std::cell::RefCell::new(account));
 
     // -- Session-level flag: has a successful connection test been run? (FR-42, US-22) --
@@ -2075,11 +2105,154 @@ pub(crate) fn show(
         }
     ));
 
+    // -- Re-authorize button handler (FR-25, US-18, US-19) --
+    if let Some(oauth_config) = oauth_config_for_reauth {
+        let reauth_account_id = account.borrow().id();
+        reauth_btn.connect_clicked(clone!(
+            #[weak]
+            dialog,
+            #[weak]
+            toast_overlay,
+            #[weak]
+            reauth_btn,
+            move |_| {
+                reauth_btn.set_sensitive(false);
+
+                // Show progress toast.
+                let progress_toast = adw::Toast::builder()
+                    .title(gettextrs::gettext("Opening browser for re-authorization…"))
+                    .build();
+                toast_overlay.add_toast(progress_toast);
+
+                // Run OAuth flow on a background thread, poll from main loop.
+                let oauth_config_clone = oauth_config.clone();
+                let (tx, rx) = std::sync::mpsc::channel::<ReauthOAuthMessage>();
+                std::thread::spawn(move || {
+                    run_reauth_oauth_thread(oauth_config_clone, tx);
+                });
+
+                let on_done_reauth = on_done_reauth.clone();
+                let dialog_ref = dialog.clone();
+                let toast_overlay_ref = toast_overlay.clone();
+                let reauth_btn_ref = reauth_btn.clone();
+                glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                    match rx.try_recv() {
+                        Ok(ReauthOAuthMessage::Success {
+                            access_token,
+                            refresh_token,
+                            expires_in,
+                        }) => {
+                            on_done_reauth(Some(EditDialogResult::Reauthorized {
+                                account_id: reauth_account_id,
+                                access_token,
+                                refresh_token,
+                                expires_in,
+                            }));
+                            dialog_ref.close();
+                            glib::ControlFlow::Break
+                        }
+                        Ok(ReauthOAuthMessage::Error(err)) => {
+                            reauth_btn_ref.set_sensitive(true);
+                            let toast = adw::Toast::new(&format!(
+                                "{} {}",
+                                gettextrs::gettext("Re-authorization failed:"),
+                                err
+                            ));
+                            toast_overlay_ref.add_toast(toast);
+                            glib::ControlFlow::Break
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            reauth_btn_ref.set_sensitive(true);
+                            glib::ControlFlow::Break
+                        }
+                    }
+                });
+            }
+        ));
+    }
+
     dialog.connect_closed(move |_| {
         let _ = &on_done_close;
     });
 
     dialog.present(Some(parent));
+}
+
+/// Messages from the re-authorization OAuth background thread.
+enum ReauthOAuthMessage {
+    Success {
+        access_token: String,
+        refresh_token: String,
+        expires_in: Option<u64>,
+    },
+    Error(String),
+}
+
+/// Run the OAuth flow for re-authorization on a background thread.
+///
+/// Reuses the same core OAuth flow as the setup wizard (story 2) but sends
+/// the result back via a channel for token replacement on the existing account.
+fn run_reauth_oauth_thread(
+    oauth_config: crate::core::provider::OAuthConfig,
+    tx: std::sync::mpsc::Sender<ReauthOAuthMessage>,
+) {
+    // Step 1: Bind redirect listener.
+    let (listener, port) = match oauth_service::bind_redirect_listener() {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = tx.send(ReauthOAuthMessage::Error(e.to_string()));
+            return;
+        }
+    };
+
+    // Step 2: Build session and open browser.
+    let session = OAuthSession::new(oauth_config, port);
+    let url = session.authorization_url();
+    if let Err(e) = oauth_service::open_browser(&url) {
+        let _ = tx.send(ReauthOAuthMessage::Error(e.to_string()));
+        return;
+    }
+
+    // Step 3: Wait for callback.
+    let callback = match oauth_service::wait_for_callback(listener) {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = tx.send(ReauthOAuthMessage::Error(e.to_string()));
+            return;
+        }
+    };
+
+    // Step 4: Validate state.
+    if let Err(e) = session.validate_state(Some(&callback.state)) {
+        let _ = tx.send(ReauthOAuthMessage::Error(e.to_string()));
+        return;
+    }
+
+    // Step 5: Exchange code for tokens.
+    let exchange_params = session.token_exchange_params(&callback.code);
+    let token_response = match oauth_service::exchange_code_for_tokens(exchange_params) {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = tx.send(ReauthOAuthMessage::Error(e.to_string()));
+            return;
+        }
+    };
+
+    // Step 6: Validate (must include refresh token).
+    let validated = match crate::core::oauth_flow::validate_token_response(token_response) {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = tx.send(ReauthOAuthMessage::Error(e.to_string()));
+            return;
+        }
+    };
+
+    let _ = tx.send(ReauthOAuthMessage::Success {
+        access_token: validated.access_token,
+        refresh_token: validated.refresh_token,
+        expires_in: validated.expires_in,
+    });
 }
 
 fn combo_to_encryption(selected: u32) -> EncryptionMode {

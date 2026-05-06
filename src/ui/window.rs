@@ -888,6 +888,47 @@ pub(crate) fn build(
                             &conn_state_mgr.borrow(),
                         );
                     }
+                    Some(edit_account_dialog::EditDialogResult::Reauthorized {
+                        account_id,
+                        access_token,
+                        refresh_token,
+                        expires_in,
+                    }) => {
+                        // FR-25, US-18, US-19: store new OAuth tokens and update
+                        // the account credential, preserving all other state.
+                        let validated = crate::core::ValidatedTokenResponse {
+                            access_token: access_token.clone(),
+                            refresh_token,
+                            expires_in,
+                        };
+                        if let Err(e) = crate::services::oauth_service::store_oauth_tokens(
+                            &*credential_store,
+                            account_id,
+                            &validated,
+                        ) {
+                            eprintln!("Failed to store re-auth tokens: {e}");
+                            return;
+                        }
+                        // Update the in-memory account credential.
+                        {
+                            let mut list = accounts.borrow_mut();
+                            if let Some(acct) = list.iter_mut().find(|a| a.id() == account_id) {
+                                acct.update_credentials(
+                                    access_token,
+                                    crate::core::AuthMethod::OAuth2,
+                                );
+                                acct.set_sync_enabled(true);
+                                let _ = store.update(acct.clone());
+                            }
+                        }
+                        rebuild_account_list(
+                            &account_list,
+                            &accounts.borrow(),
+                            settings.borrow().category_display_enabled,
+                            custom_order.borrow().as_deref(),
+                            &conn_state_mgr.borrow(),
+                        );
+                    }
                     None => {}
                 }
             });

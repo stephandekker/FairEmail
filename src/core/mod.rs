@@ -151,7 +151,10 @@ pub use provider_dropdown::{
     build_dropdown_entries, index_for_provider_id, prefill_for_provider, provider_guidance,
     ProviderDropdownEntry, ProviderPrefill,
 };
-pub use reauth::{find_matching_account, reauthorize_account, ReauthError, ReauthParams};
+pub use reauth::{
+    find_matching_account, find_oauth_config_for_reauth, reauthorize_account, ReauthError,
+    ReauthParams,
+};
 pub use smtp_check::{
     combine_connectivity_results, ConnectivityCheckError, ConnectivityCheckResult, SmtpCheckError,
     SmtpCheckResult, SmtpCheckSuccess, SmtpConnectionParams,
