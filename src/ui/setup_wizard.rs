@@ -799,10 +799,11 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
 
             // Run the full OAuth flow on a background thread (FR-5).
             // Results are polled from the main loop via glib::timeout_add_local.
+            let browser_pref = oauth_service::load_browser_preference();
             let oauth_rx = {
                 let (tx, rx) = std::sync::mpsc::channel::<OAuthMessage>();
                 std::thread::spawn(move || {
-                    run_oauth_thread(oauth_config, tx);
+                    run_oauth_thread(oauth_config, tx, browser_pref);
                 });
                 rx
             };
@@ -1667,6 +1668,7 @@ fn apply_field_errors(
 fn run_oauth_thread(
     oauth_config: crate::core::provider::OAuthConfig,
     tx: std::sync::mpsc::Sender<OAuthMessage>,
+    oauth_browser_preference: Option<String>,
 ) {
     // Step 1: Bind redirect listener.
     let (listener, port) = match oauth_service::bind_redirect_listener() {
@@ -1680,12 +1682,20 @@ fn run_oauth_thread(
     // Step 2: Build session and open browser.
     let session = OAuthSession::new(oauth_config, port);
     let url = session.authorization_url();
-    let _ = tx.send(OAuthMessage::Progress(
-        "Waiting for authorization in browser…".to_string(),
-    ));
-    if let Err(e) = oauth_service::open_browser(&url) {
-        let _ = tx.send(OAuthMessage::Error(e.to_string()));
-        return;
+    match oauth_service::open_browser_with_selection(&url, oauth_browser_preference.as_deref()) {
+        Ok(result) => {
+            if let Some(warning) = &result.warning {
+                let _ = tx.send(OAuthMessage::Progress(warning.clone()));
+            }
+            let _ = tx.send(OAuthMessage::Progress(format!(
+                "Waiting for authorization in {}…",
+                result.browser_name
+            )));
+        }
+        Err(e) => {
+            let _ = tx.send(OAuthMessage::Error(e.to_string()));
+            return;
+        }
     }
 
     // Step 3: Wait for callback (blocks until browser redirects).

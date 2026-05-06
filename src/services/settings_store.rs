@@ -9,6 +9,14 @@ pub struct AppSettings {
     /// Whether accounts are grouped by category in the navigation pane (FR-21).
     #[serde(default)]
     pub category_display_enabled: bool,
+
+    /// User-configured browser for OAuth flows (FR-31).
+    ///
+    /// Can be a browser name (e.g. "Firefox") or an absolute path to an executable.
+    /// When `None`, the application auto-selects a privacy-focused browser or
+    /// falls back to the system default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth_browser: Option<String>,
 }
 
 /// Errors from the settings persistence layer.
@@ -80,6 +88,7 @@ mod tests {
         let store = SettingsStore::new(dir.path().join("settings.json"));
         let settings = AppSettings {
             category_display_enabled: true,
+            oauth_browser: None,
         };
         store.save(&settings).unwrap();
 

@@ -5,6 +5,7 @@ pub mod account_review;
 pub mod auth_conversion;
 pub mod auth_error;
 pub mod auto_config;
+pub(crate) mod browser_selection;
 pub mod certificate;
 pub mod connection_log;
 pub mod connection_state;
@@ -77,6 +78,9 @@ pub use auth_error::{
     app_password_hint_text, build_provider_hint, is_outlook_domain, outlook_documentation_url,
     present_connectivity_error, present_imap_error, present_smtp_error, AuthErrorKind,
     AuthErrorPresentation, ProviderHint, GENERAL_SUPPORT_URL,
+};
+pub use browser_selection::{
+    detect_installed_browsers, select_browser, BrowserInfo, BrowserSelectionResult,
 };
 pub use certificate::{CertificateDecision, CertificateInfo};
 pub use connection_log::{ConnectionLogEventType, ConnectionLogRecord};

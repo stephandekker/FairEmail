@@ -2205,9 +2205,10 @@ pub(crate) fn show(
 
                 // Run OAuth flow on a background thread, poll from main loop.
                 let oauth_config_clone = oauth_config.clone();
+                let browser_pref = crate::services::oauth_service::load_browser_preference();
                 let (tx, rx) = std::sync::mpsc::channel::<ReauthOAuthMessage>();
                 std::thread::spawn(move || {
-                    run_reauth_oauth_thread(oauth_config_clone, tx);
+                    run_reauth_oauth_thread(oauth_config_clone, tx, browser_pref);
                 });
 
                 let on_done_reauth = on_done_reauth.clone();
@@ -2292,9 +2293,10 @@ pub(crate) fn show(
                     toast_overlay_ref.add_toast(progress_toast);
 
                     let oauth_config_clone = oauth_config.clone();
+                    let browser_pref = crate::services::oauth_service::load_browser_preference();
                     let (tx, rx) = std::sync::mpsc::channel::<ReauthOAuthMessage>();
                     std::thread::spawn(move || {
-                        run_reauth_oauth_thread(oauth_config_clone, tx);
+                        run_reauth_oauth_thread(oauth_config_clone, tx, browser_pref);
                     });
 
                     let on_done = on_done_convert_oauth.clone();
@@ -2424,6 +2426,7 @@ enum ReauthOAuthMessage {
 fn run_reauth_oauth_thread(
     oauth_config: crate::core::provider::OAuthConfig,
     tx: std::sync::mpsc::Sender<ReauthOAuthMessage>,
+    oauth_browser_preference: Option<String>,
 ) {
     // Step 1: Bind redirect listener.
     let (listener, port) = match oauth_service::bind_redirect_listener() {
@@ -2437,7 +2440,9 @@ fn run_reauth_oauth_thread(
     // Step 2: Build session and open browser.
     let session = OAuthSession::new(oauth_config, port);
     let url = session.authorization_url();
-    if let Err(e) = oauth_service::open_browser(&url) {
+    if let Err(e) =
+        oauth_service::open_browser_with_selection(&url, oauth_browser_preference.as_deref())
+    {
         let _ = tx.send(ReauthOAuthMessage::Error(e.to_string()));
         return;
     }

@@ -82,8 +82,8 @@ pub use notification_channel::{
     NotificationChannelManager,
 };
 pub use oauth_service::{
-    bind_redirect_listener, exchange_code_for_tokens, open_browser, store_oauth_tokens,
-    wait_for_callback,
+    bind_redirect_listener, exchange_code_for_tokens, load_browser_preference, open_browser,
+    open_browser_with_selection, store_oauth_tokens, wait_for_callback,
 };
 pub use order_store::OrderStore;
 pub use pending_ops_store::{

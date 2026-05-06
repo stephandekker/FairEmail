@@ -43,8 +43,17 @@ impl SqliteSettingsStore {
             .and_then(|v| serde_json::from_str(&v).ok())
             .unwrap_or(false);
 
+        let oauth_browser: Option<String> = stmt
+            .query_row(["oauth_browser"], |row| {
+                let val: String = row.get(0)?;
+                Ok(val)
+            })
+            .ok()
+            .and_then(|v| serde_json::from_str(&v).ok());
+
         Ok(AppSettings {
             category_display_enabled,
+            oauth_browser,
         })
     }
 
@@ -55,6 +64,13 @@ impl SqliteSettingsStore {
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
             rusqlite::params!["category_display_enabled", value],
+        )
+        .map_err(|e| SettingsError::Io(std::io::Error::other(e.to_string())))?;
+
+        let browser_value = serde_json::to_string(&settings.oauth_browser)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            rusqlite::params!["oauth_browser", browser_value],
         )
         .map_err(|e| SettingsError::Io(std::io::Error::other(e.to_string())))?;
         Ok(())
@@ -90,6 +106,7 @@ mod tests {
         let (_dir, store) = make_store();
         let settings = AppSettings {
             category_display_enabled: true,
+            oauth_browser: None,
         };
         store.save(&settings).unwrap();
         let loaded = store.load().unwrap();
@@ -101,6 +118,7 @@ mod tests {
         let (_dir, store) = make_store();
         let settings = AppSettings {
             category_display_enabled: true,
+            oauth_browser: None,
         };
         store.save(&settings).unwrap();
         store.save(&settings).unwrap();
@@ -113,6 +131,7 @@ mod tests {
         let (_dir, store) = make_store();
         let settings = AppSettings {
             category_display_enabled: true,
+            oauth_browser: None,
         };
         store.import_from_json(&settings).unwrap();
         let loaded = store.load().unwrap();

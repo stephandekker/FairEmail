@@ -75,15 +75,56 @@ pub fn wait_for_callback(listener: TcpListener) -> Result<CallbackParams, OAuthF
     result
 }
 
+/// Load the user's configured OAuth browser preference from the settings database.
+///
+/// Returns `None` if no preference is set, or if the database cannot be read
+/// (e.g. first launch before the DB is created).
+pub fn load_browser_preference() -> Option<String> {
+    let db_path = if let Ok(custom) = std::env::var("FAIRMAIL_DATA_DIR") {
+        std::path::PathBuf::from(custom).join("fairmail.db")
+    } else {
+        glib::user_data_dir().join("fairmail").join("fairmail.db")
+    };
+    let store = crate::services::sqlite_settings_store::SqliteSettingsStore::new(db_path).ok()?;
+    store.load().ok()?.oauth_browser
+}
+
+/// Result of selecting and opening a browser for OAuth.
+pub struct BrowserOpenResult {
+    /// Human-readable name of the browser that was selected.
+    pub browser_name: String,
+    /// Optional warning about browser compatibility issues (FR-32).
+    pub warning: Option<String>,
+}
+
+/// Open the given URL in the best available browser for OAuth (FR-5, FR-31, FR-32).
+///
+/// Uses the browser selection logic to prefer privacy-focused browsers and
+/// respect user configuration. Returns information about the selected browser
+/// so the caller can display warnings if needed.
+pub fn open_browser_with_selection(
+    url: &str,
+    user_preference: Option<&str>,
+) -> Result<BrowserOpenResult, OAuthFlowError> {
+    let installed = crate::core::browser_selection::detect_installed_browsers();
+    let selection = crate::core::browser_selection::select_browser(user_preference, &installed);
+
+    crate::core::browser_selection::launch_browser(&selection.command, url)
+        .map_err(OAuthFlowError::BrowserOpenFailed)?;
+
+    Ok(BrowserOpenResult {
+        browser_name: selection.browser_name,
+        warning: selection.warning,
+    })
+}
+
 /// Open the given URL in the user's system browser (FR-5).
+///
+/// Legacy entry point that delegates to `open_browser_with_selection` without
+/// a user preference. Callers that need browser warnings or user-configured
+/// browser support should use `open_browser_with_selection` directly.
 pub fn open_browser(url: &str) -> Result<(), OAuthFlowError> {
-    std::process::Command::new("xdg-open")
-        .arg(url)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| OAuthFlowError::BrowserOpenFailed(e.to_string()))?;
+    open_browser_with_selection(url, None)?;
     Ok(())
 }
 
