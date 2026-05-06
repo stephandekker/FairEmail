@@ -34,6 +34,7 @@ impl SmtpChecker for RealSmtpChecker {
                 accepted_fingerprint: accepted_fingerprint.map(|s| s.to_string()),
                 insecure: accepted_fingerprint.is_some(),
                 account_id: String::new(),
+                ehlo_hostname: None,
             };
 
             match run_smtp_session(&connect_params) {

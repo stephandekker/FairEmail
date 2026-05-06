@@ -32,6 +32,12 @@ pub struct SmtpIdentityParams {
     pub dane: bool,
     /// Require DNSSEC validation for DNS lookups.
     pub dnssec: bool,
+    /// Use the device IP address in the SMTP EHLO greeting.
+    pub use_ip_in_ehlo: bool,
+    /// Custom hostname for the SMTP EHLO greeting (used when `use_ip_in_ehlo` is false).
+    pub custom_ehlo: Option<String>,
+    /// Verify inbound account login before each SMTP send.
+    pub login_before_send: bool,
 }
 
 /// Result of validating SMTP identity fields.

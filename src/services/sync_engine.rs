@@ -1539,6 +1539,11 @@ fn resolve_send_context(
     // from the keychain. For now, fall back to the IMAP password if SMTP user matches.
     let smtp_password = imap_params.password.clone();
 
+    let ehlo_hostname = crate::core::ehlo::resolve_ehlo_hostname(
+        identity.use_ip_in_ehlo,
+        identity.custom_ehlo.as_deref(),
+    );
+
     let smtp_params = SmtpConnectParams {
         host: identity.smtp_host.clone(),
         port: identity.smtp_port,
@@ -1552,6 +1557,7 @@ fn resolve_send_context(
         accepted_fingerprint: imap_params.accepted_fingerprint.clone(),
         insecure: imap_params.insecure,
         account_id: identity.account_id.clone(),
+        ehlo_hostname,
     };
 
     let data = resolve_message_bytes(payload, content_reader_fn)?;
@@ -2184,6 +2190,7 @@ mod tests {
             accepted_fingerprint: None,
             insecure: false,
             account_id: "acct-1".to_string(),
+            ehlo_hostname: None,
         }
     }
 

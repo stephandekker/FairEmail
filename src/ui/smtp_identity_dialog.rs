@@ -277,6 +277,40 @@ pub(crate) fn show(
         .build();
     security_expander.add_row(&realm_row);
 
+    // -- EHLO options (FR-52, FR-53) --
+    let use_ip_ehlo_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Use IP address in EHLO"))
+        .subtitle(gettextrs::gettext(
+            "Send the device IP address in the SMTP greeting",
+        ))
+        .active(true)
+        .build();
+    security_expander.add_row(&use_ip_ehlo_row);
+
+    let custom_ehlo_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Custom EHLO hostname"))
+        .visible(false)
+        .build();
+    security_expander.add_row(&custom_ehlo_row);
+
+    // Show/hide custom EHLO field based on toggle.
+    use_ip_ehlo_row.connect_active_notify(clone!(
+        #[weak]
+        custom_ehlo_row,
+        move |row| {
+            custom_ehlo_row.set_visible(!row.is_active());
+        }
+    ));
+
+    // -- Login before send (FR-54) --
+    let login_before_send_row = adw::SwitchRow::builder()
+        .title(gettextrs::gettext("Login before send"))
+        .subtitle(gettextrs::gettext(
+            "Verify the inbound account is accessible before sending",
+        ))
+        .build();
+    security_expander.add_row(&login_before_send_row);
+
     let security_group = adw::PreferencesGroup::builder()
         .title(gettextrs::gettext("Security"))
         .build();
@@ -310,6 +344,14 @@ pub(crate) fn show(
             *client_cert_path.borrow_mut() = Some(cert.clone());
             cert_clear_btn.set_sensitive(true);
         }
+        // EHLO options.
+        use_ip_ehlo_row.set_active(row.use_ip_in_ehlo);
+        custom_ehlo_row.set_visible(!row.use_ip_in_ehlo);
+        if let Some(ref ehlo) = row.custom_ehlo {
+            custom_ehlo_row.set_text(ehlo);
+        }
+        // Login before send.
+        login_before_send_row.set_active(row.login_before_send);
         // Select the matching account in the dropdown.
         if let Some(idx) = accounts.iter().position(|a| a.id == row.account_id) {
             account_row.set_selected(idx as u32);
@@ -705,6 +747,12 @@ pub(crate) fn show(
         dane_row,
         #[weak]
         dnssec_row,
+        #[weak]
+        use_ip_ehlo_row,
+        #[weak]
+        custom_ehlo_row,
+        #[weak]
+        login_before_send_row,
         #[strong]
         client_cert_path,
         move |_| {
@@ -743,6 +791,9 @@ pub(crate) fn show(
                 &realm_row,
                 &dane_row,
                 &dnssec_row,
+                &use_ip_ehlo_row,
+                &custom_ehlo_row,
+                &login_before_send_row,
                 &test_btn,
                 &save_btn,
                 &cancel_btn,
@@ -805,6 +856,12 @@ pub(crate) fn show(
                     dane_row,
                     #[weak]
                     dnssec_row,
+                    #[weak]
+                    use_ip_ehlo_row,
+                    #[weak]
+                    custom_ehlo_row,
+                    #[weak]
+                    login_before_send_row,
                     move || {
                         let provider = build_smtp_provider(
                             host_val.trim(),
@@ -833,6 +890,9 @@ pub(crate) fn show(
                             &realm_row,
                             &dane_row,
                             &dnssec_row,
+                            &use_ip_ehlo_row,
+                            &custom_ehlo_row,
+                            &login_before_send_row,
                             &test_btn,
                             &save_btn,
                             &cancel_btn,
@@ -948,6 +1008,12 @@ pub(crate) fn show(
         #[weak]
         dnssec_row,
         #[weak]
+        use_ip_ehlo_row,
+        #[weak]
+        custom_ehlo_row,
+        #[weak]
+        login_before_send_row,
+        #[weak]
         toast_overlay,
         #[strong]
         client_cert_path,
@@ -995,9 +1061,16 @@ pub(crate) fn show(
                 smtp_encryption: encryption_to_str(encryption).to_string(),
                 smtp_username: user_val.trim().to_string(),
                 smtp_realm: realm_row.text().trim().to_string(),
-                use_ip_in_ehlo: false,
-                custom_ehlo: None,
-                login_before_send: false,
+                use_ip_in_ehlo: use_ip_ehlo_row.is_active(),
+                custom_ehlo: {
+                    let val = custom_ehlo_row.text().trim().to_string();
+                    if val.is_empty() {
+                        None
+                    } else {
+                        Some(val)
+                    }
+                },
+                login_before_send: login_before_send_row.is_active(),
                 max_message_size_cache: *stored_max_size.borrow(),
                 smtp_client_certificate: client_cert_path.borrow().clone(),
                 smtp_dane: dane_row.is_active(),
@@ -1030,6 +1103,9 @@ fn set_smtp_form_sensitive(
     realm_row: &adw::EntryRow,
     dane_row: &adw::SwitchRow,
     dnssec_row: &adw::SwitchRow,
+    use_ip_ehlo_row: &adw::SwitchRow,
+    custom_ehlo_row: &adw::EntryRow,
+    login_before_send_row: &adw::SwitchRow,
     test_btn: &gtk::Button,
     save_btn: &gtk::Button,
     cancel_btn: &gtk::Button,
@@ -1048,6 +1124,9 @@ fn set_smtp_form_sensitive(
     realm_row.set_sensitive(sensitive);
     dane_row.set_sensitive(sensitive);
     dnssec_row.set_sensitive(sensitive);
+    use_ip_ehlo_row.set_sensitive(sensitive);
+    custom_ehlo_row.set_sensitive(sensitive);
+    login_before_send_row.set_sensitive(sensitive);
     test_btn.set_sensitive(sensitive);
     save_btn.set_sensitive(sensitive);
     cancel_btn.set_sensitive(sensitive);

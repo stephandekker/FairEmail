@@ -15,6 +15,7 @@ pub(crate) mod detection_failure;
 pub(crate) mod detection_progress;
 pub mod dns_discovery;
 pub mod duplicate_account;
+pub mod ehlo;
 pub mod export_accounts;
 pub mod field_validation;
 pub mod folder_setup;
@@ -83,6 +84,7 @@ pub use credential_store::{
 pub use delete_account::{clear_primary_if_deleted, remove_from_order};
 pub use dns_discovery::{discover_by_dns, DnsDiscoveryResult, DnsError, DnsResolver, SrvRecord};
 pub use duplicate_account::duplicate as duplicate_account;
+pub use ehlo::resolve_ehlo_hostname;
 pub use export_accounts::{
     export_accounts, EncryptedEnvelope, ExportCategory, ExportEnvelope, ExportError, ExportOptions,
     ExportedAccount,

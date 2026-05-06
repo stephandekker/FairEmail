@@ -27,6 +27,8 @@ pub(crate) struct SmtpConnectParams {
     pub accepted_fingerprint: Option<String>,
     pub insecure: bool,
     pub account_id: String,
+    /// Custom hostname to use in the EHLO command. If `None`, defaults to "localhost".
+    pub ehlo_hostname: Option<String>,
 }
 
 /// Result of a successful SMTP session.
@@ -48,6 +50,16 @@ pub(crate) enum SmtpClientError {
     AuthenticationFailed,
     ProtocolMismatch(String),
     ConnectionFailed(String),
+}
+
+/// Build the EHLO command string from connection params.
+fn build_ehlo_cmd(params: &SmtpConnectParams) -> String {
+    let hostname = params
+        .ehlo_hostname
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("localhost");
+    format!("EHLO {hostname}")
 }
 
 /// Run a full SMTP session: connect, TLS handshake, authenticate, query EHLO extensions.
@@ -90,8 +102,7 @@ pub(crate) fn run_smtp_session(
             check_smtp_greeting(&greeting)?;
 
             // Send EHLO to get initial capabilities
-            let ehlo_cmd = "EHLO localhost".to_string();
-            session.send_line(&ehlo_cmd)?;
+            session.send_line(&build_ehlo_cmd(params))?;
             let _ehlo_response = session.read_response()?;
 
             // Send STARTTLS
@@ -159,8 +170,7 @@ fn run_authenticated_session(
     logs: &mut Vec<ConnectionLogRecord>,
 ) -> Result<SmtpSessionResult, SmtpClientError> {
     // Send EHLO
-    let ehlo_cmd = "EHLO localhost".to_string();
-    session.send_line(&ehlo_cmd)?;
+    session.send_line(&build_ehlo_cmd(params))?;
     let ehlo_response = session.read_response()?;
 
     if !ehlo_response.starts_with("250") {
@@ -301,7 +311,7 @@ pub(crate) fn send_message(
             let mut session = SmtpSession::new_plain(tcp_stream);
             let greeting = session.read_response()?;
             check_smtp_greeting(&greeting)?;
-            session.send_line("EHLO localhost")?;
+            session.send_line(&build_ehlo_cmd(params))?;
             let _ehlo = session.read_response()?;
             session.send_line("STARTTLS")?;
             let starttls_resp = session.read_response()?;
@@ -370,7 +380,7 @@ fn send_after_connect_no_greeting(
     logs: &mut Vec<ConnectionLogRecord>,
 ) -> Result<SmtpSendResult, SmtpClientError> {
     // EHLO
-    session.send_line("EHLO localhost")?;
+    session.send_line(&build_ehlo_cmd(params))?;
     let ehlo_response = session.read_response()?;
     if !ehlo_response.starts_with("250") {
         return Err(SmtpClientError::ConnectionFailed(format!(
