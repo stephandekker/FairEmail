@@ -90,6 +90,65 @@ pub(crate) fn discover_inbound(
     Err(AutoConfigError::AllStrategiesFailed)
 }
 
+/// Attempt to discover outbound (SMTP) server settings for the given domain.
+///
+/// Mirrors `discover_inbound` but extracts the outgoing server config.
+pub(crate) fn discover_outbound(
+    domain: &str,
+    provider_db: &ProviderDatabase,
+    resolver: &dyn DnsResolver,
+    http_client: &dyn HttpClient,
+    port_prober: &dyn PortProber,
+) -> Result<AutoConfigResult, AutoConfigError> {
+    let domain = domain.trim().to_lowercase();
+    if domain.is_empty() {
+        return Err(AutoConfigError::EmptyDomain);
+    }
+
+    // 1. Bundled provider database
+    if let Some(candidate) = provider_db.lookup_by_domain(&domain) {
+        return Ok(to_result(&candidate.provider.outgoing));
+    }
+
+    // 2. DNS NS record lookup
+    if let Some(candidate) = super::dns_discovery::discover_by_ns(&domain, resolver, provider_db) {
+        return Ok(to_result(&candidate.provider.outgoing));
+    }
+
+    // 3. DNS SRV records (RFC 6186)
+    if let Some(candidate) = super::dns_discovery::discover_by_srv(&domain, resolver) {
+        return Ok(to_result(&candidate.provider.outgoing));
+    }
+
+    // 4. DNS MX record lookup
+    if let Some(candidate) = super::dns_discovery::discover_by_mx(&domain, resolver, provider_db) {
+        return Ok(to_result(&candidate.provider.outgoing));
+    }
+
+    // 5. Well-known auto-configuration XML endpoints
+    if let Ok(candidate) = super::ispdb_discovery::discover_by_ispdb(&domain, http_client) {
+        return Ok(to_result(&candidate.provider.outgoing));
+    }
+    if let Ok(candidate) = super::vendor_discovery::discover_by_vendor(&domain, http_client) {
+        return Ok(to_result(&candidate.provider.outgoing));
+    }
+
+    // 6. Port scanning as last resort
+    if let Ok(result) =
+        super::port_scanning::discover_by_port_scan(&domain, resolver, port_prober, None)
+    {
+        if let Some(candidate) = result.candidates.first() {
+            return Ok(AutoConfigResult {
+                hostname: candidate.provider.outgoing.hostname.clone(),
+                port: candidate.provider.outgoing.port,
+                encryption: candidate.provider.outgoing.encryption,
+            });
+        }
+    }
+
+    Err(AutoConfigError::AllStrategiesFailed)
+}
+
 fn to_result(config: &super::provider::ServerConfig) -> AutoConfigResult {
     AutoConfigResult {
         hostname: config.hostname.clone(),
@@ -384,5 +443,133 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.hostname, "imap.gmail.com");
+    }
+
+    // -- discover_outbound tests --
+
+    #[test]
+    fn test_outbound_empty_domain_returns_error() {
+        let db = ProviderDatabase::bundled();
+        let result = discover_outbound(
+            "",
+            &db,
+            &MockResolver::empty(),
+            &FailingHttpClient,
+            &FailingPortProber,
+        );
+        assert!(matches!(result, Err(AutoConfigError::EmptyDomain)));
+    }
+
+    #[test]
+    fn test_outbound_bundled_provider_match() {
+        let db = ProviderDatabase::bundled();
+        let result = discover_outbound(
+            "gmail.com",
+            &db,
+            &MockResolver::empty(),
+            &FailingHttpClient,
+            &FailingPortProber,
+        )
+        .unwrap();
+        assert_eq!(result.hostname, "smtp.gmail.com");
+        assert_eq!(result.port, 465);
+        assert_eq!(result.encryption, ProviderEncryption::SslTls);
+    }
+
+    #[test]
+    fn test_outbound_dns_ns_fallback() {
+        let db = ProviderDatabase::bundled();
+        let resolver = MockResolver::empty().with_ns(&["ns1.google.com"]);
+        let result = discover_outbound(
+            "custom-domain.example.com",
+            &db,
+            &resolver,
+            &FailingHttpClient,
+            &FailingPortProber,
+        )
+        .unwrap();
+        assert_eq!(result.hostname, "smtp.gmail.com");
+    }
+
+    #[test]
+    fn test_outbound_dns_srv_fallback() {
+        let db = ProviderDatabase::bundled();
+        let resolver = MockResolver::empty()
+            .with_srv(
+                "_submissions._tcp.custom.example.org",
+                vec![SrvRecord {
+                    priority: 0,
+                    weight: 1,
+                    port: 465,
+                    target: "smtp.custom.example.org.".to_string(),
+                }],
+            )
+            .with_srv(
+                "_imaps._tcp.custom.example.org",
+                vec![SrvRecord {
+                    priority: 0,
+                    weight: 1,
+                    port: 993,
+                    target: "imap.custom.example.org.".to_string(),
+                }],
+            );
+        let result = discover_outbound(
+            "custom.example.org",
+            &db,
+            &resolver,
+            &FailingHttpClient,
+            &FailingPortProber,
+        )
+        .unwrap();
+        assert_eq!(result.hostname, "smtp.custom.example.org");
+        assert_eq!(result.port, 465);
+        assert_eq!(result.encryption, ProviderEncryption::SslTls);
+    }
+
+    #[test]
+    fn test_outbound_all_strategies_fail() {
+        let db = ProviderDatabase::bundled();
+        let result = discover_outbound(
+            "completely-unknown-domain.example.com",
+            &db,
+            &MockResolver::empty(),
+            &FailingHttpClient,
+            &FailingPortProber,
+        );
+        assert!(matches!(result, Err(AutoConfigError::AllStrategiesFailed)));
+    }
+
+    #[test]
+    fn test_outbound_domain_trimmed() {
+        let db = ProviderDatabase::bundled();
+        let result = discover_outbound(
+            "  gmail.com  ",
+            &db,
+            &MockResolver::empty(),
+            &FailingHttpClient,
+            &FailingPortProber,
+        )
+        .unwrap();
+        assert_eq!(result.hostname, "smtp.gmail.com");
+    }
+
+    #[test]
+    fn test_outbound_port_scan_fallback() {
+        let db = ProviderDatabase::bundled();
+        let prober = OpenPortProber::new(&[
+            ("unknown-domain.example.com", 993),
+            ("unknown-domain.example.com", 465),
+        ]);
+        let result = discover_outbound(
+            "unknown-domain.example.com",
+            &db,
+            &MockResolver::empty(),
+            &FailingHttpClient,
+            &prober,
+        )
+        .unwrap();
+        assert_eq!(result.hostname, "unknown-domain.example.com");
+        assert_eq!(result.port, 465);
+        assert_eq!(result.encryption, ProviderEncryption::SslTls);
     }
 }

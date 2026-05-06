@@ -70,6 +70,14 @@ fn encryption_to_str(enc: EncryptionMode) -> &'static str {
     }
 }
 
+fn provider_encryption_to_combo(enc: ProviderEncryption) -> u32 {
+    match enc {
+        ProviderEncryption::SslTls => 0,
+        ProviderEncryption::StartTls => 1,
+        ProviderEncryption::None => 2,
+    }
+}
+
 /// Show the SMTP Identity Configuration dialog.
 ///
 /// `accounts` provides the list of existing inbound accounts for the dropdown.
@@ -149,6 +157,33 @@ pub(crate) fn show(
     let smtp_group = adw::PreferencesGroup::builder()
         .title(gettextrs::gettext("Outgoing Server (SMTP)"))
         .build();
+
+    // -- Domain-based auto-config (FR-49) --
+    let domain_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Domain"))
+        .build();
+    domain_row.set_tooltip_text(Some(&gettextrs::gettext(
+        "Enter domain to auto-detect SMTP server settings",
+    )));
+
+    let auto_config_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Auto-config"))
+        .valign(gtk::Align::Center)
+        .css_classes(["suggested-action"])
+        .build();
+    auto_config_btn.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Auto-detect SMTP server settings from domain",
+    ))]);
+
+    let auto_config_spinner = gtk::Spinner::builder()
+        .spinning(false)
+        .visible(false)
+        .valign(gtk::Align::Center)
+        .build();
+
+    domain_row.add_suffix(&auto_config_spinner);
+    domain_row.add_suffix(&auto_config_btn);
+    smtp_group.add(&domain_row);
 
     let host_row = adw::EntryRow::builder()
         .title(gettextrs::gettext("Host"))
@@ -304,6 +339,142 @@ pub(crate) fn show(
             if should_autofill(current) {
                 port_row.set_value(smtp_default_port(encryption) as f64);
             }
+        }
+    ));
+
+    // -- Auto-config button handler (FR-49) --
+    auto_config_btn.connect_clicked(clone!(
+        #[weak]
+        domain_row,
+        #[weak]
+        auto_config_btn,
+        #[weak]
+        auto_config_spinner,
+        #[weak]
+        host_row,
+        #[weak]
+        port_row,
+        #[weak]
+        encryption_row,
+        #[weak]
+        toast_overlay,
+        move |_| {
+            let domain_text = domain_row.text().to_string();
+            if domain_text.trim().is_empty() {
+                let toast = adw::Toast::new(&gettextrs::gettext("Please enter a domain"));
+                toast_overlay.add_toast(toast);
+                return;
+            }
+
+            // Disable domain field and button during operation.
+            domain_row.set_sensitive(false);
+            auto_config_btn.set_visible(false);
+            auto_config_spinner.set_visible(true);
+            auto_config_spinner.set_spinning(true);
+
+            // Run auto-config asynchronously (simulated with short delay).
+            glib::timeout_add_local_once(
+                std::time::Duration::from_millis(200),
+                clone!(
+                    #[weak]
+                    domain_row,
+                    #[weak]
+                    auto_config_btn,
+                    #[weak]
+                    auto_config_spinner,
+                    #[weak]
+                    host_row,
+                    #[weak]
+                    port_row,
+                    #[weak]
+                    encryption_row,
+                    #[weak]
+                    toast_overlay,
+                    move || {
+                        let provider_db = crate::core::provider::ProviderDatabase::bundled();
+
+                        // Use mock implementations matching the rest of the dialog.
+                        struct NoopResolver;
+                        impl crate::core::dns_discovery::DnsResolver for NoopResolver {
+                            fn lookup_ns(
+                                &self,
+                                _: &str,
+                            ) -> Result<Vec<String>, crate::core::dns_discovery::DnsError>
+                            {
+                                Err(crate::core::dns_discovery::DnsError::NoRecords)
+                            }
+                            fn lookup_mx(
+                                &self,
+                                _: &str,
+                            ) -> Result<Vec<(u16, String)>, crate::core::dns_discovery::DnsError>
+                            {
+                                Err(crate::core::dns_discovery::DnsError::NoRecords)
+                            }
+                            fn lookup_srv(
+                                &self,
+                                _: &str,
+                            ) -> Result<
+                                Vec<crate::core::dns_discovery::SrvRecord>,
+                                crate::core::dns_discovery::DnsError,
+                            > {
+                                Err(crate::core::dns_discovery::DnsError::NoRecords)
+                            }
+                        }
+                        struct NoopHttp;
+                        impl crate::core::ispdb_discovery::HttpClient for NoopHttp {
+                            fn get(
+                                &self,
+                                _: &str,
+                            ) -> Result<String, crate::core::ispdb_discovery::AutoconfigError>
+                            {
+                                Err(crate::core::ispdb_discovery::AutoconfigError::HttpFailed(
+                                    "not available".to_string(),
+                                ))
+                            }
+                        }
+                        struct NoopProber;
+                        impl crate::core::port_scanning::PortProber for NoopProber {
+                            fn probe(&self, _: &str, _: u16) -> bool {
+                                false
+                            }
+                        }
+
+                        let result = crate::core::auto_config::discover_outbound(
+                            &domain_text,
+                            &provider_db,
+                            &NoopResolver,
+                            &NoopHttp,
+                            &NoopProber,
+                        );
+
+                        // Re-enable controls.
+                        domain_row.set_sensitive(true);
+                        auto_config_btn.set_visible(true);
+                        auto_config_spinner.set_spinning(false);
+                        auto_config_spinner.set_visible(false);
+
+                        match result {
+                            Ok(config) => {
+                                host_row.set_text(&config.hostname);
+                                port_row.set_value(config.port as f64);
+                                encryption_row
+                                    .set_selected(provider_encryption_to_combo(config.encryption));
+
+                                let toast = adw::Toast::new(&gettextrs::gettext(
+                                    "SMTP settings auto-detected",
+                                ));
+                                toast_overlay.add_toast(toast);
+                            }
+                            Err(_) => {
+                                let toast = adw::Toast::new(&gettextrs::gettext(
+                                    "Could not auto-detect SMTP settings for this domain",
+                                ));
+                                toast_overlay.add_toast(toast);
+                            }
+                        }
+                    }
+                ),
+            );
         }
     ));
 
@@ -525,6 +696,10 @@ pub(crate) fn show(
         #[weak]
         account_row,
         #[weak]
+        domain_row,
+        #[weak]
+        auto_config_btn,
+        #[weak]
         realm_row,
         #[weak]
         dane_row,
@@ -558,6 +733,8 @@ pub(crate) fn show(
                 &email_row,
                 &display_name_row,
                 &account_row,
+                &domain_row,
+                &auto_config_btn,
                 &host_row,
                 &port_row,
                 &encryption_row,
@@ -619,6 +796,10 @@ pub(crate) fn show(
                     #[weak]
                     account_row,
                     #[weak]
+                    domain_row,
+                    #[weak]
+                    auto_config_btn,
+                    #[weak]
                     realm_row,
                     #[weak]
                     dane_row,
@@ -642,6 +823,8 @@ pub(crate) fn show(
                             &email_row,
                             &display_name_row,
                             &account_row,
+                            &domain_row,
+                            &auto_config_btn,
                             &host_row,
                             &port_row,
                             &encryption_row,
@@ -837,6 +1020,8 @@ fn set_smtp_form_sensitive(
     email_row: &adw::EntryRow,
     display_name_row: &adw::EntryRow,
     account_row: &adw::ComboRow,
+    domain_row: &adw::EntryRow,
+    auto_config_btn: &gtk::Button,
     host_row: &adw::EntryRow,
     port_row: &adw::SpinRow,
     encryption_row: &adw::ComboRow,
@@ -853,6 +1038,8 @@ fn set_smtp_form_sensitive(
     email_row.set_sensitive(sensitive);
     display_name_row.set_sensitive(sensitive);
     account_row.set_sensitive(sensitive);
+    domain_row.set_sensitive(sensitive);
+    auto_config_btn.set_sensitive(sensitive);
     host_row.set_sensitive(sensitive);
     port_row.set_sensitive(sensitive);
     encryption_row.set_sensitive(sensitive);
