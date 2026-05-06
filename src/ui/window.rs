@@ -9,10 +9,13 @@ use std::rc::Rc;
 
 use uuid::Uuid;
 
+use crate::core::provider::ProviderDatabase;
+use crate::core::reauth::find_oauth_config_for_reauth;
 use crate::core::{
-    self, apply_custom_order, clear_primary_if_deleted, collect_categories, group_by_category,
-    move_account, remove_from_order, Account, ConnectionState, ConnectionStateManager,
-    CredentialRole, CredentialStore, SecretValue,
+    self, apply_custom_order, build_revocation_notification, clear_primary_if_deleted,
+    collect_categories, group_by_category, move_account, remove_from_order, Account, AuthMethod,
+    ConnectionState, ConnectionStateManager, CredentialRole, CredentialStore, RevocationEvent,
+    SecretValue, ValidatedTokenResponse,
 };
 use crate::services::{AccountStore, AppSettings, SqliteOrderStore, SqliteSettingsStore};
 
@@ -161,7 +164,23 @@ pub(crate) fn build(
     split_view.set_sidebar(Some(&sidebar_page));
     split_view.set_content(Some(&content_page));
 
-    window.set_content(Some(&split_view));
+    // US-5: Revocation banner for OAuth re-authorization notifications.
+    // Hidden by default; shown when a token refresh fails definitively.
+    let revocation_banner = adw::Banner::new("");
+    revocation_banner.set_button_label(Some(&gettextrs::gettext("Re-authorize")));
+    revocation_banner.set_revealed(false);
+
+    let toast_overlay = adw::ToastOverlay::new();
+
+    let main_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    main_box.append(&revocation_banner);
+    main_box.append(&split_view);
+    toast_overlay.set_child(Some(&main_box));
+
+    window.set_content(Some(&toast_overlay));
+
+    // US-5: track which account the revocation banner refers to.
+    let banner_account_id: Rc<RefCell<Option<Uuid>>> = Rc::new(RefCell::new(None));
 
     // Shared mutable list of accounts for the sidebar model.
     let accounts: Rc<RefCell<Vec<Account>>> = Rc::new(RefCell::new(Vec::new()));
@@ -515,6 +534,157 @@ pub(crate) fn build(
         }
     ));
     account_list.add_controller(key_controller);
+
+    // US-5: Revocation banner "Re-authorize" button handler.
+    // Triggers the OAuth browser flow directly for one-click re-authorization.
+    revocation_banner.connect_button_clicked(clone!(
+        #[strong]
+        banner_account_id,
+        #[strong]
+        accounts,
+        #[strong]
+        store,
+        #[strong]
+        credential_store,
+        #[strong]
+        settings,
+        #[strong]
+        custom_order,
+        #[strong]
+        conn_state_mgr,
+        #[weak]
+        revocation_banner,
+        #[weak]
+        toast_overlay,
+        #[weak]
+        account_list,
+        move |_| {
+            let account_id = match *banner_account_id.borrow() {
+                Some(id) => id,
+                None => return,
+            };
+
+            // Look up the account and find its OAuth config.
+            let account = {
+                let list = accounts.borrow();
+                list.iter().find(|a| a.id() == account_id).cloned()
+            };
+            let account = match account {
+                Some(a) => a,
+                None => return,
+            };
+
+            let provider_db = ProviderDatabase::bundled();
+            let oauth_config = match find_oauth_config_for_reauth(&account, &provider_db) {
+                Some(cfg) => cfg,
+                None => {
+                    let toast = adw::Toast::new(&gettextrs::gettext(
+                        "Could not find OAuth configuration for this account.",
+                    ));
+                    toast_overlay.add_toast(toast);
+                    return;
+                }
+            };
+
+            // Disable the banner button to prevent double-clicks.
+            revocation_banner.set_button_label(Some(&gettextrs::gettext("Authorizing…")));
+
+            // Run OAuth flow on a background thread, poll from main loop.
+            let browser_pref = crate::services::oauth_service::load_browser_preference();
+            let (tx, rx) =
+                std::sync::mpsc::channel::<crate::ui::edit_account_dialog::ReauthOAuthMessage>();
+            std::thread::spawn(move || {
+                crate::ui::edit_account_dialog::run_reauth_oauth_thread(
+                    oauth_config,
+                    tx,
+                    browser_pref,
+                );
+            });
+
+            let store = store.clone();
+            let accounts = accounts.clone();
+            let credential_store = credential_store.clone();
+            let settings = settings.clone();
+            let custom_order = custom_order.clone();
+            let conn_state_mgr = conn_state_mgr.clone();
+            let banner = revocation_banner.clone();
+            let toast_ref = toast_overlay.clone();
+            let account_list = account_list.clone();
+            let banner_id = banner_account_id.clone();
+            glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                use crate::ui::edit_account_dialog::ReauthOAuthMessage;
+                match rx.try_recv() {
+                    Ok(ReauthOAuthMessage::Success {
+                        access_token,
+                        refresh_token,
+                        expires_in,
+                    }) => {
+                        // Store new tokens (preserving all account state).
+                        let validated = ValidatedTokenResponse {
+                            access_token: access_token.clone(),
+                            refresh_token,
+                            expires_in,
+                        };
+                        if let Err(e) = crate::services::oauth_service::store_oauth_tokens(
+                            &*credential_store,
+                            account_id,
+                            &validated,
+                        ) {
+                            eprintln!("Failed to store re-auth tokens: {e}");
+                            let toast = adw::Toast::new(&format!(
+                                "{} {e}",
+                                gettextrs::gettext("Re-authorization failed:")
+                            ));
+                            toast_ref.add_toast(toast);
+                            banner.set_button_label(Some(&gettextrs::gettext("Re-authorize")));
+                            return glib::ControlFlow::Break;
+                        }
+                        // Update in-memory account credential and re-enable sync.
+                        {
+                            let mut list = accounts.borrow_mut();
+                            if let Some(acct) = list.iter_mut().find(|a| a.id() == account_id) {
+                                acct.update_credentials(access_token, AuthMethod::OAuth2);
+                                acct.set_sync_enabled(true);
+                                let _ = store.update(acct.clone());
+                            }
+                        }
+                        // Hide the banner and clear the tracked account.
+                        banner.set_revealed(false);
+                        *banner_id.borrow_mut() = None;
+                        banner.set_button_label(Some(&gettextrs::gettext("Re-authorize")));
+                        // Show success toast.
+                        let toast = adw::Toast::new(&gettextrs::gettext(
+                            "Account re-authorized successfully.",
+                        ));
+                        toast_ref.add_toast(toast);
+                        rebuild_account_list(
+                            &account_list,
+                            &accounts.borrow(),
+                            settings.borrow().category_display_enabled,
+                            custom_order.borrow().as_deref(),
+                            &conn_state_mgr.borrow(),
+                        );
+                        glib::ControlFlow::Break
+                    }
+                    Ok(ReauthOAuthMessage::Error(err)) => {
+                        banner.set_button_label(Some(&gettextrs::gettext("Re-authorize")));
+                        let toast = adw::Toast::new(&format!(
+                            "{} {}",
+                            gettextrs::gettext("Re-authorization failed:"),
+                            err
+                        ));
+                        toast_ref.add_toast(toast);
+                        glib::ControlFlow::Break
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        banner.set_button_label(Some(&gettextrs::gettext("Re-authorize")));
+                        glib::ControlFlow::Break
+                    }
+                }
+            });
+        }
+    ));
 
     // "Add account" button handler.
     // FR-2: the wizard is the default path when adding an account.
@@ -1368,4 +1538,21 @@ fn show_password_propagation_dialog(
     });
 
     dialog.present(Some(parent));
+}
+
+#[allow(dead_code)]
+/// US-5, AC-1, AC-2: Show a revocation notification on the given banner.
+///
+/// Displays the banner with the notification title and stores the account ID
+/// so the banner's "Re-authorize" button handler knows which account to act on.
+/// This function is called when a token refresh returns `NeedsReauthorization`.
+pub(crate) fn show_revocation_notification(
+    banner: &adw::Banner,
+    banner_account_id: &Rc<RefCell<Option<Uuid>>>,
+    event: &RevocationEvent,
+) {
+    let notification = build_revocation_notification(event);
+    banner.set_title(&notification.title);
+    banner.set_revealed(true);
+    *banner_account_id.borrow_mut() = Some(event.account_id);
 }

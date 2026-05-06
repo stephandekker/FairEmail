@@ -50,6 +50,8 @@ pub mod provider;
 pub(crate) mod provider_data;
 pub mod provider_dropdown;
 pub mod reauth;
+#[allow(dead_code)]
+pub(crate) mod revocation;
 pub mod save_auto_test;
 pub mod smtp_check;
 pub mod smtp_identity;
@@ -177,6 +179,11 @@ pub use provider_dropdown::{
 pub use reauth::{
     find_matching_account, find_oauth_config_for_reauth, reauthorize_account, ReauthError,
     ReauthParams,
+};
+#[allow(unused_imports)]
+pub(crate) use revocation::{
+    build_revocation_notification, build_revocation_notification_with_hint,
+    revocation_event_from_outcome, RevocationEvent, RevocationNotification,
 };
 pub use smtp_check::{
     combine_connectivity_results, ConnectivityCheckError, ConnectivityCheckResult, SmtpCheckError,

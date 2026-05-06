@@ -2410,7 +2410,7 @@ pub(crate) fn show(
 }
 
 /// Messages from the re-authorization OAuth background thread.
-enum ReauthOAuthMessage {
+pub(crate) enum ReauthOAuthMessage {
     Success {
         access_token: String,
         refresh_token: String,
@@ -2423,7 +2423,7 @@ enum ReauthOAuthMessage {
 ///
 /// Reuses the same core OAuth flow as the setup wizard (story 2) but sends
 /// the result back via a channel for token replacement on the existing account.
-fn run_reauth_oauth_thread(
+pub(crate) fn run_reauth_oauth_thread(
     oauth_config: crate::core::provider::OAuthConfig,
     tx: std::sync::mpsc::Sender<ReauthOAuthMessage>,
     oauth_browser_preference: Option<String>,
