@@ -48,6 +48,7 @@ fn test_incoming_server(request: &ConnectionTestRequest) -> ServerTestOutcome {
         dane: false,
         dnssec: false,
         auth_realm: None,
+        auth_method: request.incoming.auth_method,
     };
 
     match run_imap_session(&connect_params) {

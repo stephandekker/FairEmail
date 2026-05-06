@@ -47,6 +47,10 @@ pub struct OAuthConfig {
     /// user's email and display name. Analogous to the `askAccount` flag in the
     /// Android codebase.
     pub userinfo_url: Option<String>,
+    /// URL of the provider's privacy policy, displayed during the OAuth
+    /// authorization flow (US-8). `None` when the provider has not published one.
+    #[serde(default)]
+    pub privacy_policy_url: Option<String>,
 }
 
 fn default_pkce_required() -> bool {
@@ -699,6 +703,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
+            privacy_policy_url: None,
         }
     }
 
@@ -712,6 +717,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
+            privacy_policy_url: None,
         }
     }
 
@@ -960,6 +966,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![("custom_key".to_string(), "custom_value".to_string())],
             userinfo_url: None,
+            privacy_policy_url: None,
         };
         // The extra_params field on OAuthConfig is what the flow reads —
         // no provider-specific if/else branches exist in the flow module.

@@ -10,7 +10,7 @@ use std::io::{BufRead, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
-use crate::core::account::EncryptionMode;
+use crate::core::account::{AuthMethod, EncryptionMode};
 use crate::core::certificate::CertificateInfo;
 use crate::core::connection_log::{ConnectionLogEventType, ConnectionLogRecord};
 
@@ -29,6 +29,9 @@ pub(crate) struct SmtpConnectParams {
     pub account_id: String,
     /// Custom hostname to use in the EHLO command. If `None`, defaults to "localhost".
     pub ehlo_hostname: Option<String>,
+    /// Authentication method. When `OAuth2`, the `password` field contains the
+    /// access token and XOAUTH2 SASL mechanism is used instead of LOGIN/PLAIN.
+    pub auth_method: AuthMethod,
 }
 
 /// Result of a successful SMTP session.
@@ -449,12 +452,16 @@ fn send_after_connect_no_greeting(
     })
 }
 
-/// Authenticate via AUTH LOGIN or AUTH PLAIN.
+/// Authenticate via AUTH LOGIN, AUTH PLAIN, or AUTH XOAUTH2.
 fn smtp_authenticate(
     session: &mut SmtpSession,
     params: &SmtpConnectParams,
     logs: &mut Vec<ConnectionLogRecord>,
 ) -> Result<(), SmtpClientError> {
+    if params.auth_method == AuthMethod::OAuth2 {
+        return smtp_authenticate_xoauth2(session, params, logs);
+    }
+
     session.send_line("AUTH LOGIN")?;
     let auth_response = session.read_response()?;
 
@@ -494,6 +501,38 @@ fn smtp_authenticate(
         ));
         Ok(())
     } else {
+        Err(SmtpClientError::AuthenticationFailed)
+    }
+}
+
+/// Authenticate via AUTH XOAUTH2 for OAuth2 accounts.
+///
+/// Uses the XOAUTH2 SASL mechanism: the `password` field contains the
+/// OAuth access token, which is combined with the username into a
+/// base64-encoded SASL token.
+fn smtp_authenticate_xoauth2(
+    session: &mut SmtpSession,
+    params: &SmtpConnectParams,
+    logs: &mut Vec<ConnectionLogRecord>,
+) -> Result<(), SmtpClientError> {
+    let token = crate::core::xoauth2::build_xoauth2_token(&params.username, &params.password);
+    let cmd = format!("AUTH XOAUTH2 {token}");
+    session.send_line(&cmd)?;
+    let response = session.read_response()?;
+
+    if response.starts_with("235") {
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::LoginResult,
+            format!("SMTP login successful (XOAUTH2) as {}", params.username),
+        ));
+        Ok(())
+    } else {
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::Error,
+            format!("AUTH XOAUTH2 failed: {}", response.trim()),
+        ));
         Err(SmtpClientError::AuthenticationFailed)
     }
 }

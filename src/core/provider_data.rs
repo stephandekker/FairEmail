@@ -130,6 +130,7 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                         ("access_type".to_string(), "offline".to_string()),
                     ],
                     userinfo_url: None,
+                    privacy_policy_url: Some("https://policies.google.com/privacy".to_string()),
                 }),
                 1,
             );
@@ -167,6 +168,7 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                         ("prompt".to_string(), "consent".to_string()),
                     ],
                     userinfo_url: None,
+                    privacy_policy_url: Some("https://privacy.microsoft.com/en-us/privacystatement".to_string()),
                 }),
                 2,
             );
@@ -217,6 +219,9 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 pkce_required: true,
                 extra_params: vec![],
                 userinfo_url: None,
+                privacy_policy_url: Some(
+                    "https://legal.yahoo.com/us/en/yahoo/privacy/index.html".to_string(),
+                ),
             }),
             3,
         ),
@@ -270,6 +275,9 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 pkce_required: true,
                 extra_params: vec![],
                 userinfo_url: None,
+                privacy_policy_url: Some(
+                    "https://legal.yahoo.com/us/en/yahoo/privacy/index.html".to_string(),
+                ),
             }),
             5,
         ),
@@ -301,6 +309,7 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 pkce_required: true,
                 extra_params: vec![],
                 userinfo_url: Some("https://oauth.mail.ru/userinfo".to_string()),
+                privacy_policy_url: Some("https://help.mail.ru/legal/terms/privacy".to_string()),
             }),
             6,
         ),
@@ -340,6 +349,7 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 pkce_required: true,
                 extra_params: vec![("force_confirm".to_string(), "true".to_string())],
                 userinfo_url: None,
+                privacy_policy_url: Some("https://yandex.com/legal/confidential/".to_string()),
             }),
             7,
         ),
@@ -489,6 +499,9 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                     pkce_required: true,
                     extra_params: vec![("prompt".to_string(), "consent".to_string())],
                     userinfo_url: None,
+                    privacy_policy_url: Some(
+                        "https://privacy.microsoft.com/en-us/privacystatement".to_string(),
+                    ),
                 }),
                 13,
             );
@@ -640,6 +653,7 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 pkce_required: true,
                 extra_params: vec![],
                 userinfo_url: None,
+                privacy_policy_url: None,
             }),
             19,
         ),
@@ -1266,6 +1280,7 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 pkce_required: true,
                 extra_params: vec![],
                 userinfo_url: None,
+                privacy_policy_url: Some("https://www.fastmail.com/about/privacy/".to_string()),
             }),
             67,
         ),

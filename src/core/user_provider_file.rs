@@ -407,6 +407,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
+            privacy_policy_url: None,
         });
         let result = validate_provider_configs(&[p]);
         assert!(result.is_err());
@@ -427,6 +428,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
+            privacy_policy_url: None,
         });
         let result = validate_provider_configs(&[p]);
         assert!(result.is_err());
@@ -447,6 +449,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
+            privacy_policy_url: None,
         });
         let result = validate_provider_configs(&[p]);
         assert!(result.is_err());
@@ -467,6 +470,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: Some("https://auth.corp.example.com/userinfo".to_string()),
+            privacy_policy_url: None,
         });
         assert!(validate_provider_configs(&[p]).is_ok());
     }

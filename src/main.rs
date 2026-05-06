@@ -341,6 +341,7 @@ mod dev_fetch {
             auth_realm: account
                 .security_settings()
                 .and_then(|s| s.auth_realm.clone()),
+            auth_method: account.auth_method(),
         };
 
         let content_root = data_dir.join("messages");

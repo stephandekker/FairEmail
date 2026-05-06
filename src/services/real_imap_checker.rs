@@ -1,5 +1,6 @@
 //! Real implementation of `ImapChecker` using `async-imap`.
 
+use crate::core::account::AuthMethod;
 use crate::core::imap_check::{
     build_imap_success, resolve_username_candidates, ImapCheckError, ImapCheckResult,
     ImapConnectionParams,
@@ -40,6 +41,7 @@ impl ImapChecker for RealImapChecker {
                 dane: false,
                 dnssec: false,
                 auth_realm: None,
+                auth_method: AuthMethod::Plain,
             };
 
             match run_imap_session(&connect_params) {

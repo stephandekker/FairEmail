@@ -1,5 +1,6 @@
 //! Real implementation of `SmtpChecker` using the SMTP client.
 
+use crate::core::account::AuthMethod;
 use crate::core::imap_check::resolve_username_candidates;
 use crate::core::provider::Provider;
 use crate::core::smtp_check::{
@@ -35,6 +36,7 @@ impl SmtpChecker for RealSmtpChecker {
                 insecure: accepted_fingerprint.is_some(),
                 account_id: String::new(),
                 ehlo_hostname: None,
+                auth_method: AuthMethod::Plain,
             };
 
             match run_smtp_session(&connect_params) {

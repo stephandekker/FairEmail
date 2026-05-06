@@ -47,6 +47,7 @@ impl InboundTester for RealInboundTester {
             dane: params.dane,
             dnssec: params.dnssec,
             auth_realm: params.auth_realm.clone(),
+            auth_method: params.auth_method,
         };
 
         match run_imap_session(&connect_params) {
@@ -98,6 +99,7 @@ impl RealInboundTester {
             dane: params.dane,
             dnssec: params.dnssec,
             auth_realm: params.auth_realm.clone(),
+            auth_method: params.auth_method,
         };
 
         match run_imap_session(&connect_params) {

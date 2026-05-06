@@ -163,6 +163,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
+            privacy_policy_url: None,
         }
     }
 
@@ -176,6 +177,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: Some("https://oauth.mail.ru/userinfo".to_string()),
+            privacy_policy_url: None,
         }
     }
 

@@ -12,7 +12,7 @@ use std::time::Duration;
 use native_tls::{TlsConnector, TlsStream};
 use sha2::{Digest, Sha256};
 
-use crate::core::account::EncryptionMode;
+use crate::core::account::{AuthMethod, EncryptionMode};
 use crate::core::certificate::CertificateInfo;
 use crate::core::connection_log::{ConnectionLogEventType, ConnectionLogRecord};
 use crate::core::imap_check::{detect_folder_role, ImapFolder};
@@ -47,6 +47,9 @@ pub(crate) struct ImapConnectParams {
     pub dnssec: bool,
     /// Optional authentication realm for SASL/NTLM domain (FR-10).
     pub auth_realm: Option<String>,
+    /// Authentication method. When `OAuth2`, the `password` field contains the
+    /// access token and XOAUTH2 SASL mechanism is used instead of LOGIN/PLAIN.
+    pub auth_method: AuthMethod,
 }
 
 /// Errors from the real IMAP client.
@@ -353,6 +356,9 @@ impl ImapSession {
         params: &ImapConnectParams,
         logs: &mut Vec<ConnectionLogRecord>,
     ) -> Result<(), ImapClientError> {
+        if params.auth_method == AuthMethod::OAuth2 {
+            return self.do_authenticate_xoauth2(params, logs);
+        }
         if let Some(ref realm) = params.auth_realm {
             // Use AUTHENTICATE PLAIN with realm as the authorization identity (FR-10).
             self.do_authenticate_plain(params, realm, logs)
@@ -449,6 +455,42 @@ impl ImapSession {
                 params.account_id.clone(),
                 ConnectionLogEventType::Error,
                 format!("AUTHENTICATE PLAIN failed: {}", tag_line.trim()),
+            ));
+            Err(ImapClientError::AuthenticationFailed)
+        }
+    }
+
+    /// AUTHENTICATE XOAUTH2 for OAuth2-authenticated accounts.
+    ///
+    /// Uses the XOAUTH2 SASL mechanism: the `password` field contains the
+    /// OAuth access token, which is combined with the username into a
+    /// base64-encoded SASL token.
+    fn do_authenticate_xoauth2(
+        &mut self,
+        params: &ImapConnectParams,
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<(), ImapClientError> {
+        let token = crate::core::xoauth2::build_xoauth2_token(&params.username, &params.password);
+        let cmd = format!("AUTHENTICATE XOAUTH2 {token}");
+        self.send_command("A002", &cmd)?;
+        let response = self.read_tagged_response("A002")?;
+
+        let tag_line = response
+            .lines()
+            .find(|l| l.starts_with("A002"))
+            .unwrap_or("");
+        if tag_line.contains("OK") {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::LoginResult,
+                format!("Login successful as {} (XOAUTH2)", params.username),
+            ));
+            Ok(())
+        } else {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("AUTHENTICATE XOAUTH2 failed: {}", tag_line.trim()),
             ));
             Err(ImapClientError::AuthenticationFailed)
         }

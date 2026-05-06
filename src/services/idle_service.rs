@@ -368,7 +368,7 @@ impl IdleWaiter for MockIdleWaiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::account::EncryptionMode;
+    use crate::core::account::{AuthMethod, EncryptionMode};
     use crate::core::content_store::ContentStoreError;
     use crate::services::database::open_and_migrate;
     use crate::services::fs_content_store::sha256_hex;
@@ -463,6 +463,7 @@ mod tests {
             dane: false,
             dnssec: false,
             auth_realm: None,
+            auth_method: AuthMethod::Plain,
         }
     }
 

@@ -1567,6 +1567,7 @@ fn resolve_send_context(
         insecure: imap_params.insecure,
         account_id: identity.account_id.clone(),
         ehlo_hostname,
+        auth_method: imap_params.auth_method,
     };
 
     let data = resolve_message_bytes(payload, content_reader_fn)?;
@@ -1754,7 +1755,7 @@ pub(crate) fn queue_send_message(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::account::EncryptionMode;
+    use crate::core::account::{AuthMethod, EncryptionMode};
     use crate::core::message::{FLAG_ANSWERED, FLAG_SEEN};
     use crate::core::pending_operation::OperationState;
     use crate::services::database::open_and_migrate;
@@ -1802,6 +1803,7 @@ mod tests {
             dane: false,
             dnssec: false,
             auth_realm: None,
+            auth_method: AuthMethod::Plain,
         }
     }
 
@@ -2200,6 +2202,7 @@ mod tests {
             insecure: false,
             account_id: "acct-1".to_string(),
             ehlo_hostname: None,
+            auth_method: AuthMethod::Plain,
         }
     }
 

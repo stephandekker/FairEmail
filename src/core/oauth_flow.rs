@@ -511,6 +511,7 @@ mod tests {
                 ("access_type".to_string(), "offline".to_string()),
             ],
             userinfo_url: None,
+            privacy_policy_url: None,
         }
     }
 

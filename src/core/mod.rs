@@ -31,6 +31,8 @@ pub mod inbound_test_diagnostics;
 pub(crate) mod ispdb_discovery;
 pub mod message;
 pub mod navigation;
+#[allow(dead_code)]
+pub(crate) mod oauth_browser_flow;
 pub(crate) mod oauth_flow;
 pub(crate) mod oauth_identity;
 pub mod oauth_provider_registry;
@@ -61,6 +63,7 @@ pub mod user_provider_file;
 #[allow(dead_code)]
 pub(crate) mod vendor_discovery;
 pub mod wizard_validation;
+pub(crate) mod xoauth2;
 
 pub use account::{
     collect_categories, detect_system_folders, encode_shared_mailbox_username,
@@ -132,6 +135,10 @@ pub use message::{
     FLAG_DELETED, FLAG_DRAFT, FLAG_FLAGGED, FLAG_SEEN,
 };
 pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
+#[allow(unused_imports)]
+pub(crate) use oauth_browser_flow::{
+    privacy_policy_url, run_browser_authorization_flow, BrowserAuthParams, BrowserAuthResult,
+};
 pub use oauth_flow::{
     compute_expiry_epoch, decode_jump_state_port, generate_state, parse_callback_query,
     parse_token_response_json, validate_token_response, CallbackParams, OAuthFlowError,

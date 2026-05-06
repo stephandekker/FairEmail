@@ -213,6 +213,7 @@ mod tests {
                 pkce_required: true,
                 extra_params: vec![],
                 userinfo_url: None,
+                privacy_policy_url: None,
             }),
             display_order: 1,
             enabled: true,
@@ -339,6 +340,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
+            privacy_policy_url: None,
         });
         let options = determine_auth_options(&provider);
         assert!(!options.oauth_available);
@@ -595,6 +597,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
+            privacy_policy_url: None,
         };
         assert!(super::has_oauth_credentials(&config));
     }
@@ -614,6 +617,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
+            privacy_policy_url: None,
         };
         // When no runtime file, should be false. With file, true is correct.
         let result = super::has_oauth_credentials(&config);
@@ -639,6 +643,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
+            privacy_policy_url: None,
         };
         let result = super::has_oauth_credentials(&config);
         let file_exists = super::oauth_credentials_file_exists();
@@ -660,6 +665,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
+            privacy_policy_url: None,
         };
         let result = super::has_oauth_credentials(&config);
         let file_exists = super::oauth_credentials_file_exists();
@@ -721,6 +727,7 @@ mod tests {
             pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
+            privacy_policy_url: None,
         });
         let options = determine_auth_options(&provider);
         assert!(!options.oauth_available);

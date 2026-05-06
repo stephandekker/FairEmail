@@ -146,6 +146,7 @@ mod tests {
                 pkce_required: true,
                 extra_params: vec![],
                 userinfo_url: None,
+                privacy_policy_url: None,
             }),
             display_order: 1,
             enabled: true,
