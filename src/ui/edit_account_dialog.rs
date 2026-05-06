@@ -1208,16 +1208,23 @@ pub(crate) fn show(
         }
     ));
 
-    // Wire up Clear button.
+    // Wire up Clear button (US-8-clear).
     cert_clear_btn.connect_clicked(clone!(
         #[strong]
         client_cert_path,
         #[weak]
         client_cert_label,
+        #[weak]
+        auth_method_row,
         move |btn| {
             *client_cert_path.borrow_mut() = None;
             client_cert_label.set_label(&gettextrs::gettext("None"));
             btn.set_sensitive(false);
+            // If auth method is Certificate, reset to Plain so the user is not
+            // left with a broken configuration (US-8-clear, AC-4).
+            if combo_to_auth(auth_method_row.selected()) == AuthMethod::Certificate {
+                auth_method_row.set_selected(auth_to_combo(AuthMethod::Plain));
+            }
         }
     ));
 

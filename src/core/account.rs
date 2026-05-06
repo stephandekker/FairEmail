@@ -253,6 +253,25 @@ pub struct SecuritySettings {
     pub auth_realm: Option<String>,
 }
 
+impl SecuritySettings {
+    /// Clear the client certificate reference, returning `true` if a certificate
+    /// was previously set (US-8-clear).
+    pub fn clear_client_certificate(&mut self) -> bool {
+        self.client_certificate.take().is_some()
+    }
+
+    /// Returns `true` when all fields are at their default (off/unset) values,
+    /// meaning these settings carry no information and can be replaced with `None`.
+    pub fn is_empty(&self) -> bool {
+        !self.dnssec
+            && !self.dane
+            && !self.insecure
+            && self.certificate_fingerprint.is_none()
+            && self.client_certificate.is_none()
+            && self.auth_realm.is_none()
+    }
+}
+
 /// Preference for which date source to use when displaying message dates (FR-51).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DateHeaderPreference {
@@ -3534,5 +3553,92 @@ mod tests {
                 .and_then(|s| s.client_certificate.clone()),
             Some("/etc/pki/client.p12".into())
         );
+    }
+
+    #[test]
+    fn clear_client_certificate_removes_reference() {
+        let mut sec = SecuritySettings {
+            client_certificate: Some("/etc/pki/client.p12".into()),
+            ..Default::default()
+        };
+        assert!(sec.clear_client_certificate());
+        assert!(sec.client_certificate.is_none());
+        // Second clear returns false (was already None).
+        assert!(!sec.clear_client_certificate());
+    }
+
+    #[test]
+    fn clear_client_certificate_makes_settings_empty() {
+        let mut sec = SecuritySettings {
+            client_certificate: Some("/path/to/cert.p12".into()),
+            ..Default::default()
+        };
+        assert!(!sec.is_empty());
+        sec.clear_client_certificate();
+        assert!(sec.is_empty());
+    }
+
+    #[test]
+    fn clear_certificate_and_revert_to_password_auth() {
+        // Create account with certificate auth.
+        let mut p = valid_params();
+        p.auth_method = AuthMethod::Certificate;
+        p.security_settings = Some(SecuritySettings {
+            client_certificate: Some("/etc/pki/client.p12".into()),
+            ..Default::default()
+        });
+        let mut acct = Account::new(p).unwrap();
+        assert_eq!(acct.auth_method(), AuthMethod::Certificate);
+
+        // User clears certificate and switches to password auth.
+        let mut up = valid_update_params();
+        up.auth_method = AuthMethod::Plain;
+        up.security_settings = None; // certificate cleared, no other security settings
+        acct.update(up).unwrap();
+
+        assert_eq!(acct.auth_method(), AuthMethod::Plain);
+        assert!(acct.security_settings().is_none());
+    }
+
+    #[test]
+    fn clear_certificate_and_revert_to_oauth() {
+        // Create account with certificate auth.
+        let mut p = valid_params();
+        p.auth_method = AuthMethod::Certificate;
+        p.security_settings = Some(SecuritySettings {
+            client_certificate: Some("/etc/pki/client.p12".into()),
+            ..Default::default()
+        });
+        let mut acct = Account::new(p).unwrap();
+
+        // User clears certificate and switches to OAuth2.
+        let mut up = valid_update_params();
+        up.auth_method = AuthMethod::OAuth2;
+        up.security_settings = None;
+        acct.update(up).unwrap();
+
+        assert_eq!(acct.auth_method(), AuthMethod::OAuth2);
+        assert!(acct
+            .security_settings()
+            .and_then(|s| s.client_certificate.clone())
+            .is_none());
+    }
+
+    #[test]
+    fn security_settings_is_empty_when_default() {
+        let sec = SecuritySettings::default();
+        assert!(sec.is_empty());
+    }
+
+    #[test]
+    fn security_settings_not_empty_with_other_fields() {
+        let mut sec = SecuritySettings {
+            client_certificate: Some("/path.p12".into()),
+            dane: true,
+            ..Default::default()
+        };
+        sec.clear_client_certificate();
+        // Still not empty because dane is set.
+        assert!(!sec.is_empty());
     }
 }
