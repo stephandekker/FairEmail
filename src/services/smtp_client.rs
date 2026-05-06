@@ -34,6 +34,8 @@ pub(crate) struct SmtpConnectParams {
     pub auth_method: AuthMethod,
     /// Path to a PKCS#12 client certificate file for mutual TLS.
     pub client_certificate: Option<String>,
+    /// Optional authentication realm for SASL/NTLM domain (Design Note N-7).
+    pub auth_realm: Option<String>,
 }
 
 /// Result of a successful SMTP session.
@@ -195,77 +197,7 @@ fn run_authenticated_session(
     ));
 
     // Authenticate
-    if params.auth_method == AuthMethod::Certificate {
-        smtp_authenticate_external(session, params, logs)?;
-    } else if params.auth_method == AuthMethod::OAuth2 {
-        smtp_authenticate_xoauth2(session, params, logs)?;
-    } else {
-        // AUTH LOGIN, fallback to AUTH PLAIN
-        session.send_line("AUTH LOGIN")?;
-        let auth_response = session.read_response()?;
-
-        if !auth_response.starts_with("334") {
-            // Try AUTH PLAIN instead
-            let plain_credentials = build_auth_plain(&params.username, &params.password);
-            let plain_cmd = format!("AUTH PLAIN {plain_credentials}");
-            session.send_line(&plain_cmd)?;
-            let plain_response = session.read_response()?;
-
-            if plain_response.starts_with("235") {
-                logs.push(ConnectionLogRecord::new(
-                    params.account_id.clone(),
-                    ConnectionLogEventType::LoginResult,
-                    format!("SMTP login successful (PLAIN) as {}", params.username),
-                ));
-            } else if plain_response.starts_with("535")
-                || plain_response.starts_with("534")
-                || plain_response.starts_with("454")
-            {
-                logs.push(ConnectionLogRecord::new(
-                    params.account_id.clone(),
-                    ConnectionLogEventType::Error,
-                    format!("SMTP auth failed: {}", plain_response.trim()),
-                ));
-                return Err(SmtpClientError::AuthenticationFailed);
-            } else {
-                logs.push(ConnectionLogRecord::new(
-                    params.account_id.clone(),
-                    ConnectionLogEventType::Error,
-                    format!("SMTP auth unexpected response: {}", plain_response.trim()),
-                ));
-                return Err(SmtpClientError::AuthenticationFailed);
-            }
-        } else {
-            // Server accepted AUTH LOGIN, send username (base64)
-            let username_b64 = base64_encode(&params.username);
-            session.send_line(&username_b64)?;
-            let user_response = session.read_response()?;
-
-            if !user_response.starts_with("334") {
-                return Err(SmtpClientError::AuthenticationFailed);
-            }
-
-            // Send password (base64)
-            let password_b64 = base64_encode(&params.password);
-            session.send_line(&password_b64)?;
-            let pass_response = session.read_response()?;
-
-            if pass_response.starts_with("235") {
-                logs.push(ConnectionLogRecord::new(
-                    params.account_id.clone(),
-                    ConnectionLogEventType::LoginResult,
-                    format!("SMTP login successful (LOGIN) as {}", params.username),
-                ));
-            } else {
-                logs.push(ConnectionLogRecord::new(
-                    params.account_id.clone(),
-                    ConnectionLogEventType::Error,
-                    format!("SMTP auth failed: {}", pass_response.trim()),
-                ));
-                return Err(SmtpClientError::AuthenticationFailed);
-            }
-        }
-    }
+    smtp_authenticate(session, params, logs)?;
 
     // QUIT
     let _ = session.send_line("QUIT");
@@ -461,7 +393,7 @@ fn send_after_connect_no_greeting(
     })
 }
 
-/// Authenticate via AUTH LOGIN, AUTH PLAIN, AUTH XOAUTH2, or AUTH EXTERNAL.
+/// Authenticate via AUTH LOGIN, AUTH PLAIN, AUTH NTLM, AUTH XOAUTH2, or AUTH EXTERNAL.
 fn smtp_authenticate(
     session: &mut SmtpSession,
     params: &SmtpConnectParams,
@@ -474,12 +406,31 @@ fn smtp_authenticate(
         return smtp_authenticate_xoauth2(session, params, logs);
     }
 
+    // If realm is provided, try NTLM first for domain authentication
+    if let Some(ref realm) = params.auth_realm {
+        if !realm.is_empty() {
+            // Attempt NTLM authentication with domain
+            if let Ok(()) = smtp_authenticate_ntlm(session, params, realm, logs) {
+                return Ok(());
+            }
+            // Fall through to standard auth if NTLM is not supported
+        }
+    }
+
     session.send_line("AUTH LOGIN")?;
     let auth_response = session.read_response()?;
 
     if !auth_response.starts_with("334") {
-        // Try AUTH PLAIN
-        let plain_credentials = build_auth_plain(&params.username, &params.password);
+        // Try AUTH PLAIN (with realm if available)
+        let plain_credentials = if let Some(ref realm) = params.auth_realm {
+            if !realm.is_empty() {
+                build_auth_plain_with_realm(&params.username, &params.password, realm)
+            } else {
+                build_auth_plain(&params.username, &params.password)
+            }
+        } else {
+            build_auth_plain(&params.username, &params.password)
+        };
         let plain_cmd = format!("AUTH PLAIN {plain_credentials}");
         session.send_line(&plain_cmd)?;
         let plain_response = session.read_response()?;
@@ -515,6 +466,99 @@ fn smtp_authenticate(
     } else {
         Err(SmtpClientError::AuthenticationFailed)
     }
+}
+
+/// Authenticate via AUTH NTLM for Windows domain authentication.
+fn smtp_authenticate_ntlm(
+    session: &mut SmtpSession,
+    params: &SmtpConnectParams,
+    domain: &str,
+    logs: &mut Vec<ConnectionLogRecord>,
+) -> Result<(), SmtpClientError> {
+    use crate::core::ntlm;
+    use base64::Engine;
+
+    // Step 1: Send AUTH NTLM
+    session.send_line("AUTH NTLM")?;
+    let cont = session.read_response()?;
+    if !cont.starts_with("334") {
+        // Server doesn't support NTLM, return error to allow fallback
+        return Err(SmtpClientError::AuthenticationFailed);
+    }
+
+    // Step 2: Send Type 1 (Negotiate) message
+    let type1 = ntlm::build_type1_message(domain);
+    let type1_b64 = base64::engine::general_purpose::STANDARD.encode(&type1);
+    session.send_line(&type1_b64)?;
+
+    // Step 3: Read Type 2 (Challenge) from server
+    let challenge_response = session.read_response()?;
+    if !challenge_response.starts_with("334") {
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::Error,
+            format!("NTLM challenge not received: {}", challenge_response.trim()),
+        ));
+        return Err(SmtpClientError::AuthenticationFailed);
+    }
+
+    let challenge_b64 = challenge_response.strip_prefix("334 ").unwrap_or("").trim();
+    let challenge_bytes = base64::engine::general_purpose::STANDARD
+        .decode(challenge_b64)
+        .map_err(|_| SmtpClientError::AuthenticationFailed)?;
+
+    let type2 = ntlm::parse_type2_message(&challenge_bytes).map_err(|e| {
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::Error,
+            format!("NTLM Type 2 parse failed: {}", e),
+        ));
+        SmtpClientError::AuthenticationFailed
+    })?;
+
+    // Step 4: Send Type 3 (Authenticate) message
+    let type3 = ntlm::build_type3_message(
+        domain,
+        &params.username,
+        &params.password,
+        &type2.challenge,
+        type2.flags,
+    );
+    let type3_b64 = base64::engine::general_purpose::STANDARD.encode(&type3);
+    session.send_line(&type3_b64)?;
+
+    // Step 5: Read final response
+    let final_response = session.read_response()?;
+    if final_response.starts_with("235") {
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::LoginResult,
+            format!(
+                "SMTP login successful (NTLM, domain: {}) as {}",
+                domain, params.username
+            ),
+        ));
+        Ok(())
+    } else {
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::Error,
+            format!("SMTP NTLM auth failed: {}", final_response.trim()),
+        ));
+        Err(SmtpClientError::AuthenticationFailed)
+    }
+}
+
+/// Build AUTH PLAIN credentials with realm as authorization identity.
+fn build_auth_plain_with_realm(username: &str, password: &str, realm: &str) -> String {
+    use base64::Engine;
+    let mut token = Vec::new();
+    token.extend_from_slice(realm.as_bytes());
+    token.push(0);
+    token.extend_from_slice(username.as_bytes());
+    token.push(0);
+    token.extend_from_slice(password.as_bytes());
+    base64::engine::general_purpose::STANDARD.encode(&token)
 }
 
 /// Authenticate via AUTH XOAUTH2 for OAuth2 accounts.

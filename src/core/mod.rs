@@ -31,6 +31,7 @@ pub mod inbound_test_diagnostics;
 pub(crate) mod ispdb_discovery;
 pub mod message;
 pub mod navigation;
+pub(crate) mod ntlm;
 #[allow(dead_code)]
 pub(crate) mod oauth_browser_flow;
 pub(crate) mod oauth_flow;

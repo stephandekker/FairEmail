@@ -1600,6 +1600,7 @@ fn resolve_send_context(
         ehlo_hostname,
         auth_method: imap_params.auth_method,
         client_certificate: identity.smtp_client_certificate.clone(),
+        auth_realm: imap_params.auth_realm.clone(),
     };
 
     let data = resolve_message_bytes(payload, content_reader_fn)?;
@@ -2245,6 +2246,7 @@ mod tests {
             ehlo_hostname: None,
             auth_method: AuthMethod::Plain,
             client_certificate: None,
+            auth_realm: None,
         }
     }
 

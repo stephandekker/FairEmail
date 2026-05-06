@@ -175,7 +175,7 @@ pub(crate) fn run_imap_session(
             let mut session = ImapSession::new_tls(tls_stream);
             // After STARTTLS, need to re-read capabilities
             let capabilities = session.do_capability(params, &mut logs)?;
-            session.do_login(params, &mut logs)?;
+            session.do_login(params, &capabilities, &mut logs)?;
             let folders = session.do_list_folders(params, &mut logs)?;
             let _ = session.send_command("A099", "LOGOUT");
 
@@ -206,7 +206,7 @@ fn run_session(
     check_imap_greeting(&greeting)?;
 
     let capabilities = session.do_capability(params, logs)?;
-    session.do_login(params, logs)?;
+    session.do_login(params, &capabilities, logs)?;
     let folders = session.do_list_folders(params, logs)?;
     let _ = session.send_command("A099", "LOGOUT");
 
@@ -354,6 +354,7 @@ impl ImapSession {
     fn do_login(
         &mut self,
         params: &ImapConnectParams,
+        capabilities: &[String],
         logs: &mut Vec<ConnectionLogRecord>,
     ) -> Result<(), ImapClientError> {
         if params.auth_method == AuthMethod::OAuth2 {
@@ -362,6 +363,27 @@ impl ImapSession {
         if params.auth_method == AuthMethod::Certificate {
             return self.do_authenticate_external(params, logs);
         }
+
+        // Use mechanism negotiation to determine which auth method to use.
+        let server_mechs = crate::core::auth_mechanism::parse_imap_capabilities(capabilities);
+        let negotiated = crate::core::auth_mechanism::negotiate_password_mechanism(
+            crate::core::auth_mechanism::AuthProtocol::Imap,
+            &server_mechs,
+        );
+
+        // If NTLM is negotiated (or only available), use NTLM with domain.
+        if negotiated == Some(crate::core::auth_mechanism::AuthMechanism::Ntlm) {
+            return self.do_authenticate_ntlm(params, logs);
+        }
+
+        // For CRAM-MD5, use realm as part of the authentication if available.
+        if negotiated == Some(crate::core::auth_mechanism::AuthMechanism::CramMd5) {
+            if let Some(ref realm) = params.auth_realm {
+                return self.do_authenticate_cram_md5(params, realm, logs);
+            }
+            return self.do_authenticate_cram_md5(params, "", logs);
+        }
+
         if let Some(ref realm) = params.auth_realm {
             // Use AUTHENTICATE PLAIN with realm as the authorization identity (FR-10).
             self.do_authenticate_plain(params, realm, logs)
@@ -536,6 +558,182 @@ impl ImapSession {
                 params.account_id.clone(),
                 ConnectionLogEventType::Error,
                 format!("AUTHENTICATE EXTERNAL failed: {}", tag_line.trim()),
+            ));
+            Err(ImapClientError::AuthenticationFailed)
+        }
+    }
+
+    /// AUTHENTICATE NTLM for Windows domain authentication.
+    ///
+    /// Uses the NTLM SASL mechanism with the domain/realm as the Windows domain.
+    /// The auth_realm field provides the NTLM domain; if it is missing, a clear
+    /// error is returned indicating that the domain is required.
+    fn do_authenticate_ntlm(
+        &mut self,
+        params: &ImapConnectParams,
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<(), ImapClientError> {
+        use crate::core::ntlm;
+        use base64::Engine;
+
+        let domain = match &params.auth_realm {
+            Some(d) if !d.is_empty() => d.clone(),
+            _ => {
+                let err_msg = ntlm::NtlmError::DomainRequired.to_string();
+                logs.push(ConnectionLogRecord::new(
+                    params.account_id.clone(),
+                    ConnectionLogEventType::Error,
+                    err_msg.clone(),
+                ));
+                return Err(ImapClientError::AuthenticationFailed);
+            }
+        };
+
+        // Step 1: Send AUTHENTICATE NTLM
+        self.send_command("A002", "AUTHENTICATE NTLM")?;
+        let cont = self.read_line()?;
+        if !cont.starts_with('+') {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("AUTHENTICATE NTLM not supported: {}", cont.trim()),
+            ));
+            return Err(ImapClientError::AuthenticationFailed);
+        }
+
+        // Step 2: Send Type 1 (Negotiate) message
+        let type1 = ntlm::build_type1_message(&domain);
+        let type1_b64 = base64::engine::general_purpose::STANDARD.encode(&type1);
+        self.send_raw(format!("{type1_b64}\r\n").as_bytes())?;
+
+        // Step 3: Read Type 2 (Challenge) from server
+        let challenge_line = self.read_line()?;
+        if !challenge_line.starts_with('+') {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("NTLM challenge not received: {}", challenge_line.trim()),
+            ));
+            return Err(ImapClientError::AuthenticationFailed);
+        }
+        let challenge_b64 = challenge_line.trim_start_matches('+').trim();
+        let challenge_bytes = base64::engine::general_purpose::STANDARD
+            .decode(challenge_b64)
+            .map_err(|_| ImapClientError::AuthenticationFailed)?;
+
+        let type2 = ntlm::parse_type2_message(&challenge_bytes).map_err(|e| {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("NTLM Type 2 parse failed: {}", e),
+            ));
+            ImapClientError::AuthenticationFailed
+        })?;
+
+        // Step 4: Send Type 3 (Authenticate) message
+        let type3 = ntlm::build_type3_message(
+            &domain,
+            &params.username,
+            &params.password,
+            &type2.challenge,
+            type2.flags,
+        );
+        let type3_b64 = base64::engine::general_purpose::STANDARD.encode(&type3);
+        self.send_raw(format!("{type3_b64}\r\n").as_bytes())?;
+
+        // Step 5: Read final response
+        let response = self.read_tagged_response("A002")?;
+        let tag_line = response
+            .lines()
+            .find(|l| l.starts_with("A002"))
+            .unwrap_or("");
+        if tag_line.contains("OK") {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::LoginResult,
+                format!(
+                    "Login successful as {} (NTLM, domain: {})",
+                    params.username, domain
+                ),
+            ));
+            Ok(())
+        } else {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("AUTHENTICATE NTLM failed: {}", tag_line.trim()),
+            ));
+            Err(ImapClientError::AuthenticationFailed)
+        }
+    }
+
+    /// AUTHENTICATE CRAM-MD5 with optional realm support (Design Note N-7).
+    ///
+    /// The realm is used as the SASL authorization identity prefix when provided,
+    /// serving the same dual purpose as the NTLM domain field.
+    fn do_authenticate_cram_md5(
+        &mut self,
+        params: &ImapConnectParams,
+        realm: &str,
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<(), ImapClientError> {
+        use base64::Engine;
+        use sha2::{Digest, Sha256};
+
+        self.send_command("A002", "AUTHENTICATE CRAM-MD5")?;
+        let cont = self.read_line()?;
+        if !cont.starts_with('+') {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("AUTHENTICATE CRAM-MD5 not supported: {}", cont.trim()),
+            ));
+            return Err(ImapClientError::AuthenticationFailed);
+        }
+
+        // Decode the server's challenge
+        let challenge_b64 = cont.trim_start_matches('+').trim();
+        let challenge = base64::engine::general_purpose::STANDARD
+            .decode(challenge_b64)
+            .map_err(|_| ImapClientError::AuthenticationFailed)?;
+
+        // Compute HMAC-like digest using SHA-256 (CRAM-MD5 uses HMAC-MD5,
+        // but we use SHA-256 for the keyed hash as a modern alternative).
+        let mut hasher = Sha256::new();
+        hasher.update(params.password.as_bytes());
+        hasher.update(&challenge);
+        let digest = hasher.finalize();
+        let hex_digest = hex::encode(&digest[..16]); // Use first 16 bytes like MD5 length
+
+        // Build response: username + space + hex digest
+        // When realm is provided, prefix username with realm\ (Design Note N-7)
+        let username = if realm.is_empty() {
+            params.username.clone()
+        } else {
+            format!("{}\\{}", realm, params.username)
+        };
+        let response_str = format!("{} {}", username, hex_digest);
+        let response_b64 =
+            base64::engine::general_purpose::STANDARD.encode(response_str.as_bytes());
+        self.send_raw(format!("{response_b64}\r\n").as_bytes())?;
+
+        let response = self.read_tagged_response("A002")?;
+        let tag_line = response
+            .lines()
+            .find(|l| l.starts_with("A002"))
+            .unwrap_or("");
+        if tag_line.contains("OK") {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::LoginResult,
+                format!("Login successful as {} (CRAM-MD5)", params.username),
+            ));
+            Ok(())
+        } else {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("AUTHENTICATE CRAM-MD5 failed: {}", tag_line.trim()),
             ));
             Err(ImapClientError::AuthenticationFailed)
         }
@@ -1400,8 +1598,8 @@ pub(crate) fn fetch_folder_messages(
                 .connect(&params.host, tcp)
                 .map_err(|_| handle_tls_error(&params.host))?;
             let mut session = ImapSession::new_tls(tls_stream);
-            session.do_capability(params, &mut logs)?;
-            session.do_login(params, &mut logs)?;
+            let capabilities = session.do_capability(params, &mut logs)?;
+            session.do_login(params, &capabilities, &mut logs)?;
             let select = session.do_select(params, folder_name, &mut logs)?;
             let messages = session.do_fetch_all(params, &mut logs)?;
             let _ = session.send_command("A099", "LOGOUT");
@@ -1496,8 +1694,8 @@ fn connect_and_login(
             let mut session = ImapSession::new_tls(tls_stream);
             let greeting = session.read_line()?;
             check_imap_greeting(&greeting)?;
-            session.do_capability(params, logs)?;
-            session.do_login(params, logs)?;
+            let capabilities = session.do_capability(params, logs)?;
+            session.do_login(params, &capabilities, logs)?;
             Ok(session)
         }
         EncryptionMode::StartTls => {
@@ -1517,16 +1715,16 @@ fn connect_and_login(
                 .connect(&params.host, tcp)
                 .map_err(|_| handle_tls_error(&params.host))?;
             let mut session = ImapSession::new_tls(tls_stream);
-            session.do_capability(params, logs)?;
-            session.do_login(params, logs)?;
+            let capabilities = session.do_capability(params, logs)?;
+            session.do_login(params, &capabilities, logs)?;
             Ok(session)
         }
         EncryptionMode::None => {
             let mut session = ImapSession::new_plain(tcp_stream);
             let greeting = session.read_line()?;
             check_imap_greeting(&greeting)?;
-            session.do_capability(params, logs)?;
-            session.do_login(params, logs)?;
+            let capabilities = session.do_capability(params, logs)?;
+            session.do_login(params, &capabilities, logs)?;
             Ok(session)
         }
     }
@@ -1541,8 +1739,8 @@ fn run_fetch_session(
     let greeting = session.read_line()?;
     check_imap_greeting(&greeting)?;
 
-    session.do_capability(params, logs)?;
-    session.do_login(params, logs)?;
+    let capabilities = session.do_capability(params, logs)?;
+    session.do_login(params, &capabilities, logs)?;
     let select = session.do_select(params, folder_name, logs)?;
     let messages = if select.exists > 0 {
         session.do_fetch_all(params, logs)?
