@@ -30,6 +30,7 @@ pub mod message;
 pub mod navigation;
 pub(crate) mod oauth_flow;
 pub(crate) mod oauth_signin;
+pub(crate) mod oauth_wizard;
 pub mod password_propagation;
 pub mod pending_operation;
 pub mod port_autofill;
@@ -123,6 +124,9 @@ pub use oauth_flow::{
 pub use oauth_signin::{
     determine_auth_options, is_oauth_provider, resolve_auth_from_choice, AuthChoice, AuthOptions,
     OAuthTokenResult,
+};
+pub use oauth_wizard::{
+    build_oauth_connection_error, create_oauth_account, derive_oauth_username, OAuthConnectionError,
 };
 pub use password_propagation::{password_has_changed, propagate_password_to_identities};
 pub use pending_operation::{

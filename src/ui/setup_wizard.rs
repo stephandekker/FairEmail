@@ -5,15 +5,23 @@ use libadwaita::prelude::*;
 
 use glib::clone;
 
-use crate::core::account_review::AccountReviewData;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use crate::core::account_review::{build_review_data, AccountReviewData};
 use crate::core::detection_failure::build_detection_failure_fallback;
 use crate::core::detection_progress::{detection_sequence, DetectionStep};
+use crate::core::oauth_flow::OAuthSession;
+use crate::core::oauth_signin::determine_auth_options;
+use crate::core::oauth_wizard::{build_oauth_connection_error, create_oauth_account};
 use crate::core::privacy;
 use crate::core::proprietary_provider::check_proprietary_provider;
+use crate::core::provider::ProviderDatabase;
 use crate::core::wizard_validation::{
     validate_wizard_fields, WizardFieldError, WizardValidationResult,
 };
 use crate::services::network::is_network_available;
+use crate::services::oauth_service;
 
 /// Result passed back from the wizard: the validated name, email, and password,
 /// or `None` if the user cancelled / closed the dialog.
@@ -29,6 +37,8 @@ pub(crate) enum WizardAction {
     ManualSetup(WizardData),
     /// User clicked "Authorize existing account again" — re-authorize flow (FR-32).
     Reauthorize(WizardData),
+    /// OAuth flow completed and account was created (FR-21, FR-23).
+    OAuthComplete(WizardData),
 }
 
 /// Validated wizard data ready for the next step (provider detection / account creation).
@@ -38,6 +48,38 @@ pub(crate) struct WizardData {
     pub display_name: String,
     pub email: String,
     pub password: String,
+}
+
+/// Messages sent from the OAuth background thread to the UI thread.
+enum OAuthMessage {
+    Progress(String),
+    Error(String),
+    TokensReceived {
+        access_token: String,
+        refresh_token: String,
+        expires_in: Option<u64>,
+    },
+}
+
+/// Result of connection testing after OAuth token acquisition.
+struct ConnectionTestMessage {
+    imap_result: crate::core::imap_check::ImapCheckResult,
+    smtp_result: crate::core::smtp_check::SmtpCheckResult,
+}
+
+/// Intermediate state held between OAuth token acquisition and account creation.
+/// Stored in an `Rc<RefCell<...>>` so it can be shared between async steps and
+/// the review confirm button handler.
+#[allow(dead_code)]
+struct OAuthSetupState {
+    provider: crate::core::provider::Provider,
+    email: String,
+    display_name: String,
+    access_token: String,
+    refresh_token: String,
+    expires_in: Option<u64>,
+    imap_result: crate::core::imap_check::ImapCheckSuccess,
+    smtp_result: crate::core::smtp_check::SmtpCheckSuccess,
 }
 
 /// Build and present the quick-setup wizard dialog (FR-1, FR-2, FR-3).
@@ -166,6 +208,89 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             }
         }
     ));
+
+    // -- OAuth recommendation section (FR-21, AC-1, AC-2) --
+    // Hidden by default; shown when provider detection finds OAuth support.
+    let oauth_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(8)
+        .margin_top(8)
+        .visible(false)
+        .build();
+    oauth_box.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "OAuth sign-in options",
+    ))]);
+
+    let oauth_provider_label = gtk::Label::builder()
+        .css_classes(["title-4"])
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .wrap(true)
+        .build();
+    oauth_box.append(&oauth_provider_label);
+
+    let oauth_signin_btn = gtk::Button::builder()
+        .css_classes(["suggested-action", "pill"])
+        .halign(gtk::Align::Center)
+        .build();
+    oauth_signin_btn.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Sign in with your email provider using OAuth",
+    ))]);
+    oauth_box.append(&oauth_signin_btn);
+
+    let oauth_caption = gtk::Label::builder()
+        .label(gettextrs::gettext("Recommended — no password needed"))
+        .css_classes(["dim-label", "caption"])
+        .halign(gtk::Align::Center)
+        .build();
+    oauth_box.append(&oauth_caption);
+
+    let oauth_password_fallback_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Use password instead"))
+        .css_classes(["flat", "pill"])
+        .halign(gtk::Align::Center)
+        .margin_top(4)
+        .build();
+    oauth_password_fallback_btn.update_property(&[gtk::accessible::Property::Label(
+        &gettextrs::gettext("Switch to password-based authentication"),
+    )]);
+    oauth_box.append(&oauth_password_fallback_btn);
+
+    // OAuth error section (FR-24, AC-5) — shown when connection test fails after OAuth.
+    let oauth_error_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(4)
+        .visible(false)
+        .build();
+
+    let oauth_error_label = gtk::Label::builder()
+        .css_classes(["error"])
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .wrap(true)
+        .build();
+    oauth_error_box.append(&oauth_error_label);
+
+    let oauth_error_action_label = gtk::Label::builder()
+        .css_classes(["caption"])
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .wrap(true)
+        .build();
+    oauth_error_box.append(&oauth_error_action_label);
+
+    let oauth_error_link = gtk::LinkButton::builder()
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .visible(false)
+        .build();
+    oauth_error_box.append(&oauth_error_link);
+    oauth_box.append(&oauth_error_box);
+
+    vbox.append(&oauth_box);
+
+    // Shared state for OAuth setup (passed between async steps).
+    let oauth_state: Rc<RefCell<Option<OAuthSetupState>>> = Rc::new(RefCell::new(None));
 
     // -- Privacy policy links (FR-37, FR-38, AC-17) --
     let privacy_box = gtk::Box::builder()
@@ -388,6 +513,454 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
 
     let on_done = std::rc::Rc::new(on_done);
     let on_done_close = on_done.clone();
+
+    // -- Email change handler: detect provider and show/hide OAuth (FR-21, AC-1, AC-2) --
+    email_row.connect_changed(clone!(
+        #[weak]
+        oauth_box,
+        #[weak]
+        oauth_provider_label,
+        #[weak]
+        oauth_signin_btn,
+        #[weak]
+        oauth_error_box,
+        #[weak]
+        password_group,
+        #[weak]
+        password_error,
+        #[weak]
+        password_warning,
+        #[weak]
+        check_btn,
+        move |row| {
+            let email = row.text().to_string();
+            let email = email.trim();
+
+            // Reset OAuth error on email change.
+            oauth_error_box.set_visible(false);
+
+            // Extract domain and attempt provider detection.
+            if let Some(at_pos) = email.rfind('@') {
+                let domain = &email[at_pos + 1..];
+                if !domain.is_empty() && domain.contains('.') {
+                    let db = ProviderDatabase::bundled();
+                    if let Some(candidate) = db.lookup_by_domain(domain) {
+                        let options = determine_auth_options(&candidate.provider);
+                        if options.oauth_available {
+                            // Show OAuth as recommended (AC-1, AC-2).
+                            let btn_label = gettextrs::gettext("Sign in with %s")
+                                .replace("%s", &options.provider_name);
+                            oauth_signin_btn.set_label(&btn_label);
+                            let info_label = gettextrs::gettext("%s supports secure sign-in")
+                                .replace("%s", &options.provider_name);
+                            oauth_provider_label.set_label(&info_label);
+
+                            oauth_box.set_visible(true);
+                            password_group.set_visible(false);
+                            password_error.set_visible(false);
+                            password_warning.set_visible(false);
+                            check_btn.set_visible(false);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // No OAuth — show password flow.
+            oauth_box.set_visible(false);
+            password_group.set_visible(true);
+            check_btn.set_visible(true);
+        }
+    ));
+
+    // -- OAuth sign-in button handler (FR-21, FR-22, FR-23, AC-3, AC-4, AC-5) --
+    oauth_signin_btn.connect_clicked(clone!(
+        #[weak]
+        name_row,
+        #[weak]
+        email_row,
+        #[weak]
+        name_error,
+        #[weak]
+        email_error,
+        #[weak]
+        toast_overlay,
+        #[weak]
+        oauth_box,
+        #[weak]
+        oauth_error_box,
+        #[weak]
+        oauth_error_label,
+        #[weak]
+        oauth_error_action_label,
+        #[weak]
+        oauth_error_link,
+        #[weak]
+        progress_box,
+        #[weak]
+        progress_label,
+        #[weak]
+        review_box,
+        #[weak]
+        review_provider_label,
+        #[weak]
+        review_account_row,
+        #[weak]
+        review_folders_group,
+        #[weak]
+        name_group,
+        #[weak]
+        email_group,
+        #[weak]
+        password_group,
+        #[weak]
+        privacy_box,
+        #[weak]
+        btn_box,
+        #[weak]
+        manual_btn,
+        #[strong]
+        oauth_state,
+        move |btn| {
+            let display_name = name_row.text().trim().to_string();
+            let email = email_row.text().trim().to_string();
+
+            // Validate name and email only (password not needed for OAuth).
+            name_error.set_visible(false);
+            email_error.set_visible(false);
+            oauth_error_box.set_visible(false);
+
+            if display_name.is_empty() {
+                name_error.set_label(&gettextrs::gettext("Display name must not be empty"));
+                name_error.set_visible(true);
+                return;
+            }
+            if email.is_empty() || !email.contains('@') {
+                email_error.set_label(&gettextrs::gettext("Email address is not valid"));
+                email_error.set_visible(true);
+                return;
+            }
+
+            if !is_network_available() {
+                let toast = adw::Toast::new(&gettextrs::gettext(
+                    "No network connection. Please check your internet and try again.",
+                ));
+                toast_overlay.add_toast(toast);
+                return;
+            }
+
+            // Detect provider and get OAuth config.
+            let db = ProviderDatabase::bundled();
+            let candidate = match db.lookup_by_email(&email) {
+                Some(c) => c,
+                None => return,
+            };
+            let options = determine_auth_options(&candidate.provider);
+            let oauth_config = match options.oauth_config {
+                Some(c) => c,
+                None => return,
+            };
+
+            // Disable buttons and show progress.
+            btn.set_sensitive(false);
+            manual_btn.set_sensitive(false);
+            progress_box.set_visible(true);
+            progress_label.set_label(&gettextrs::gettext("Opening browser for authorization…"));
+
+            let provider = candidate.provider.clone();
+            let email_clone = email.clone();
+            let display_name_clone = display_name.clone();
+
+            // Run the full OAuth flow on a background thread (FR-5).
+            // Results are polled from the main loop via glib::timeout_add_local.
+            let oauth_rx = {
+                let (tx, rx) = std::sync::mpsc::channel::<OAuthMessage>();
+                std::thread::spawn(move || {
+                    run_oauth_thread(oauth_config, tx);
+                });
+                rx
+            };
+
+            // Poll for OAuth result from the main loop.
+            let oauth_state_clone = oauth_state.clone();
+            glib::timeout_add_local(
+                std::time::Duration::from_millis(50),
+                clone!(
+                    #[weak]
+                    progress_label,
+                    #[weak]
+                    progress_box,
+                    #[weak(rename_to = oauth_btn)]
+                    btn,
+                    #[weak]
+                    manual_btn,
+                    #[weak]
+                    toast_overlay,
+                    #[weak]
+                    oauth_error_box,
+                    #[weak]
+                    oauth_error_label,
+                    #[weak]
+                    oauth_error_action_label,
+                    #[weak]
+                    oauth_error_link,
+                    #[weak]
+                    review_box,
+                    #[weak]
+                    review_provider_label,
+                    #[weak]
+                    review_account_row,
+                    #[weak]
+                    review_folders_group,
+                    #[weak]
+                    name_group,
+                    #[weak]
+                    email_group,
+                    #[weak]
+                    password_group,
+                    #[weak]
+                    privacy_box,
+                    #[weak]
+                    btn_box,
+                    #[weak]
+                    oauth_box,
+                    #[upgrade_or]
+                    glib::ControlFlow::Break,
+                    move || {
+                        match oauth_rx.try_recv() {
+                            Ok(OAuthMessage::Progress(text)) => {
+                                progress_label.set_label(&gettextrs::gettext(&text));
+                                glib::ControlFlow::Continue
+                            }
+                            Ok(OAuthMessage::Error(_err)) => {
+                                progress_box.set_visible(false);
+                                oauth_btn.set_sensitive(true);
+                                manual_btn.set_sensitive(true);
+                                let toast = adw::Toast::new(&gettextrs::gettext(
+                                    "Authorization failed. Please try again.",
+                                ));
+                                toast_overlay.add_toast(toast);
+                                glib::ControlFlow::Break
+                            }
+                            Ok(OAuthMessage::TokensReceived {
+                                access_token,
+                                refresh_token,
+                                expires_in,
+                            }) => {
+                                progress_label.set_label(&gettextrs::gettext(
+                                    "Testing mail server connection…",
+                                ));
+
+                                // Test connections with OAuth token on a background thread (AC-3).
+                                let test_rx = {
+                                    let provider_thread = provider.clone();
+                                    let email_thread = email_clone.clone();
+                                    let token_thread = access_token.clone();
+                                    let (tx, rx) =
+                                        std::sync::mpsc::channel::<ConnectionTestMessage>();
+                                    std::thread::spawn(move || {
+                                        use crate::services::imap_checker::ImapChecker;
+                                        use crate::services::imap_checker::MockImapChecker;
+                                        use crate::services::smtp_checker::MockSmtpChecker;
+                                        use crate::services::smtp_checker::SmtpChecker;
+
+                                        let imap_result = MockImapChecker.check_imap(
+                                            &email_thread,
+                                            &token_thread,
+                                            &provider_thread,
+                                            None,
+                                        );
+                                        let smtp_result = MockSmtpChecker.check_smtp(
+                                            &email_thread,
+                                            &token_thread,
+                                            &provider_thread,
+                                            None,
+                                        );
+                                        let _ = tx.send(ConnectionTestMessage {
+                                            imap_result,
+                                            smtp_result,
+                                        });
+                                    });
+                                    rx
+                                };
+
+                                // Poll for connection test results.
+                                let provider_result = provider.clone();
+                                let email_result = email_clone.clone();
+                                let display_name_result = display_name_clone.clone();
+                                let oauth_state_inner = oauth_state_clone.clone();
+                                glib::timeout_add_local(
+                                    std::time::Duration::from_millis(50),
+                                    clone!(
+                                        #[weak]
+                                        progress_box,
+                                        #[weak(rename_to = oauth_btn)]
+                                        oauth_btn,
+                                        #[weak]
+                                        manual_btn,
+                                        #[weak]
+                                        oauth_error_box,
+                                        #[weak]
+                                        oauth_error_label,
+                                        #[weak]
+                                        oauth_error_action_label,
+                                        #[weak]
+                                        oauth_error_link,
+                                        #[weak]
+                                        review_box,
+                                        #[weak]
+                                        review_provider_label,
+                                        #[weak]
+                                        review_account_row,
+                                        #[weak]
+                                        review_folders_group,
+                                        #[weak]
+                                        name_group,
+                                        #[weak]
+                                        email_group,
+                                        #[weak]
+                                        password_group,
+                                        #[weak]
+                                        privacy_box,
+                                        #[weak]
+                                        btn_box,
+                                        #[weak]
+                                        oauth_box,
+                                        #[upgrade_or]
+                                        glib::ControlFlow::Break,
+                                        move || {
+                                            match test_rx.try_recv() {
+                                                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                                    glib::ControlFlow::Continue
+                                                }
+                                                Err(_) => {
+                                                    progress_box.set_visible(false);
+                                                    oauth_btn.set_sensitive(true);
+                                                    manual_btn.set_sensitive(true);
+                                                    glib::ControlFlow::Break
+                                                }
+                                                Ok(test_msg) => {
+                                                    progress_box.set_visible(false);
+                                                    oauth_btn.set_sensitive(true);
+                                                    manual_btn.set_sensitive(true);
+
+                                                    let imap_ok = test_msg.imap_result.is_ok();
+                                                    let smtp_ok = test_msg.smtp_result.is_ok();
+
+                                                    if imap_ok && smtp_ok {
+                                                        // Success (AC-4): store state, show review.
+                                                        let imap_success =
+                                                            test_msg.imap_result.unwrap();
+                                                        let smtp_success =
+                                                            test_msg.smtp_result.unwrap();
+
+                                                        let review_data = build_review_data(
+                                                            &provider_result.display_name,
+                                                            &email_result,
+                                                            imap_success.has_inbox,
+                                                            &imap_success.system_folders,
+                                                        );
+
+                                                        *oauth_state_inner.borrow_mut() =
+                                                            Some(OAuthSetupState {
+                                                                provider: provider_result.clone(),
+                                                                email: email_result.clone(),
+                                                                display_name: display_name_result
+                                                                    .clone(),
+                                                                access_token: access_token.clone(),
+                                                                refresh_token: refresh_token
+                                                                    .clone(),
+                                                                expires_in,
+                                                                imap_result: imap_success,
+                                                                smtp_result: smtp_success,
+                                                            });
+
+                                                        show_review_screen(
+                                                            &review_data,
+                                                            &review_box,
+                                                            &review_provider_label,
+                                                            &review_account_row,
+                                                            &review_folders_group,
+                                                            &name_group,
+                                                            &email_group,
+                                                            &password_group,
+                                                            &privacy_box,
+                                                            &btn_box,
+                                                        );
+                                                        oauth_box.set_visible(false);
+                                                    } else {
+                                                        // Failure (AC-5): provider-specific error.
+                                                        let is_imap_failure = !imap_ok;
+                                                        let conn_error =
+                                                            build_oauth_connection_error(
+                                                                &provider_result,
+                                                                is_imap_failure,
+                                                            );
+                                                        oauth_error_label.set_label(
+                                                            &gettextrs::gettext(
+                                                                &conn_error.user_message,
+                                                            ),
+                                                        );
+                                                        oauth_error_action_label.set_label(
+                                                            &gettextrs::gettext(
+                                                                &conn_error.corrective_action,
+                                                            ),
+                                                        );
+                                                        if let Some(ref url) =
+                                                            conn_error.documentation_url
+                                                        {
+                                                            oauth_error_link.set_uri(url);
+                                                            oauth_error_link.set_label(
+                                                                &gettextrs::gettext(
+                                                                    "Provider documentation",
+                                                                ),
+                                                            );
+                                                            oauth_error_link.set_visible(true);
+                                                        } else {
+                                                            oauth_error_link.set_visible(false);
+                                                        }
+                                                        oauth_error_box.set_visible(true);
+                                                    }
+
+                                                    glib::ControlFlow::Break
+                                                }
+                                            }
+                                        }
+                                    ),
+                                );
+
+                                glib::ControlFlow::Break
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                glib::ControlFlow::Continue
+                            }
+                            Err(_) => {
+                                progress_box.set_visible(false);
+                                oauth_btn.set_sensitive(true);
+                                manual_btn.set_sensitive(true);
+                                glib::ControlFlow::Break
+                            }
+                        }
+                    }
+                ),
+            );
+        }
+    ));
+
+    // -- OAuth password fallback: switch back to password mode (AC-2) --
+    oauth_password_fallback_btn.connect_clicked(clone!(
+        #[weak]
+        oauth_box,
+        #[weak]
+        password_group,
+        #[weak]
+        check_btn,
+        move |_| {
+            oauth_box.set_visible(false);
+            password_group.set_visible(true);
+            check_btn.set_visible(true);
+        }
+    ));
 
     // -- Check button handler: validate then gate on network (FR-5, FR-7) --
     check_btn.connect_clicked(clone!(
@@ -630,13 +1203,48 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         privacy_box,
         #[weak]
         btn_box,
+        #[weak]
+        oauth_box,
+        #[weak]
+        email_row,
+        #[weak]
+        check_btn,
+        #[strong]
+        oauth_state,
         move |_| {
+            // Clear any stored OAuth state when going back.
+            *oauth_state.borrow_mut() = None;
+
             review_box.set_visible(false);
             name_group.set_visible(true);
             email_group.set_visible(true);
-            password_group.set_visible(true);
             privacy_box.set_visible(true);
             btn_box.set_visible(true);
+
+            // Re-detect provider to decide whether to show OAuth or password.
+            let email = email_row.text().to_string();
+            let email = email.trim();
+            let mut show_oauth = false;
+            if let Some(at_pos) = email.rfind('@') {
+                let domain = &email[at_pos + 1..];
+                if !domain.is_empty() && domain.contains('.') {
+                    let db = ProviderDatabase::bundled();
+                    if let Some(candidate) = db.lookup_by_domain(domain) {
+                        let options = determine_auth_options(&candidate.provider);
+                        if options.oauth_available {
+                            show_oauth = true;
+                        }
+                    }
+                }
+            }
+            if show_oauth {
+                oauth_box.set_visible(true);
+                password_group.set_visible(false);
+                check_btn.set_visible(false);
+            } else {
+                password_group.set_visible(true);
+                check_btn.set_visible(true);
+            }
         }
     ));
 
@@ -653,6 +1261,10 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         password_row,
         #[weak]
         dialog,
+        #[weak]
+        toast_overlay,
+        #[strong]
+        oauth_state,
         #[strong]
         on_done,
         move |_| {
@@ -663,13 +1275,45 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                 account_name
             };
             let email = email_row.text().trim().to_string();
-            let password = password_row.text().to_string();
 
-            on_done(Some(WizardAction::Check(WizardData {
-                display_name,
-                email,
-                password,
-            })));
+            // Check if this is an OAuth flow (AC-4, FR-23).
+            let oauth = oauth_state.borrow_mut().take();
+            if let Some(state) = oauth {
+                // Use the (possibly edited) display name from the review screen.
+                match create_oauth_account(
+                    state.provider,
+                    state.email.clone(),
+                    display_name.clone(),
+                    state.access_token,
+                    state.imap_result,
+                    state.smtp_result,
+                ) {
+                    Ok(_result) => {
+                        on_done(Some(WizardAction::OAuthComplete(WizardData {
+                            display_name,
+                            email: state.email,
+                            password: String::new(),
+                        })));
+                    }
+                    Err(e) => {
+                        let toast = adw::Toast::new(&format!(
+                            "{}: {}",
+                            gettextrs::gettext("Could not create account"),
+                            e
+                        ));
+                        toast_overlay.add_toast(toast);
+                        return;
+                    }
+                }
+            } else {
+                // Password-based flow (existing behavior).
+                let password = password_row.text().to_string();
+                on_done(Some(WizardAction::Check(WizardData {
+                    display_name,
+                    email,
+                    password,
+                })));
+            }
             dialog.close();
         }
     ));
@@ -869,4 +1513,78 @@ fn apply_field_errors(
             }
         }
     }
+}
+
+/// Run the OAuth authorization flow on a background thread (FR-5, AC-3).
+///
+/// Binds a local redirect listener, opens the system browser for authorization,
+/// waits for the callback, validates the state, exchanges the authorization code
+/// for tokens, and sends progress/result messages back to the UI thread.
+fn run_oauth_thread(
+    oauth_config: crate::core::provider::OAuthConfig,
+    tx: std::sync::mpsc::Sender<OAuthMessage>,
+) {
+    // Step 1: Bind redirect listener.
+    let (listener, port) = match oauth_service::bind_redirect_listener() {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = tx.send(OAuthMessage::Error(e.to_string()));
+            return;
+        }
+    };
+
+    // Step 2: Build session and open browser.
+    let session = OAuthSession::new(oauth_config, port);
+    let url = session.authorization_url();
+    let _ = tx.send(OAuthMessage::Progress(
+        "Waiting for authorization in browser…".to_string(),
+    ));
+    if let Err(e) = oauth_service::open_browser(&url) {
+        let _ = tx.send(OAuthMessage::Error(e.to_string()));
+        return;
+    }
+
+    // Step 3: Wait for callback (blocks until browser redirects).
+    let callback = match oauth_service::wait_for_callback(listener) {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = tx.send(OAuthMessage::Error(e.to_string()));
+            return;
+        }
+    };
+
+    // Step 4: Validate state.
+    if let Err(e) = session.validate_state(Some(&callback.state)) {
+        let _ = tx.send(OAuthMessage::Error(e.to_string()));
+        return;
+    }
+
+    let _ = tx.send(OAuthMessage::Progress(
+        "Exchanging authorization code…".to_string(),
+    ));
+
+    // Step 5: Exchange code for tokens.
+    let exchange_params = session.token_exchange_params(&callback.code);
+    let token_response = match oauth_service::exchange_code_for_tokens(exchange_params) {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = tx.send(OAuthMessage::Error(e.to_string()));
+            return;
+        }
+    };
+
+    // Step 6: Validate response has refresh token.
+    let validated = match crate::core::oauth_flow::validate_token_response(token_response) {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = tx.send(OAuthMessage::Error(e.to_string()));
+            return;
+        }
+    };
+
+    let _ = tx.send(OAuthMessage::TokensReceived {
+        access_token: validated.access_token,
+        refresh_token: validated.refresh_token,
+        expires_in: validated.expires_in,
+    });
 }
