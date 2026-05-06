@@ -1,3 +1,4 @@
 
 target/
 .ralph.lock
+ralph-logs/

@@ -143,6 +143,7 @@ mod tests {
                 redirect_uri: "http://127.0.0.1/callback".to_string(),
                 scopes: vec!["mail".to_string()],
                 client_id: None,
+                pkce_required: true,
                 extra_params: vec![],
                 userinfo_url: None,
             }),

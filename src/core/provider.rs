@@ -33,6 +33,11 @@ pub struct OAuthConfig {
     pub redirect_uri: String,
     pub scopes: Vec<String>,
     pub client_id: Option<String>,
+    /// Whether this provider requires PKCE (Proof Key for Code Exchange, RFC 7636).
+    /// When `true`, the authorization request includes `code_challenge` and
+    /// `code_challenge_method=S256`, and the token exchange includes `code_verifier`.
+    #[serde(default = "default_pkce_required")]
+    pub pkce_required: bool,
     /// Provider-specific query parameters appended to the authorization request
     /// (e.g. `prompt=consent`, `access_type=offline`, `force_confirm=true`).
     pub extra_params: Vec<(String, String)>,
@@ -42,6 +47,10 @@ pub struct OAuthConfig {
     /// user's email and display name. Analogous to the `askAccount` flag in the
     /// Android codebase.
     pub userinfo_url: Option<String>,
+}
+
+fn default_pkce_required() -> bool {
+    true
 }
 
 /// Default tenant value used when a provider requires a tenant but the user
@@ -687,6 +696,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1/callback".to_string(),
             scopes: vec!["mail".to_string()],
             client_id: None,
+            pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
         }
@@ -699,6 +709,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1/callback".to_string(),
             scopes: vec!["mail".to_string()],
             client_id: None,
+            pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
         }
@@ -946,6 +957,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1/callback".to_string(),
             scopes: vec![],
             client_id: None,
+            pkce_required: true,
             extra_params: vec![("custom_key".to_string(), "custom_value".to_string())],
             userinfo_url: None,
         };

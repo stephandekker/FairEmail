@@ -245,11 +245,13 @@ impl OAuthSession {
             params.push(("scope".to_string(), self.oauth_config.scopes.join(" ")));
         }
         params.push(("state".to_string(), self.state.clone()));
-        params.push((
-            "code_challenge".to_string(),
-            self.pkce.challenge().to_string(),
-        ));
-        params.push(("code_challenge_method".to_string(), "S256".to_string()));
+        if self.oauth_config.pkce_required {
+            params.push((
+                "code_challenge".to_string(),
+                self.pkce.challenge().to_string(),
+            ));
+            params.push(("code_challenge_method".to_string(), "S256".to_string()));
+        }
 
         for (key, value) in &self.oauth_config.extra_params {
             params.push((key.clone(), value.clone()));
@@ -274,7 +276,11 @@ impl OAuthSession {
             code: authorization_code.to_string(),
             redirect_uri: self.redirect_uri(),
             client_id: self.oauth_config.client_id.clone().unwrap_or_default(),
-            code_verifier: self.pkce.verifier().to_string(),
+            code_verifier: if self.oauth_config.pkce_required {
+                Some(self.pkce.verifier().to_string())
+            } else {
+                None
+            },
         }
     }
 
@@ -301,23 +307,26 @@ pub struct TokenExchangeParams {
     pub code: String,
     pub redirect_uri: String,
     pub client_id: String,
-    pub code_verifier: String,
+    pub code_verifier: Option<String>,
 }
 
 impl TokenExchangeParams {
     /// Build the form-encoded body string for the POST request.
     pub fn form_body(&self) -> String {
-        [
+        let mut pairs: Vec<(&str, &str)> = vec![
             ("grant_type", "authorization_code"),
             ("code", &self.code),
             ("redirect_uri", &self.redirect_uri),
             ("client_id", &self.client_id),
-            ("code_verifier", &self.code_verifier),
-        ]
-        .iter()
-        .map(|(k, v)| format!("{}={}", percent_encode(k), percent_encode(v)))
-        .collect::<Vec<_>>()
-        .join("&")
+        ];
+        if let Some(ref verifier) = self.code_verifier {
+            pairs.push(("code_verifier", verifier));
+        }
+        pairs
+            .iter()
+            .map(|(k, v)| format!("{}={}", percent_encode(k), percent_encode(v)))
+            .collect::<Vec<_>>()
+            .join("&")
     }
 }
 
@@ -496,6 +505,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1/callback".to_string(),
             scopes: vec!["https://mail.google.com/".to_string(), "openid".to_string()],
             client_id: Some("test-client-id.apps.googleusercontent.com".to_string()),
+            pkce_required: true,
             extra_params: vec![
                 ("prompt".to_string(), "consent".to_string()),
                 ("access_type".to_string(), "offline".to_string()),
@@ -713,7 +723,7 @@ mod tests {
             params.client_id,
             "test-client-id.apps.googleusercontent.com"
         );
-        assert!(!params.code_verifier.is_empty());
+        assert!(params.code_verifier.as_ref().is_some_and(|v| !v.is_empty()));
     }
 
     #[test]
@@ -1017,7 +1027,10 @@ mod tests {
         // Step 4: Get exchange params
         let exchange = session.token_exchange_params(&params.code);
         assert_eq!(exchange.code, "auth-code-xyz");
-        assert_eq!(exchange.code_verifier, "test-verifier-12345");
+        assert_eq!(
+            exchange.code_verifier.as_deref(),
+            Some("test-verifier-12345")
+        );
         assert_eq!(exchange.redirect_uri, "http://127.0.0.1:54321/callback");
 
         // Step 5: Simulate token response
@@ -1176,7 +1189,10 @@ mod tests {
         // Step 5: Token exchange uses jump URL as redirect_uri
         let exchange = session.token_exchange_params(&params.code);
         assert_eq!(exchange.redirect_uri, jump_url);
-        assert_eq!(exchange.code_verifier, "test-verifier-jump");
+        assert_eq!(
+            exchange.code_verifier.as_deref(),
+            Some("test-verifier-jump")
+        );
 
         // Step 6: Token response (same as local server path)
         let json = r#"{"access_token":"ya29.jump","refresh_token":"1//jump","expires_in":3600}"#;

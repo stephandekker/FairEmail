@@ -210,6 +210,7 @@ mod tests {
                 redirect_uri: "http://127.0.0.1/callback".to_string(),
                 scopes: vec!["mail".to_string()],
                 client_id: Some("test-client-id".to_string()),
+                pkce_required: true,
                 extra_params: vec![],
                 userinfo_url: None,
             }),
@@ -335,6 +336,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1/callback".to_string(),
             scopes: vec!["mail".to_string()],
             client_id: None,
+            pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
         });
@@ -590,6 +592,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1/callback".to_string(),
             scopes: vec!["mail".to_string()],
             client_id: Some("my-client-id".to_string()),
+            pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
         };
@@ -608,6 +611,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1/callback".to_string(),
             scopes: vec!["mail".to_string()],
             client_id: None,
+            pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
         };
@@ -632,6 +636,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1/callback".to_string(),
             scopes: vec!["mail".to_string()],
             client_id: Some("".to_string()),
+            pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
         };
@@ -652,6 +657,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1/callback".to_string(),
             scopes: vec!["mail".to_string()],
             client_id: Some("   ".to_string()),
+            pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
         };
@@ -712,6 +718,7 @@ mod tests {
             redirect_uri: "http://127.0.0.1/callback".to_string(),
             scopes: vec!["mail".to_string()],
             client_id: Some("has-credentials".to_string()),
+            pkce_required: true,
             extra_params: vec![],
             userinfo_url: None,
         });

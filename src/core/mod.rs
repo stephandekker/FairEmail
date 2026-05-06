@@ -33,6 +33,7 @@ pub mod message;
 pub mod navigation;
 pub(crate) mod oauth_flow;
 pub(crate) mod oauth_identity;
+pub mod oauth_provider_registry;
 pub(crate) mod oauth_signin;
 pub(crate) mod oauth_wizard;
 pub mod password_propagation;
@@ -141,6 +142,7 @@ pub use oauth_identity::{
     extract_identity_from_id_token, needs_userinfo_fetch, parse_userinfo_json, resolve_identity,
     userinfo_url, validate_userinfo_response, IdentityExtractionResult, IdentityInfo,
 };
+pub use oauth_provider_registry::{OAuthProviderEntry, OAuthProviderRegistry};
 pub use oauth_signin::{
     determine_auth_options, has_oauth_credentials, is_oauth_provider,
     oauth_credentials_file_exists, oauth_unavailable_message, resolve_auth_from_choice, AuthChoice,
