@@ -29,6 +29,7 @@ pub(crate) mod ispdb_discovery;
 pub mod message;
 pub mod navigation;
 pub(crate) mod oauth_flow;
+pub(crate) mod oauth_identity;
 pub(crate) mod oauth_signin;
 pub(crate) mod oauth_wizard;
 pub mod password_propagation;
@@ -120,6 +121,10 @@ pub use oauth_flow::{
     compute_expiry_epoch, generate_state, parse_callback_query, parse_token_response_json,
     validate_token_response, CallbackParams, OAuthFlowError, OAuthSession, PkceChallenge,
     TokenExchangeParams, TokenResponse, ValidatedTokenResponse, SESSION_TIMEOUT,
+};
+pub use oauth_identity::{
+    extract_identity_from_id_token, needs_userinfo_fetch, parse_userinfo_json, resolve_identity,
+    userinfo_url, validate_userinfo_response, IdentityExtractionResult, IdentityInfo,
 };
 pub use oauth_signin::{
     determine_auth_options, is_oauth_provider, resolve_auth_from_choice, AuthChoice, AuthOptions,

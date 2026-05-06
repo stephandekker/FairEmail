@@ -36,6 +36,12 @@ pub struct OAuthConfig {
     /// Provider-specific query parameters appended to the authorization request
     /// (e.g. `prompt=consent`, `access_type=offline`, `force_confirm=true`).
     pub extra_params: Vec<(String, String)>,
+    /// URL to fetch user identity info when the token response does not include
+    /// an ID token with email/name claims (FR-35, N-9). When `Some`, the
+    /// application must GET this endpoint with a Bearer token to retrieve the
+    /// user's email and display name. Analogous to the `askAccount` flag in the
+    /// Android codebase.
+    pub userinfo_url: Option<String>,
 }
 
 /// Server configuration (incoming or outgoing).

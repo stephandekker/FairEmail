@@ -139,6 +139,7 @@ mod tests {
                 scopes: vec!["mail".to_string()],
                 client_id: None,
                 extra_params: vec![],
+                userinfo_url: None,
             }),
             display_order: 1,
             enabled: true,

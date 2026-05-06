@@ -230,6 +230,10 @@ pub struct TokenResponse {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub expires_in: Option<u64>,
+    /// OpenID Connect ID token (JWT), if returned by the provider.
+    /// Contains identity claims (email, name) that can be decoded without
+    /// verification for extracting user info (FR-34).
+    pub id_token: Option<String>,
 }
 
 /// A validated token response with a guaranteed refresh token (FR-9, N-4).
@@ -321,11 +325,13 @@ pub fn parse_token_response_json(body: &str) -> Result<TokenResponse, OAuthFlowE
 
     let refresh_token = value["refresh_token"].as_str().map(String::from);
     let expires_in = value["expires_in"].as_u64();
+    let id_token = value["id_token"].as_str().map(String::from);
 
     Ok(TokenResponse {
         access_token,
         refresh_token,
         expires_in,
+        id_token,
     })
 }
 
@@ -397,6 +403,7 @@ mod tests {
                 ("prompt".to_string(), "consent".to_string()),
                 ("access_type".to_string(), "offline".to_string()),
             ],
+            userinfo_url: None,
         }
     }
 
@@ -638,6 +645,7 @@ mod tests {
             access_token: "access-123".to_string(),
             refresh_token: Some("refresh-456".to_string()),
             expires_in: Some(3600),
+            id_token: None,
         };
         let validated = validate_token_response(response).unwrap();
         assert_eq!(validated.access_token, "access-123");
@@ -651,6 +659,7 @@ mod tests {
             access_token: "access-123".to_string(),
             refresh_token: None,
             expires_in: Some(3600),
+            id_token: None,
         };
         let result = validate_token_response(response);
         assert!(matches!(result, Err(OAuthFlowError::NoRefreshToken)));
@@ -662,6 +671,7 @@ mod tests {
             access_token: "access-123".to_string(),
             refresh_token: Some(String::new()),
             expires_in: Some(3600),
+            id_token: None,
         };
         let result = validate_token_response(response);
         assert!(matches!(result, Err(OAuthFlowError::NoRefreshToken)));
@@ -673,6 +683,7 @@ mod tests {
             access_token: "access".to_string(),
             refresh_token: Some("refresh".to_string()),
             expires_in: None,
+            id_token: None,
         };
         let validated = validate_token_response(response).unwrap();
         assert!(validated.expires_in.is_none());

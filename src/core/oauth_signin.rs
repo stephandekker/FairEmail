@@ -122,6 +122,7 @@ mod tests {
                 scopes: vec!["mail".to_string()],
                 client_id: None,
                 extra_params: vec![],
+                userinfo_url: None,
             }),
             display_order: 1,
             enabled: true,
@@ -236,6 +237,7 @@ mod tests {
             scopes: vec!["mail".to_string()],
             client_id: None,
             extra_params: vec![],
+            userinfo_url: None,
         });
         let options = determine_auth_options(&provider);
         assert!(!options.oauth_available);

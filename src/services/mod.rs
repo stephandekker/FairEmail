@@ -40,6 +40,7 @@ pub mod sqlite_settings_store;
 pub mod sync_engine;
 pub mod sync_state_store;
 pub mod user_provider_service;
+pub(crate) mod userinfo_service;
 
 pub use account_store::StoreError;
 pub use connection_log_store::{append_connection_logs, load_connection_logs};
@@ -100,3 +101,4 @@ pub use sync_state_store::{load_sync_state, upsert_sync_state};
 pub use user_provider_service::{
     load_user_provider_file, load_user_provider_file_from, user_provider_file_path,
 };
+pub use userinfo_service::fetch_userinfo;
