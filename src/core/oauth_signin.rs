@@ -11,6 +11,7 @@ const OAUTH_PROVIDER_IDS: &[&str] = &[
     "yandex",
     "mailru",
     "fastmail",
+    "163",
 ];
 
 /// Represents the authentication options available after provider detection.
@@ -117,8 +118,10 @@ mod tests {
             oauth: Some(OAuthConfig {
                 auth_url: "https://auth.example.com/oauth".to_string(),
                 token_url: "https://auth.example.com/token".to_string(),
+                redirect_uri: "http://127.0.0.1/callback".to_string(),
                 scopes: vec!["mail".to_string()],
                 client_id: None,
+                extra_params: vec![],
             }),
             display_order: 1,
             enabled: true,
@@ -229,8 +232,10 @@ mod tests {
         provider.oauth = Some(OAuthConfig {
             auth_url: "https://auth.example.com".to_string(),
             token_url: "https://token.example.com".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
             scopes: vec!["mail".to_string()],
             client_id: None,
+            extra_params: vec![],
         });
         let options = determine_auth_options(&provider);
         assert!(!options.oauth_available);
@@ -380,5 +385,97 @@ mod tests {
         let candidate = db.lookup_by_domain("protonmail.com").unwrap();
         let options = determine_auth_options(&candidate.provider);
         assert!(!options.oauth_available);
+    }
+
+    #[test]
+    fn bundled_163_has_oauth() {
+        let db = crate::core::provider::ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("163.com").unwrap();
+        let options = determine_auth_options(&candidate.provider);
+        assert!(options.oauth_available);
+        assert!(options.oauth_config.is_some());
+    }
+
+    #[test]
+    fn is_oauth_provider_includes_163() {
+        assert!(is_oauth_provider("163"));
+    }
+
+    #[test]
+    fn oauth_config_has_redirect_uri() {
+        let db = crate::core::provider::ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("gmail.com").unwrap();
+        let oauth = candidate.provider.oauth.unwrap();
+        assert_eq!(oauth.redirect_uri, "http://127.0.0.1/callback");
+    }
+
+    #[test]
+    fn gmail_oauth_has_provider_specific_params() {
+        let db = crate::core::provider::ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("gmail.com").unwrap();
+        let oauth = candidate.provider.oauth.unwrap();
+        assert!(oauth
+            .extra_params
+            .contains(&("prompt".to_string(), "consent".to_string())));
+        assert!(oauth
+            .extra_params
+            .contains(&("access_type".to_string(), "offline".to_string())));
+    }
+
+    #[test]
+    fn yandex_oauth_has_force_confirm() {
+        let db = crate::core::provider::ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("yandex.ru").unwrap();
+        let oauth = candidate.provider.oauth.unwrap();
+        assert!(oauth
+            .extra_params
+            .contains(&("force_confirm".to_string(), "true".to_string())));
+    }
+
+    #[test]
+    fn outlook_oauth_has_offline_access_scope() {
+        let db = crate::core::provider::ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("outlook.com").unwrap();
+        let oauth = candidate.provider.oauth.unwrap();
+        assert!(oauth.scopes.contains(&"offline_access".to_string()));
+    }
+
+    #[test]
+    fn all_oauth_providers_have_redirect_uri() {
+        let db = crate::core::provider::ProviderDatabase::bundled();
+        let oauth_domains = [
+            "gmail.com",
+            "outlook.com",
+            "yahoo.com",
+            "aol.com",
+            "yandex.ru",
+            "mail.ru",
+            "fastmail.com",
+            "163.com",
+        ];
+        for domain in &oauth_domains {
+            let candidate = db.lookup_by_domain(domain).unwrap();
+            let oauth = candidate
+                .provider
+                .oauth
+                .as_ref()
+                .unwrap_or_else(|| panic!("Expected OAuth config for {domain}"));
+            assert!(
+                !oauth.redirect_uri.is_empty(),
+                "Expected non-empty redirect_uri for {domain}"
+            );
+            assert!(
+                !oauth.auth_url.is_empty(),
+                "Expected non-empty auth_url for {domain}"
+            );
+            assert!(
+                !oauth.token_url.is_empty(),
+                "Expected non-empty token_url for {domain}"
+            );
+            assert!(
+                !oauth.scopes.is_empty(),
+                "Expected non-empty scopes for {domain}"
+            );
+        }
     }
 }

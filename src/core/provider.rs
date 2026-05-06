@@ -30,8 +30,12 @@ pub enum MaxTlsVersion {
 pub struct OAuthConfig {
     pub auth_url: String,
     pub token_url: String,
+    pub redirect_uri: String,
     pub scopes: Vec<String>,
     pub client_id: Option<String>,
+    /// Provider-specific query parameters appended to the authorization request
+    /// (e.g. `prompt=consent`, `access_type=offline`, `force_confirm=true`).
+    pub extra_params: Vec<(String, String)>,
 }
 
 /// Server configuration (incoming or outgoing).

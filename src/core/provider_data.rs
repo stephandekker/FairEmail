@@ -120,8 +120,13 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 Some(OAuthConfig {
                     auth_url: "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
                     token_url: "https://oauth2.googleapis.com/token".to_string(),
+                    redirect_uri: "http://127.0.0.1/callback".to_string(),
                     scopes: vec!["https://mail.google.com/".to_string()],
                     client_id: None,
+                    extra_params: vec![
+                        ("prompt".to_string(), "consent".to_string()),
+                        ("access_type".to_string(), "offline".to_string()),
+                    ],
                 }),
                 1,
             );
@@ -146,8 +151,12 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 Some(OAuthConfig {
                     auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize".to_string(),
                     token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".to_string(),
-                    scopes: vec!["https://outlook.office365.com/IMAP.AccessAsUser.All".to_string(), "https://outlook.office365.com/SMTP.Send".to_string()],
+                    redirect_uri: "http://127.0.0.1/callback".to_string(),
+                    scopes: vec!["https://outlook.office365.com/IMAP.AccessAsUser.All".to_string(), "https://outlook.office365.com/SMTP.Send".to_string(), "offline_access".to_string()],
                     client_id: None,
+                    extra_params: vec![
+                        ("prompt".to_string(), "consent".to_string()),
+                    ],
                 }),
                 2,
             );
@@ -191,8 +200,10 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             Some(OAuthConfig {
                 auth_url: "https://api.login.yahoo.com/oauth2/request_auth".to_string(),
                 token_url: "https://api.login.yahoo.com/oauth2/get_token".to_string(),
+                redirect_uri: "http://127.0.0.1/callback".to_string(),
                 scopes: vec!["mail-w".to_string()],
                 client_id: None,
+                extra_params: vec![],
             }),
             3,
         ),
@@ -240,8 +251,10 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             Some(OAuthConfig {
                 auth_url: "https://api.login.aol.com/oauth2/request_auth".to_string(),
                 token_url: "https://api.login.aol.com/oauth2/get_token".to_string(),
+                redirect_uri: "http://127.0.0.1/callback".to_string(),
                 scopes: vec!["mail-w".to_string()],
                 client_id: None,
+                extra_params: vec![],
             }),
             5,
         ),
@@ -267,8 +280,10 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             Some(OAuthConfig {
                 auth_url: "https://oauth.mail.ru/login".to_string(),
                 token_url: "https://oauth.mail.ru/token".to_string(),
+                redirect_uri: "http://127.0.0.1/callback".to_string(),
                 scopes: vec!["mail.imap".to_string()],
                 client_id: None,
+                extra_params: vec![],
             }),
             6,
         ),
@@ -302,8 +317,10 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             Some(OAuthConfig {
                 auth_url: "https://oauth.yandex.com/authorize".to_string(),
                 token_url: "https://oauth.yandex.com/token".to_string(),
+                redirect_uri: "http://127.0.0.1/callback".to_string(),
                 scopes: vec!["mail:imap_full".to_string()],
                 client_id: None,
+                extra_params: vec![("force_confirm".to_string(), "true".to_string())],
             }),
             7,
         ),
@@ -440,8 +457,14 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
                     .to_string(),
                 token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".to_string(),
-                scopes: vec!["https://outlook.office365.com/IMAP.AccessAsUser.All".to_string()],
+                redirect_uri: "http://127.0.0.1/callback".to_string(),
+                scopes: vec![
+                    "https://outlook.office365.com/IMAP.AccessAsUser.All".to_string(),
+                    "https://outlook.office365.com/SMTP.Send".to_string(),
+                    "offline_access".to_string(),
+                ],
                 client_id: None,
+                extra_params: vec![("prompt".to_string(), "consent".to_string())],
             }),
             13,
         ),
@@ -581,7 +604,14 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             tls13,
             true,
             None,
-            None,
+            Some(OAuthConfig {
+                auth_url: "https://mail.163.com/oauth2/authorize".to_string(),
+                token_url: "https://mail.163.com/oauth2/token".to_string(),
+                redirect_uri: "http://127.0.0.1/callback".to_string(),
+                scopes: vec!["mail.imap".to_string()],
+                client_id: None,
+                extra_params: vec![],
+            }),
             19,
         ),
         // 20. Sina Mail
@@ -1198,11 +1228,13 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             Some(OAuthConfig {
                 auth_url: "https://api.fastmail.com/oauth/authorize".to_string(),
                 token_url: "https://api.fastmail.com/oauth/refresh".to_string(),
+                redirect_uri: "http://127.0.0.1/callback".to_string(),
                 scopes: vec![
                     "urn:ietf:params:jmap:mail".to_string(),
                     "urn:ietf:params:jmap:submission".to_string(),
                 ],
                 client_id: None,
+                extra_params: vec![],
             }),
             67,
         ),
