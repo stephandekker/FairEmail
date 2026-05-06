@@ -48,6 +48,7 @@ impl InboundTester for RealInboundTester {
             dnssec: params.dnssec,
             auth_realm: params.auth_realm.clone(),
             auth_method: params.auth_method,
+            mechanism_toggles: Default::default(),
         };
 
         match run_imap_session(&connect_params) {
@@ -100,6 +101,7 @@ impl RealInboundTester {
             dnssec: params.dnssec,
             auth_realm: params.auth_realm.clone(),
             auth_method: params.auth_method,
+            mechanism_toggles: Default::default(),
         };
 
         match run_imap_session(&connect_params) {

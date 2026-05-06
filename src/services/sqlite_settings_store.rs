@@ -51,9 +51,19 @@ impl SqliteSettingsStore {
             .ok()
             .and_then(|v| serde_json::from_str(&v).ok());
 
+        let mechanism_toggles: crate::core::auth_mechanism::MechanismToggles = stmt
+            .query_row(["mechanism_toggles"], |row| {
+                let val: String = row.get(0)?;
+                Ok(val)
+            })
+            .ok()
+            .and_then(|v| serde_json::from_str(&v).ok())
+            .unwrap_or_default();
+
         Ok(AppSettings {
             category_display_enabled,
             oauth_browser,
+            mechanism_toggles,
         })
     }
 
@@ -71,6 +81,13 @@ impl SqliteSettingsStore {
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
             rusqlite::params!["oauth_browser", browser_value],
+        )
+        .map_err(|e| SettingsError::Io(std::io::Error::other(e.to_string())))?;
+
+        let toggles_value = serde_json::to_string(&settings.mechanism_toggles)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            rusqlite::params!["mechanism_toggles", toggles_value],
         )
         .map_err(|e| SettingsError::Io(std::io::Error::other(e.to_string())))?;
         Ok(())
@@ -107,6 +124,7 @@ mod tests {
         let settings = AppSettings {
             category_display_enabled: true,
             oauth_browser: None,
+            ..Default::default()
         };
         store.save(&settings).unwrap();
         let loaded = store.load().unwrap();
@@ -119,6 +137,7 @@ mod tests {
         let settings = AppSettings {
             category_display_enabled: true,
             oauth_browser: None,
+            ..Default::default()
         };
         store.save(&settings).unwrap();
         store.save(&settings).unwrap();
@@ -132,9 +151,41 @@ mod tests {
         let settings = AppSettings {
             category_display_enabled: true,
             oauth_browser: None,
+            ..Default::default()
         };
         store.import_from_json(&settings).unwrap();
         let loaded = store.load().unwrap();
         assert!(loaded.category_display_enabled);
+    }
+
+    #[test]
+    fn mechanism_toggles_roundtrip() {
+        let (_dir, store) = make_store();
+        let toggles = crate::core::auth_mechanism::MechanismToggles {
+            cram_md5_enabled: false,
+            apop_enabled: true,
+            ..Default::default()
+        };
+        let settings = AppSettings {
+            category_display_enabled: false,
+            oauth_browser: None,
+            mechanism_toggles: toggles,
+        };
+        store.save(&settings).unwrap();
+        let loaded = store.load().unwrap();
+        assert!(!loaded.mechanism_toggles.cram_md5_enabled);
+        assert!(loaded.mechanism_toggles.apop_enabled);
+        assert!(loaded.mechanism_toggles.plain_enabled);
+    }
+
+    #[test]
+    fn mechanism_toggles_default_on_empty_db() {
+        let (_dir, store) = make_store();
+        let loaded = store.load().unwrap();
+        assert!(loaded.mechanism_toggles.plain_enabled);
+        assert!(loaded.mechanism_toggles.login_enabled);
+        assert!(loaded.mechanism_toggles.ntlm_enabled);
+        assert!(loaded.mechanism_toggles.cram_md5_enabled);
+        assert!(!loaded.mechanism_toggles.apop_enabled);
     }
 }

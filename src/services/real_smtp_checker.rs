@@ -39,6 +39,7 @@ impl SmtpChecker for RealSmtpChecker {
                 auth_method: AuthMethod::Plain,
                 client_certificate: None,
                 auth_realm: None,
+                mechanism_toggles: Default::default(),
             };
 
             match run_smtp_session(&connect_params) {

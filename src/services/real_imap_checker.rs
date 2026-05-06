@@ -42,6 +42,7 @@ impl ImapChecker for RealImapChecker {
                 dnssec: false,
                 auth_realm: None,
                 auth_method: AuthMethod::Plain,
+                mechanism_toggles: Default::default(),
             };
 
             match run_imap_session(&connect_params) {

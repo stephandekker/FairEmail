@@ -50,6 +50,8 @@ pub(crate) struct ImapConnectParams {
     /// Authentication method. When `OAuth2`, the `password` field contains the
     /// access token and XOAUTH2 SASL mechanism is used instead of LOGIN/PLAIN.
     pub auth_method: AuthMethod,
+    /// Global mechanism toggles (FR-25 – FR-29).
+    pub mechanism_toggles: crate::core::auth_mechanism::MechanismToggles,
 }
 
 /// Errors from the real IMAP client.
@@ -365,10 +367,15 @@ impl ImapSession {
         }
 
         // Use mechanism negotiation to determine which auth method to use.
+        // Filter server-advertised mechanisms against global toggles (FR-26).
         let server_mechs = crate::core::auth_mechanism::parse_imap_capabilities(capabilities);
+        let allowed = crate::core::auth_mechanism::filter_by_toggles(
+            &server_mechs,
+            &params.mechanism_toggles,
+        );
         let negotiated = crate::core::auth_mechanism::negotiate_password_mechanism(
             crate::core::auth_mechanism::AuthProtocol::Imap,
-            &server_mechs,
+            &allowed,
         );
 
         // If NTLM is negotiated (or only available), use NTLM with domain.

@@ -342,6 +342,13 @@ mod dev_fetch {
                 .security_settings()
                 .and_then(|s| s.auth_realm.clone()),
             auth_method: account.auth_method(),
+            mechanism_toggles: crate::services::SqliteSettingsStore::new(
+                data_dir.join("fairmail.db"),
+            )
+            .ok()
+            .and_then(|s| s.load().ok())
+            .unwrap_or_default()
+            .mechanism_toggles,
         };
 
         let content_root = data_dir.join("messages");

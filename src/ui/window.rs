@@ -101,6 +101,14 @@ pub(crate) fn build(
         .build();
     sidebar_header.pack_start(&import_provider_btn);
 
+    // FR-25 – FR-29: advanced settings button (global mechanism toggles).
+    let advanced_settings_btn = gtk::Button::builder()
+        .icon_name("preferences-system-symbolic")
+        .tooltip_text(gettextrs::gettext("Advanced settings"))
+        .accessible_role(gtk::AccessibleRole::Button)
+        .build();
+    sidebar_header.pack_end(&advanced_settings_btn);
+
     // FR-21: toggle button for category grouping in the navigation pane.
     let category_toggle = gtk::ToggleButton::builder()
         .icon_name("view-list-symbolic")
@@ -274,6 +282,19 @@ pub(crate) fn build(
                 None,
                 &conn_state_mgr.borrow(),
             );
+        }
+    ));
+
+    // FR-25 – FR-29: open advanced settings dialog (global mechanism toggles).
+    advanced_settings_btn.connect_clicked(clone!(
+        #[strong]
+        settings_store,
+        #[strong]
+        settings,
+        #[weak]
+        window,
+        move |_| {
+            show_advanced_settings_dialog(&window, &settings_store, &settings);
         }
     ));
 
@@ -1544,6 +1565,99 @@ fn show_password_propagation_dialog(
             core::propagate_password_to_identities(&*cred_store, &identity_ids, &new_password);
         }
     });
+
+    dialog.present(Some(parent));
+}
+
+/// FR-25 – FR-29: Show the advanced settings dialog with global mechanism toggles.
+fn show_advanced_settings_dialog(
+    parent: &adw::ApplicationWindow,
+    settings_store: &Rc<SqliteSettingsStore>,
+    settings: &Rc<RefCell<AppSettings>>,
+) {
+    use crate::core::auth_mechanism::MechanismToggles;
+
+    let dialog = adw::PreferencesDialog::new();
+    dialog.set_title(&gettextrs::gettext("Advanced Settings"));
+
+    let page = adw::PreferencesPage::new();
+    page.set_title(&gettextrs::gettext("Authentication"));
+    page.set_icon_name(Some("channel-secure-symbolic"));
+
+    let group = adw::PreferencesGroup::new();
+    group.set_title(&gettextrs::gettext("Password Mechanisms"));
+    group.set_description(Some(&gettextrs::gettext(
+        "Control which password-based authentication mechanisms the application is allowed to attempt on any connection.",
+    )));
+
+    let current = settings.borrow().mechanism_toggles.clone();
+
+    let plain_row = adw::SwitchRow::builder()
+        .title("AUTH PLAIN")
+        .active(current.plain_enabled)
+        .build();
+    let login_row = adw::SwitchRow::builder()
+        .title("AUTH LOGIN")
+        .active(current.login_enabled)
+        .build();
+    let cram_row = adw::SwitchRow::builder()
+        .title("AUTH CRAM-MD5")
+        .active(current.cram_md5_enabled)
+        .build();
+    let ntlm_row = adw::SwitchRow::builder()
+        .title("AUTH NTLM")
+        .active(current.ntlm_enabled)
+        .build();
+    let apop_row = adw::SwitchRow::builder()
+        .title("APOP (POP3)")
+        .active(current.apop_enabled)
+        .build();
+
+    group.add(&plain_row);
+    group.add(&login_row);
+    group.add(&cram_row);
+    group.add(&ntlm_row);
+    group.add(&apop_row);
+    page.add(&group);
+    dialog.add(&page);
+
+    // Persist each toggle change immediately.
+    let make_handler = |settings: Rc<RefCell<AppSettings>>,
+                        settings_store: Rc<SqliteSettingsStore>,
+                        field: fn(&mut MechanismToggles, bool)| {
+        move |row: &adw::SwitchRow| {
+            let active = row.is_active();
+            let mut s = settings.borrow_mut();
+            field(&mut s.mechanism_toggles, active);
+            let _ = settings_store.save(&s);
+        }
+    };
+
+    plain_row.connect_active_notify(make_handler(
+        Rc::clone(settings),
+        Rc::clone(settings_store),
+        |t, v| t.plain_enabled = v,
+    ));
+    login_row.connect_active_notify(make_handler(
+        Rc::clone(settings),
+        Rc::clone(settings_store),
+        |t, v| t.login_enabled = v,
+    ));
+    cram_row.connect_active_notify(make_handler(
+        Rc::clone(settings),
+        Rc::clone(settings_store),
+        |t, v| t.cram_md5_enabled = v,
+    ));
+    ntlm_row.connect_active_notify(make_handler(
+        Rc::clone(settings),
+        Rc::clone(settings_store),
+        |t, v| t.ntlm_enabled = v,
+    ));
+    apop_row.connect_active_notify(make_handler(
+        Rc::clone(settings),
+        Rc::clone(settings_store),
+        |t, v| t.apop_enabled = v,
+    ));
 
     dialog.present(Some(parent));
 }

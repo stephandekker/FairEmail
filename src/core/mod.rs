@@ -88,9 +88,9 @@ pub use auth_error::{
     AuthErrorPresentation, ProviderHint, GENERAL_SUPPORT_URL,
 };
 pub use auth_mechanism::{
-    compute_apop_digest, log_negotiation, negotiate_password_mechanism, parse_imap_capabilities,
-    parse_pop3_capa, parse_pop3_greeting_timestamp, parse_smtp_ehlo, should_use_apop,
-    supported_mechanisms, AuthMechanism, AuthProtocol,
+    compute_apop_digest, filter_by_toggles, log_negotiation, negotiate_password_mechanism,
+    parse_imap_capabilities, parse_pop3_capa, parse_pop3_greeting_timestamp, parse_smtp_ehlo,
+    should_use_apop, supported_mechanisms, AuthMechanism, AuthProtocol, MechanismToggles,
 };
 pub use browser_selection::{
     detect_installed_browsers, select_browser, BrowserInfo, BrowserSelectionResult,

@@ -36,6 +36,8 @@ pub(crate) struct SmtpConnectParams {
     pub client_certificate: Option<String>,
     /// Optional authentication realm for SASL/NTLM domain (Design Note N-7).
     pub auth_realm: Option<String>,
+    /// Global mechanism toggles (FR-25 – FR-29).
+    pub mechanism_toggles: crate::core::auth_mechanism::MechanismToggles,
 }
 
 /// Result of a successful SMTP session.
@@ -406,22 +408,53 @@ fn smtp_authenticate(
         return smtp_authenticate_xoauth2(session, params, logs);
     }
 
-    // If realm is provided, try NTLM first for domain authentication
-    if let Some(ref realm) = params.auth_realm {
-        if !realm.is_empty() {
-            // Attempt NTLM authentication with domain
-            if let Ok(()) = smtp_authenticate_ntlm(session, params, realm, logs) {
-                return Ok(());
+    let toggles = &params.mechanism_toggles;
+
+    // If realm is provided and NTLM is enabled, try NTLM first for domain authentication
+    if toggles.ntlm_enabled {
+        if let Some(ref realm) = params.auth_realm {
+            if !realm.is_empty() {
+                // Attempt NTLM authentication with domain
+                if let Ok(()) = smtp_authenticate_ntlm(session, params, realm, logs) {
+                    return Ok(());
+                }
+                // Fall through to standard auth if NTLM is not supported
             }
-            // Fall through to standard auth if NTLM is not supported
         }
     }
 
-    session.send_line("AUTH LOGIN")?;
-    let auth_response = session.read_response()?;
+    // Try AUTH LOGIN if enabled by global toggles (FR-26).
+    if toggles.login_enabled {
+        session.send_line("AUTH LOGIN")?;
+        let auth_response = session.read_response()?;
 
-    if !auth_response.starts_with("334") {
-        // Try AUTH PLAIN (with realm if available)
+        if auth_response.starts_with("334") {
+            // AUTH LOGIN flow
+            let username_b64 = base64_encode(&params.username);
+            session.send_line(&username_b64)?;
+            let user_response = session.read_response()?;
+            if !user_response.starts_with("334") {
+                return Err(SmtpClientError::AuthenticationFailed);
+            }
+
+            let password_b64 = base64_encode(&params.password);
+            session.send_line(&password_b64)?;
+            let pass_response = session.read_response()?;
+            if pass_response.starts_with("235") {
+                logs.push(ConnectionLogRecord::new(
+                    params.account_id.clone(),
+                    ConnectionLogEventType::LoginResult,
+                    format!("SMTP login successful (LOGIN) as {}", params.username),
+                ));
+                return Ok(());
+            }
+            return Err(SmtpClientError::AuthenticationFailed);
+        }
+        // Server rejected AUTH LOGIN; fall through to try PLAIN
+    }
+
+    // Try AUTH PLAIN if enabled by global toggles (FR-26).
+    if toggles.plain_enabled {
         let plain_credentials = if let Some(ref realm) = params.auth_realm {
             if !realm.is_empty() {
                 build_auth_plain_with_realm(&params.username, &params.password, realm)
@@ -445,27 +478,7 @@ fn smtp_authenticate(
         return Err(SmtpClientError::AuthenticationFailed);
     }
 
-    // AUTH LOGIN flow
-    let username_b64 = base64_encode(&params.username);
-    session.send_line(&username_b64)?;
-    let user_response = session.read_response()?;
-    if !user_response.starts_with("334") {
-        return Err(SmtpClientError::AuthenticationFailed);
-    }
-
-    let password_b64 = base64_encode(&params.password);
-    session.send_line(&password_b64)?;
-    let pass_response = session.read_response()?;
-    if pass_response.starts_with("235") {
-        logs.push(ConnectionLogRecord::new(
-            params.account_id.clone(),
-            ConnectionLogEventType::LoginResult,
-            format!("SMTP login successful (LOGIN) as {}", params.username),
-        ));
-        Ok(())
-    } else {
-        Err(SmtpClientError::AuthenticationFailed)
-    }
+    Err(SmtpClientError::AuthenticationFailed)
 }
 
 /// Authenticate via AUTH NTLM for Windows domain authentication.

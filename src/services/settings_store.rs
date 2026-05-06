@@ -3,6 +3,8 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::core::auth_mechanism::MechanismToggles;
+
 /// Application settings that can be toggled by the user.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppSettings {
@@ -17,6 +19,10 @@ pub struct AppSettings {
     /// falls back to the system default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oauth_browser: Option<String>,
+
+    /// Global toggles for password-based authentication mechanisms (FR-25 – FR-29).
+    #[serde(default)]
+    pub mechanism_toggles: MechanismToggles,
 }
 
 /// Errors from the settings persistence layer.
@@ -89,6 +95,7 @@ mod tests {
         let settings = AppSettings {
             category_display_enabled: true,
             oauth_browser: None,
+            ..Default::default()
         };
         store.save(&settings).unwrap();
 

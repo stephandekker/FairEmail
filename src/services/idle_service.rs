@@ -464,6 +464,7 @@ mod tests {
             dnssec: false,
             auth_realm: None,
             auth_method: AuthMethod::Plain,
+            mechanism_toggles: Default::default(),
         }
     }
 

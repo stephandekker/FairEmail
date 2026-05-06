@@ -5,6 +5,7 @@
 //! (IMAP CAPABILITY, SMTP EHLO, POP3 CAPA).
 
 use md5::{Digest, Md5};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Mail protocol used to determine which mechanisms are applicable.
@@ -70,6 +71,72 @@ impl AuthMechanism {
             _ => None,
         }
     }
+}
+
+/// Global toggles controlling which password-based mechanisms the application
+/// is allowed to attempt on any connection (FR-25 through FR-29, Design Note N-4).
+///
+/// All password-based mechanisms except APOP are enabled by default.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MechanismToggles {
+    /// Allow AUTH PLAIN.
+    #[serde(default = "default_true")]
+    pub plain_enabled: bool,
+    /// Allow AUTH LOGIN.
+    #[serde(default = "default_true")]
+    pub login_enabled: bool,
+    /// Allow AUTH NTLM.
+    #[serde(default = "default_true")]
+    pub ntlm_enabled: bool,
+    /// Allow AUTH CRAM-MD5 (SASL challenge-response).
+    #[serde(default = "default_true")]
+    pub cram_md5_enabled: bool,
+    /// Allow APOP (POP3 only). Disabled by default (Design Note N-3).
+    #[serde(default)]
+    pub apop_enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for MechanismToggles {
+    fn default() -> Self {
+        Self {
+            plain_enabled: true,
+            login_enabled: true,
+            ntlm_enabled: true,
+            cram_md5_enabled: true,
+            apop_enabled: false,
+        }
+    }
+}
+
+impl MechanismToggles {
+    /// Returns `true` if the given mechanism is allowed by the global toggles.
+    pub fn is_enabled(&self, mechanism: AuthMechanism) -> bool {
+        match mechanism {
+            AuthMechanism::Plain => self.plain_enabled,
+            AuthMechanism::Login => self.login_enabled,
+            AuthMechanism::Ntlm => self.ntlm_enabled,
+            AuthMechanism::CramMd5 => self.cram_md5_enabled,
+            AuthMechanism::Apop => self.apop_enabled,
+            // Non-password mechanisms (OAuth, External) are not gated by these toggles.
+            AuthMechanism::Xoauth2 | AuthMechanism::External => true,
+        }
+    }
+}
+
+/// Filter a list of mechanisms, removing any disabled by the global toggles.
+pub fn filter_by_toggles(
+    mechanisms: &[AuthMechanism],
+    toggles: &MechanismToggles,
+) -> Vec<AuthMechanism> {
+    mechanisms
+        .iter()
+        .copied()
+        .filter(|m| toggles.is_enabled(*m))
+        .collect()
 }
 
 /// Returns the full set of mechanisms the application supports for a protocol.
@@ -685,5 +752,146 @@ mod tests {
     fn should_use_apop_disabled_no_timestamp() {
         let greeting = "+OK POP3 ready";
         assert_eq!(should_use_apop(false, greeting, "user", "pass"), None);
+    }
+
+    // --- MechanismToggles ---
+
+    #[test]
+    fn default_toggles_enable_all_password_mechanisms_except_apop() {
+        let toggles = MechanismToggles::default();
+        assert!(toggles.plain_enabled);
+        assert!(toggles.login_enabled);
+        assert!(toggles.ntlm_enabled);
+        assert!(toggles.cram_md5_enabled);
+        assert!(!toggles.apop_enabled);
+    }
+
+    #[test]
+    fn is_enabled_matches_toggle_state() {
+        let all_on = MechanismToggles::default();
+        assert!(all_on.is_enabled(AuthMechanism::Plain));
+        assert!(all_on.is_enabled(AuthMechanism::CramMd5));
+
+        let plain_off = MechanismToggles {
+            plain_enabled: false,
+            ..Default::default()
+        };
+        assert!(!plain_off.is_enabled(AuthMechanism::Plain));
+        assert!(plain_off.is_enabled(AuthMechanism::CramMd5));
+
+        // Non-password mechanisms are always enabled.
+        assert!(plain_off.is_enabled(AuthMechanism::Xoauth2));
+        assert!(plain_off.is_enabled(AuthMechanism::External));
+    }
+
+    #[test]
+    fn is_enabled_apop_default_off() {
+        let toggles = MechanismToggles::default();
+        assert!(!toggles.is_enabled(AuthMechanism::Apop));
+    }
+
+    // --- filter_by_toggles ---
+
+    #[test]
+    fn filter_removes_disabled_mechanisms() {
+        let toggles = MechanismToggles {
+            cram_md5_enabled: false,
+            ..Default::default()
+        };
+
+        let server = vec![
+            AuthMechanism::CramMd5,
+            AuthMechanism::Login,
+            AuthMechanism::Plain,
+        ];
+        let filtered = filter_by_toggles(&server, &toggles);
+        assert_eq!(filtered, vec![AuthMechanism::Login, AuthMechanism::Plain]);
+    }
+
+    #[test]
+    fn filter_keeps_non_password_mechanisms_regardless() {
+        let toggles = MechanismToggles {
+            plain_enabled: false,
+            ..Default::default()
+        };
+
+        let server = vec![AuthMechanism::Xoauth2, AuthMechanism::Plain];
+        let filtered = filter_by_toggles(&server, &toggles);
+        assert_eq!(filtered, vec![AuthMechanism::Xoauth2]);
+    }
+
+    #[test]
+    fn filter_with_all_defaults_keeps_password_mechanisms() {
+        let toggles = MechanismToggles::default();
+        let server = vec![
+            AuthMechanism::CramMd5,
+            AuthMechanism::Login,
+            AuthMechanism::Plain,
+            AuthMechanism::Ntlm,
+        ];
+        let filtered = filter_by_toggles(&server, &toggles);
+        assert_eq!(filtered, server);
+    }
+
+    #[test]
+    fn disabling_cram_md5_causes_fallback_to_login_or_plain() {
+        let toggles = MechanismToggles {
+            cram_md5_enabled: false,
+            ..Default::default()
+        };
+
+        let server = vec![
+            AuthMechanism::CramMd5,
+            AuthMechanism::Login,
+            AuthMechanism::Plain,
+        ];
+        let filtered = filter_by_toggles(&server, &toggles);
+        let negotiated = negotiate_password_mechanism(AuthProtocol::Imap, &filtered);
+        assert_eq!(negotiated, Some(AuthMechanism::Login));
+    }
+
+    #[test]
+    fn all_mechanisms_disabled_returns_none_from_negotiation() {
+        let toggles = MechanismToggles {
+            plain_enabled: false,
+            login_enabled: false,
+            cram_md5_enabled: false,
+            ntlm_enabled: false,
+            ..Default::default()
+        };
+
+        let server = vec![
+            AuthMechanism::CramMd5,
+            AuthMechanism::Login,
+            AuthMechanism::Plain,
+            AuthMechanism::Ntlm,
+        ];
+        let filtered = filter_by_toggles(&server, &toggles);
+        let negotiated = negotiate_password_mechanism(AuthProtocol::Imap, &filtered);
+        assert_eq!(negotiated, None);
+    }
+
+    #[test]
+    fn toggles_serde_roundtrip() {
+        let toggles = MechanismToggles {
+            cram_md5_enabled: false,
+            apop_enabled: true,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&toggles).unwrap();
+        let restored: MechanismToggles = serde_json::from_str(&json).unwrap();
+        assert!(!restored.cram_md5_enabled);
+        assert!(restored.apop_enabled);
+        assert!(restored.plain_enabled);
+    }
+
+    #[test]
+    fn toggles_deserialize_empty_json_gives_defaults() {
+        let restored: MechanismToggles = serde_json::from_str("{}").unwrap();
+        assert!(restored.plain_enabled);
+        assert!(restored.login_enabled);
+        assert!(restored.ntlm_enabled);
+        assert!(restored.cram_md5_enabled);
+        assert!(!restored.apop_enabled);
     }
 }
