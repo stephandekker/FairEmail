@@ -28,6 +28,7 @@ pub mod inbound_test_diagnostics;
 pub(crate) mod ispdb_discovery;
 pub mod message;
 pub mod navigation;
+pub(crate) mod oauth_flow;
 pub(crate) mod oauth_signin;
 pub mod password_propagation;
 pub mod pending_operation;
@@ -114,6 +115,11 @@ pub use message::{
     FLAG_DELETED, FLAG_DRAFT, FLAG_FLAGGED, FLAG_SEEN,
 };
 pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
+pub use oauth_flow::{
+    compute_expiry_epoch, generate_state, parse_callback_query, parse_token_response_json,
+    validate_token_response, CallbackParams, OAuthFlowError, OAuthSession, PkceChallenge,
+    TokenExchangeParams, TokenResponse, ValidatedTokenResponse, SESSION_TIMEOUT,
+};
 pub use oauth_signin::{
     determine_auth_options, is_oauth_provider, resolve_auth_from_choice, AuthChoice, AuthOptions,
     OAuthTokenResult,

@@ -8,6 +8,8 @@ pub enum CredentialRole {
     ImapPassword,
     SmtpPassword,
     OAuthRefreshToken,
+    /// OAuth access token expiry as a Unix epoch timestamp (FR-12).
+    OAuthTokenExpiry,
     /// Per-identity SMTP password (keyed by a UUID derived from the identity row id).
     IdentitySmtpPassword,
 }
@@ -19,6 +21,7 @@ impl CredentialRole {
             Self::ImapPassword => "imap-password",
             Self::SmtpPassword => "smtp-password",
             Self::OAuthRefreshToken => "oauth-refresh-token",
+            Self::OAuthTokenExpiry => "oauth-token-expiry",
             Self::IdentitySmtpPassword => "identity-smtp-password",
         }
     }
@@ -164,6 +167,10 @@ mod tests {
         assert_eq!(
             CredentialRole::OAuthRefreshToken.as_str(),
             "oauth-refresh-token"
+        );
+        assert_eq!(
+            CredentialRole::OAuthTokenExpiry.as_str(),
+            "oauth-token-expiry"
         );
         assert_eq!(
             CredentialRole::IdentitySmtpPassword.as_str(),

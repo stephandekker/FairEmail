@@ -22,6 +22,7 @@ pub mod network;
 pub mod notification_channel;
 #[allow(dead_code)]
 pub(crate) mod notification_dispatcher;
+pub(crate) mod oauth_service;
 pub mod order_store;
 pub mod pending_ops_store;
 pub mod real_connection_tester;
@@ -76,6 +77,10 @@ pub use message_store::{
 pub use notification_channel::{
     FreedesktopNotificationChannelManager, MockNotificationChannelManager,
     NotificationChannelManager,
+};
+pub use oauth_service::{
+    bind_redirect_listener, exchange_code_for_tokens, open_browser, store_oauth_tokens,
+    wait_for_callback,
 };
 pub use order_store::OrderStore;
 pub use pending_ops_store::{
