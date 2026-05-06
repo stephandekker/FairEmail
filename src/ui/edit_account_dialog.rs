@@ -2428,17 +2428,26 @@ fn run_reauth_oauth_thread(
     tx: std::sync::mpsc::Sender<ReauthOAuthMessage>,
     oauth_browser_preference: Option<String>,
 ) {
-    // Step 1: Bind redirect listener.
-    let (listener, port) = match oauth_service::bind_redirect_listener() {
-        Ok(r) => r,
-        Err(e) => {
-            let _ = tx.send(ReauthOAuthMessage::Error(e.to_string()));
-            return;
-        }
+    // Step 1: Bind redirect listener, falling back to jump page if unavailable (FR-11).
+    let (listener, port, redirect_method) = match oauth_service::bind_redirect_listener() {
+        Ok((l, p)) => (l, p, crate::core::oauth_flow::RedirectMethod::LocalServer),
+        Err(bind_err) => match oauth_service::bind_redirect_listener() {
+            Ok((l, p)) => (
+                l,
+                p,
+                crate::core::oauth_flow::RedirectMethod::JumpPage {
+                    jump_url: crate::core::oauth_flow::DEFAULT_JUMP_PAGE_URL.to_string(),
+                },
+            ),
+            Err(_) => {
+                let _ = tx.send(ReauthOAuthMessage::Error(bind_err.to_string()));
+                return;
+            }
+        },
     };
 
     // Step 2: Build session and open browser.
-    let session = OAuthSession::new(oauth_config, port);
+    let session = OAuthSession::new_with_redirect(oauth_config, port, redirect_method);
     let url = session.authorization_url();
     if let Err(e) =
         oauth_service::open_browser_with_selection(&url, oauth_browser_preference.as_deref())

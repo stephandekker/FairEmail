@@ -7,6 +7,43 @@ use std::time::{Duration, Instant};
 /// Maximum time an OAuth session remains valid (FR-7, NFR-5).
 pub const SESSION_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 
+/// Default publisher-hosted jump page URL for OAuth redirect fallback (FR-11).
+pub const DEFAULT_JUMP_PAGE_URL: &str = "https://fairmail.eu/oauth/callback";
+
+/// The redirect mechanism for receiving the OAuth authorization callback (FR-11).
+///
+/// When the local HTTP server is unavailable, the jump page fallback routes
+/// the authorization code through a publisher-hosted intermediary page.
+/// Only the authorization code transits the publisher's server — no tokens
+/// are sent to or through the jump page (NFR-8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RedirectMethod {
+    /// A local HTTP server on 127.0.0.1 receives the callback directly.
+    LocalServer,
+    /// A publisher-hosted jump page receives the callback and relays it to
+    /// the local server via client-side redirect. The jump page URL is used
+    /// as the `redirect_uri` in the authorization request. The local port is
+    /// encoded in the `state` parameter so the jump page JavaScript can
+    /// redirect the browser to `http://localhost:{port}/callback`.
+    JumpPage { jump_url: String },
+}
+
+/// Encode the local port into the state parameter for jump page relay.
+///
+/// Format: `{csrf_state}.{port}` — the dot separator is safe because
+/// it does not appear in base64url output (which uses A-Z, a-z, 0-9, -, _).
+fn encode_jump_state(csrf_state: &str, port: u16) -> String {
+    format!("{csrf_state}.{port}")
+}
+
+/// Extract the local port from a jump-page-encoded state parameter.
+///
+/// Returns `Some(port)` if the state ends with `.{port}`, `None` otherwise.
+pub fn decode_jump_state_port(state: &str) -> Option<u16> {
+    let dot_pos = state.rfind('.')?;
+    state[dot_pos + 1..].parse().ok()
+}
+
 /// Errors that can occur during the OAuth authorization flow.
 #[derive(Debug, thiserror::Error)]
 pub enum OAuthFlowError {
@@ -88,17 +125,39 @@ pub struct OAuthSession {
     pkce: PkceChallenge,
     created_at: Instant,
     redirect_port: u16,
+    redirect_method: RedirectMethod,
     oauth_config: OAuthConfig,
 }
 
 impl OAuthSession {
     /// Create a new OAuth session with fresh PKCE and state values.
+    ///
+    /// Uses `RedirectMethod::LocalServer` by default. For jump page fallback,
+    /// use [`new_with_redirect`].
     pub fn new(oauth_config: OAuthConfig, redirect_port: u16) -> Self {
+        Self::new_with_redirect(oauth_config, redirect_port, RedirectMethod::LocalServer)
+    }
+
+    /// Create a new OAuth session with the specified redirect method.
+    ///
+    /// When using `RedirectMethod::JumpPage`, the local port is encoded in
+    /// the state parameter so the jump page can relay the callback to localhost.
+    pub fn new_with_redirect(
+        oauth_config: OAuthConfig,
+        redirect_port: u16,
+        redirect_method: RedirectMethod,
+    ) -> Self {
+        let csrf_state = generate_state();
+        let state = match &redirect_method {
+            RedirectMethod::LocalServer => csrf_state,
+            RedirectMethod::JumpPage { .. } => encode_jump_state(&csrf_state, redirect_port),
+        };
         Self {
-            state: generate_state(),
+            state,
             pkce: PkceChallenge::generate(),
             created_at: Instant::now(),
             redirect_port,
+            redirect_method,
             oauth_config,
         }
     }
@@ -115,6 +174,25 @@ impl OAuthSession {
             pkce,
             created_at: Instant::now(),
             redirect_port,
+            redirect_method: RedirectMethod::LocalServer,
+            oauth_config,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_with_values_and_redirect(
+        oauth_config: OAuthConfig,
+        redirect_port: u16,
+        state: String,
+        pkce: PkceChallenge,
+        redirect_method: RedirectMethod,
+    ) -> Self {
+        Self {
+            state,
+            pkce,
+            created_at: Instant::now(),
+            redirect_port,
+            redirect_method,
             oauth_config,
         }
     }
@@ -131,6 +209,9 @@ impl OAuthSession {
     }
 
     /// Validate the state parameter from a redirect callback (FR-6, FR-7).
+    ///
+    /// The same CSRF protection applies regardless of whether the native
+    /// or jump page redirect is used.
     pub fn validate_state(&self, received_state: Option<&str>) -> Result<(), OAuthFlowError> {
         if self.is_expired() {
             return Err(OAuthFlowError::SessionExpired);
@@ -141,16 +222,25 @@ impl OAuthSession {
         }
     }
 
+    /// The redirect URI for this session, based on the redirect method.
+    fn redirect_uri(&self) -> String {
+        match &self.redirect_method {
+            RedirectMethod::LocalServer => {
+                format!("http://127.0.0.1:{}/callback", self.redirect_port)
+            }
+            RedirectMethod::JumpPage { jump_url } => jump_url.clone(),
+        }
+    }
+
     /// Build the authorization URL for the system browser (FR-5).
     pub fn authorization_url(&self) -> String {
-        let redirect = format!("http://127.0.0.1:{}/callback", self.redirect_port);
         let mut params = Vec::new();
 
         params.push(("response_type".to_string(), "code".to_string()));
         if let Some(ref client_id) = self.oauth_config.client_id {
             params.push(("client_id".to_string(), client_id.clone()));
         }
-        params.push(("redirect_uri".to_string(), redirect));
+        params.push(("redirect_uri".to_string(), self.redirect_uri()));
         if !self.oauth_config.scopes.is_empty() {
             params.push(("scope".to_string(), self.oauth_config.scopes.join(" ")));
         }
@@ -175,11 +265,14 @@ impl OAuthSession {
     }
 
     /// Build the parameters needed for the token exchange request.
+    ///
+    /// The `redirect_uri` in the token exchange must match the one used in the
+    /// authorization request, regardless of redirect method.
     pub fn token_exchange_params(&self, authorization_code: &str) -> TokenExchangeParams {
         TokenExchangeParams {
             token_url: self.oauth_config.token_url.clone(),
             code: authorization_code.to_string(),
-            redirect_uri: format!("http://127.0.0.1:{}/callback", self.redirect_port),
+            redirect_uri: self.redirect_uri(),
             client_id: self.oauth_config.client_id.clone().unwrap_or_default(),
             code_verifier: self.pkce.verifier().to_string(),
         }
@@ -191,6 +284,10 @@ impl OAuthSession {
 
     pub fn redirect_port(&self) -> u16 {
         self.redirect_port
+    }
+
+    pub fn redirect_method(&self) -> &RedirectMethod {
+        &self.redirect_method
     }
 
     pub fn oauth_config(&self) -> &OAuthConfig {
@@ -929,5 +1026,188 @@ mod tests {
         let validated = validate_token_response(response).unwrap();
         assert_eq!(validated.access_token, "ya29.xxx");
         assert_eq!(validated.refresh_token, "1//yyy");
+    }
+
+    // --- Jump page redirect fallback (FR-11, NFR-8) ---
+
+    #[test]
+    fn jump_page_session_encodes_port_in_state() {
+        let session = OAuthSession::new_with_redirect(
+            test_oauth_config(),
+            12345,
+            RedirectMethod::JumpPage {
+                jump_url: DEFAULT_JUMP_PAGE_URL.to_string(),
+            },
+        );
+        let state = session.state();
+        // State must end with .{port}
+        assert!(state.ends_with(".12345"), "state={state}");
+        // Port must be extractable
+        assert_eq!(decode_jump_state_port(state), Some(12345));
+    }
+
+    #[test]
+    fn local_server_session_does_not_encode_port_in_state() {
+        let session = OAuthSession::new(test_oauth_config(), 8080);
+        // Base64url output has no dots, so no port suffix should be present
+        assert!(
+            !session.state().contains('.'),
+            "LocalServer state should not contain dot separator"
+        );
+    }
+
+    #[test]
+    fn jump_page_authorization_url_uses_jump_url_as_redirect() {
+        let jump_url = "https://example.com/oauth/callback";
+        let session = OAuthSession::new_with_redirect(
+            test_oauth_config(),
+            8080,
+            RedirectMethod::JumpPage {
+                jump_url: jump_url.to_string(),
+            },
+        );
+        let url = session.authorization_url();
+        assert!(url.contains(&percent_encode(jump_url)));
+        assert!(!url.contains("127.0.0.1"));
+    }
+
+    #[test]
+    fn jump_page_token_exchange_uses_jump_url_as_redirect() {
+        let jump_url = "https://example.com/oauth/callback";
+        let session = OAuthSession::new_with_redirect(
+            test_oauth_config(),
+            8080,
+            RedirectMethod::JumpPage {
+                jump_url: jump_url.to_string(),
+            },
+        );
+        let params = session.token_exchange_params("code123");
+        assert_eq!(params.redirect_uri, jump_url);
+    }
+
+    #[test]
+    fn jump_page_state_validation_works() {
+        let session = OAuthSession::new_with_redirect(
+            test_oauth_config(),
+            9999,
+            RedirectMethod::JumpPage {
+                jump_url: DEFAULT_JUMP_PAGE_URL.to_string(),
+            },
+        );
+        let state = session.state().to_string();
+        // Same state validates
+        assert!(session.validate_state(Some(&state)).is_ok());
+        // Wrong state fails
+        assert!(matches!(
+            session.validate_state(Some("wrong")),
+            Err(OAuthFlowError::StateMismatch)
+        ));
+    }
+
+    #[test]
+    fn jump_page_session_timeout_applies() {
+        let session = OAuthSession::new_with_redirect(
+            test_oauth_config(),
+            8080,
+            RedirectMethod::JumpPage {
+                jump_url: DEFAULT_JUMP_PAGE_URL.to_string(),
+            },
+        )
+        .with_created_at(Instant::now() - Duration::from_secs(21 * 60));
+        let state = session.state().to_string();
+        assert!(matches!(
+            session.validate_state(Some(&state)),
+            Err(OAuthFlowError::SessionExpired)
+        ));
+    }
+
+    #[test]
+    fn encode_jump_state_format() {
+        let encoded = encode_jump_state("abc123", 54321);
+        assert_eq!(encoded, "abc123.54321");
+    }
+
+    #[test]
+    fn decode_jump_state_port_valid() {
+        assert_eq!(decode_jump_state_port("abc123.54321"), Some(54321));
+        assert_eq!(decode_jump_state_port("random-state.8080"), Some(8080));
+    }
+
+    #[test]
+    fn decode_jump_state_port_invalid() {
+        assert_eq!(decode_jump_state_port("no-port-here"), None);
+        assert_eq!(decode_jump_state_port("state.notanumber"), None);
+        assert_eq!(decode_jump_state_port(""), None);
+    }
+
+    #[test]
+    fn jump_page_full_flow_simulation() {
+        let config = test_oauth_config();
+        let jump_url = "https://fairmail.eu/oauth/callback";
+        let pkce = PkceChallenge::new_test("test-verifier-jump");
+        let state_with_port = encode_jump_state("test-state-jump", 54321);
+        let session = OAuthSession::new_with_values_and_redirect(
+            config,
+            54321,
+            state_with_port.clone(),
+            pkce,
+            RedirectMethod::JumpPage {
+                jump_url: jump_url.to_string(),
+            },
+        );
+
+        // Step 1: Auth URL uses jump page as redirect
+        let url = session.authorization_url();
+        assert!(url.contains(&percent_encode(jump_url)));
+        assert!(url.contains(&format!("state={state_with_port}")));
+
+        // Step 2: Jump page receives callback, extracts port, relays to localhost
+        let port = decode_jump_state_port(&state_with_port).unwrap();
+        assert_eq!(port, 54321);
+
+        // Step 3: Local server receives relayed callback
+        let query = format!("code=jump-auth-code&state={state_with_port}");
+        let params = parse_callback_query(&query).unwrap();
+        assert_eq!(params.code, "jump-auth-code");
+
+        // Step 4: State validation succeeds
+        session.validate_state(Some(&params.state)).unwrap();
+
+        // Step 5: Token exchange uses jump URL as redirect_uri
+        let exchange = session.token_exchange_params(&params.code);
+        assert_eq!(exchange.redirect_uri, jump_url);
+        assert_eq!(exchange.code_verifier, "test-verifier-jump");
+
+        // Step 6: Token response (same as local server path)
+        let json = r#"{"access_token":"ya29.jump","refresh_token":"1//jump","expires_in":3600}"#;
+        let response = parse_token_response_json(json).unwrap();
+        let validated = validate_token_response(response).unwrap();
+        assert_eq!(validated.access_token, "ya29.jump");
+        assert_eq!(validated.refresh_token, "1//jump");
+    }
+
+    #[test]
+    fn redirect_method_accessor() {
+        let session = OAuthSession::new(test_oauth_config(), 8080);
+        assert_eq!(session.redirect_method(), &RedirectMethod::LocalServer);
+
+        let session = OAuthSession::new_with_redirect(
+            test_oauth_config(),
+            8080,
+            RedirectMethod::JumpPage {
+                jump_url: DEFAULT_JUMP_PAGE_URL.to_string(),
+            },
+        );
+        assert_eq!(
+            session.redirect_method(),
+            &RedirectMethod::JumpPage {
+                jump_url: DEFAULT_JUMP_PAGE_URL.to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn default_jump_page_url_is_https() {
+        assert!(DEFAULT_JUMP_PAGE_URL.starts_with("https://"));
     }
 }

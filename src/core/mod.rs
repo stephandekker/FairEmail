@@ -127,9 +127,10 @@ pub use message::{
 };
 pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
 pub use oauth_flow::{
-    compute_expiry_epoch, generate_state, parse_callback_query, parse_token_response_json,
-    validate_token_response, CallbackParams, OAuthFlowError, OAuthSession, PkceChallenge,
-    TokenExchangeParams, TokenResponse, ValidatedTokenResponse, SESSION_TIMEOUT,
+    compute_expiry_epoch, decode_jump_state_port, generate_state, parse_callback_query,
+    parse_token_response_json, validate_token_response, CallbackParams, OAuthFlowError,
+    OAuthSession, PkceChallenge, RedirectMethod, TokenExchangeParams, TokenResponse,
+    ValidatedTokenResponse, DEFAULT_JUMP_PAGE_URL, SESSION_TIMEOUT,
 };
 pub use oauth_identity::{
     extract_identity_from_id_token, needs_userinfo_fetch, parse_userinfo_json, resolve_identity,
