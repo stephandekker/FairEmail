@@ -171,6 +171,7 @@ pub use sync_conditions::{
 pub use sync_event::SyncEvent;
 pub use sync_state::SyncState;
 pub use user_provider_file::{
-    build_merged_database, merge_user_providers, parse_user_provider_file, UserProviderFileError,
-    APP_CONFIG_DIR, USER_PROVIDER_FILENAME,
+    build_merged_database, merge_user_providers, parse_and_validate_provider_file,
+    parse_user_provider_file, validate_provider_configs, ProviderValidationError,
+    UserProviderFileError, APP_CONFIG_DIR, USER_PROVIDER_FILENAME,
 };

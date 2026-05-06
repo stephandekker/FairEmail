@@ -17,6 +17,7 @@ use crate::core::oauth_wizard::{build_oauth_connection_error, create_oauth_accou
 use crate::core::privacy;
 use crate::core::proprietary_provider::check_proprietary_provider;
 use crate::core::provider::ProviderDatabase;
+use crate::core::user_provider_file::build_merged_database;
 use crate::core::wizard_validation::{
     validate_wizard_fields, WizardFieldError, WizardValidationResult,
 };
@@ -597,7 +598,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             if let Some(at_pos) = email.rfind('@') {
                 let domain = &email[at_pos + 1..];
                 if !domain.is_empty() && domain.contains('.') {
-                    let db = ProviderDatabase::bundled();
+                    let db = load_merged_provider_database();
                     if let Some(candidate) = db.lookup_by_domain(domain) {
                         let options = determine_auth_options(&candidate.provider);
                         if options.oauth_available {
@@ -731,7 +732,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             }
 
             // Detect provider and get OAuth config.
-            let db = ProviderDatabase::bundled();
+            let db = load_merged_provider_database();
             let candidate = match db.lookup_by_email(&email) {
                 Some(c) => c,
                 None => return,
@@ -1319,7 +1320,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             if let Some(at_pos) = email.rfind('@') {
                 let domain = &email[at_pos + 1..];
                 if !domain.is_empty() && domain.contains('.') {
-                    let db = ProviderDatabase::bundled();
+                    let db = load_merged_provider_database();
                     if let Some(candidate) = db.lookup_by_domain(domain) {
                         let options = determine_auth_options(&candidate.provider);
                         if options.oauth_available {
@@ -1680,4 +1681,15 @@ fn run_oauth_thread(
         refresh_token: validated.refresh_token,
         expires_in: validated.expires_in,
     });
+}
+
+/// Load the provider database merged with any user-supplied custom providers.
+///
+/// Falls back to the bundled-only database if the user provider file is
+/// absent or cannot be read/parsed.
+fn load_merged_provider_database() -> ProviderDatabase {
+    let user_content = crate::services::user_provider_service::load_user_provider_file()
+        .ok()
+        .flatten();
+    build_merged_database(user_content.as_deref()).unwrap_or_else(|_| ProviderDatabase::bundled())
 }

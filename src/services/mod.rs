@@ -101,6 +101,7 @@ pub use sqlite_order_store::SqliteOrderStore;
 pub use sqlite_settings_store::SqliteSettingsStore;
 pub use sync_state_store::{load_sync_state, upsert_sync_state};
 pub use user_provider_service::{
-    load_user_provider_file, load_user_provider_file_from, user_provider_file_path,
+    import_provider_file, load_user_provider_file, load_user_provider_file_from,
+    user_provider_file_path,
 };
 pub use userinfo_service::fetch_userinfo;

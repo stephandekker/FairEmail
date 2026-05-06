@@ -14,6 +14,90 @@ pub enum UserProviderFileError {
     Io(#[from] std::io::Error),
     #[error("failed to parse user provider file: {0}")]
     Parse(#[from] serde_json::Error),
+    #[error("validation error: {0}")]
+    Validation(String),
+}
+
+/// Validation error detail for a single provider entry.
+#[derive(Debug, Clone)]
+pub struct ProviderValidationError {
+    pub provider_id: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for ProviderValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "provider '{}': {}", self.provider_id, self.message)
+    }
+}
+
+/// Validate a list of parsed providers.
+///
+/// Checks that each provider has a non-empty `id` and `display_name`, and if
+/// OAuth is configured, that the required fields (`auth_url`, `token_url`, and
+/// at least one scope) are present and non-empty.
+///
+/// Returns `Ok(())` if all providers pass validation, or a list of errors.
+pub fn validate_provider_configs(
+    providers: &[Provider],
+) -> Result<(), Vec<ProviderValidationError>> {
+    let mut errors = Vec::new();
+
+    for provider in providers {
+        if provider.id.trim().is_empty() {
+            errors.push(ProviderValidationError {
+                provider_id: "(empty)".to_string(),
+                message: "id must not be empty".to_string(),
+            });
+            continue;
+        }
+        if provider.display_name.trim().is_empty() {
+            errors.push(ProviderValidationError {
+                provider_id: provider.id.clone(),
+                message: "display_name must not be empty".to_string(),
+            });
+        }
+        if let Some(ref oauth) = provider.oauth {
+            if oauth.auth_url.trim().is_empty() {
+                errors.push(ProviderValidationError {
+                    provider_id: provider.id.clone(),
+                    message: "oauth.auth_url must not be empty".to_string(),
+                });
+            }
+            if oauth.token_url.trim().is_empty() {
+                errors.push(ProviderValidationError {
+                    provider_id: provider.id.clone(),
+                    message: "oauth.token_url must not be empty".to_string(),
+                });
+            }
+            if oauth.scopes.is_empty() {
+                errors.push(ProviderValidationError {
+                    provider_id: provider.id.clone(),
+                    message: "oauth.scopes must contain at least one scope".to_string(),
+                });
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Parse and validate a user-supplied provider file from JSON content.
+///
+/// Returns the parsed providers if parsing and validation both succeed.
+pub fn parse_and_validate_provider_file(
+    content: &str,
+) -> Result<Vec<Provider>, UserProviderFileError> {
+    let providers = parse_user_provider_file(content)?;
+    validate_provider_configs(&providers).map_err(|errs| {
+        let msgs: Vec<String> = errs.iter().map(|e| e.to_string()).collect();
+        UserProviderFileError::Validation(msgs.join("; "))
+    })?;
+    Ok(providers)
 }
 
 /// Merge user-supplied providers into the bundled database.
@@ -281,5 +365,156 @@ mod tests {
         assert_eq!(candidate.provider.display_name, "Gmail Custom");
         assert_eq!(candidate.provider.keep_alive_interval, 20);
         assert_eq!(candidate.score, MatchScore::BUNDLED_EXACT);
+    }
+
+    #[test]
+    fn test_validate_valid_provider_without_oauth() {
+        let providers = vec![make_provider("test", &["test.com"])];
+        assert!(validate_provider_configs(&providers).is_ok());
+    }
+
+    #[test]
+    fn test_validate_empty_id_rejected() {
+        let mut p = make_provider("", &["test.com"]);
+        p.id = "".to_string();
+        let result = validate_provider_configs(&[p]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err()[0]
+            .message
+            .contains("id must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_empty_display_name_rejected() {
+        let mut p = make_provider("test", &["test.com"]);
+        p.display_name = "".to_string();
+        let result = validate_provider_configs(&[p]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err()[0]
+            .message
+            .contains("display_name must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_oauth_missing_auth_url() {
+        let mut p = make_provider("test", &["test.com"]);
+        p.oauth = Some(crate::core::provider::OAuthConfig {
+            auth_url: "".to_string(),
+            token_url: "https://example.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1".to_string(),
+            scopes: vec!["openid".to_string()],
+            client_id: None,
+            extra_params: vec![],
+            userinfo_url: None,
+        });
+        let result = validate_provider_configs(&[p]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err()[0]
+            .message
+            .contains("auth_url must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_oauth_missing_token_url() {
+        let mut p = make_provider("test", &["test.com"]);
+        p.oauth = Some(crate::core::provider::OAuthConfig {
+            auth_url: "https://example.com/auth".to_string(),
+            token_url: "".to_string(),
+            redirect_uri: "http://127.0.0.1".to_string(),
+            scopes: vec!["openid".to_string()],
+            client_id: None,
+            extra_params: vec![],
+            userinfo_url: None,
+        });
+        let result = validate_provider_configs(&[p]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err()[0]
+            .message
+            .contains("token_url must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_oauth_empty_scopes() {
+        let mut p = make_provider("test", &["test.com"]);
+        p.oauth = Some(crate::core::provider::OAuthConfig {
+            auth_url: "https://example.com/auth".to_string(),
+            token_url: "https://example.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1".to_string(),
+            scopes: vec![],
+            client_id: None,
+            extra_params: vec![],
+            userinfo_url: None,
+        });
+        let result = validate_provider_configs(&[p]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err()[0]
+            .message
+            .contains("at least one scope"));
+    }
+
+    #[test]
+    fn test_validate_valid_oauth_provider() {
+        let mut p = make_provider("keycloak", &["corp.example.com"]);
+        p.oauth = Some(crate::core::provider::OAuthConfig {
+            auth_url: "https://auth.corp.example.com/auth".to_string(),
+            token_url: "https://auth.corp.example.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1".to_string(),
+            scopes: vec!["openid".to_string(), "email".to_string()],
+            client_id: Some("fairmail-desktop".to_string()),
+            extra_params: vec![],
+            userinfo_url: Some("https://auth.corp.example.com/userinfo".to_string()),
+        });
+        assert!(validate_provider_configs(&[p]).is_ok());
+    }
+
+    #[test]
+    fn test_parse_and_validate_valid_file() {
+        let json = r#"[{
+            "id": "corpmail",
+            "display_name": "Corp Mail",
+            "domain_patterns": ["corp.example.com"],
+            "mx_patterns": [],
+            "incoming": {"hostname": "imap.corp.example.com", "port": 993, "encryption": "SslTls"},
+            "outgoing": {"hostname": "smtp.corp.example.com", "port": 465, "encryption": "SslTls"},
+            "username_type": "EmailAddress",
+            "keep_alive_interval": 15,
+            "noop_keep_alive": false,
+            "partial_fetch": true,
+            "max_tls_version": "Tls1_3",
+            "app_password_required": false,
+            "documentation_url": null,
+            "localized_docs": [],
+            "oauth": null,
+            "display_order": 200,
+            "enabled": true
+        }]"#;
+        let result = parse_and_validate_provider_file(json);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_parse_and_validate_rejects_invalid_oauth() {
+        let json = r#"[{
+            "id": "bad-oauth",
+            "display_name": "Bad OAuth",
+            "domain_patterns": ["bad.example.com"],
+            "mx_patterns": [],
+            "incoming": {"hostname": "imap.bad.example.com", "port": 993, "encryption": "SslTls"},
+            "outgoing": {"hostname": "smtp.bad.example.com", "port": 465, "encryption": "SslTls"},
+            "username_type": "EmailAddress",
+            "keep_alive_interval": 15,
+            "noop_keep_alive": false,
+            "partial_fetch": true,
+            "max_tls_version": "Tls1_3",
+            "app_password_required": false,
+            "documentation_url": null,
+            "localized_docs": [],
+            "oauth": {"auth_url": "", "token_url": "", "redirect_uri": "", "scopes": [], "client_id": null, "extra_params": [], "userinfo_url": null},
+            "display_order": 200,
+            "enabled": true
+        }]"#;
+        let result = parse_and_validate_provider_file(json);
+        assert!(result.is_err());
     }
 }

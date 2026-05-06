@@ -51,6 +51,51 @@ pub fn load_user_provider_file_from(
     }
 }
 
+/// Import a provider configuration file from an arbitrary source path.
+///
+/// Reads the file, parses and validates its contents, then merges the new
+/// providers with any existing user-supplied providers and writes the result
+/// to the standard user provider file location.
+///
+/// Returns the number of providers in the imported file.
+pub fn import_provider_file(source_path: &std::path::Path) -> Result<usize, UserProviderFileError> {
+    use crate::core::user_provider_file::{merge_user_providers, parse_and_validate_provider_file};
+
+    // Read and validate the source file.
+    let content = std::fs::read_to_string(source_path)?;
+    let new_providers = parse_and_validate_provider_file(&content)?;
+    let import_count = new_providers.len();
+
+    // Load existing user providers (if any) and merge.
+    let existing_content = load_user_provider_file()?;
+    let existing_providers = match existing_content {
+        Some(ref c) => {
+            crate::core::user_provider_file::parse_user_provider_file(c).unwrap_or_default()
+        }
+        None => vec![],
+    };
+
+    let merged = merge_user_providers(existing_providers, new_providers);
+
+    // Write the merged result to the user provider file.
+    let dest = user_provider_file_path().ok_or_else(|| {
+        UserProviderFileError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "could not determine config directory",
+        ))
+    })?;
+
+    // Ensure parent directory exists.
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let json = serde_json::to_string_pretty(&merged).map_err(UserProviderFileError::Parse)?;
+    std::fs::write(&dest, json)?;
+
+    Ok(import_count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

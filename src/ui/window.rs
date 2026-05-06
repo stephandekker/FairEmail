@@ -44,6 +44,7 @@ use crate::ui::add_account_dialog;
 use crate::ui::edit_account_dialog;
 use crate::ui::export_dialog;
 use crate::ui::import_dialog;
+use crate::ui::import_provider_dialog;
 use crate::ui::setup_wizard;
 use crate::ui::smtp_identity_dialog;
 
@@ -88,6 +89,14 @@ pub(crate) fn build(
         .accessible_role(gtk::AccessibleRole::Button)
         .build();
     sidebar_header.pack_start(&import_btn);
+
+    // FR-26, FR-28: import custom OAuth provider configuration.
+    let import_provider_btn = gtk::Button::builder()
+        .icon_name("application-x-addon-symbolic")
+        .tooltip_text(gettextrs::gettext("Import provider configuration"))
+        .accessible_role(gtk::AccessibleRole::Button)
+        .build();
+    sidebar_header.pack_start(&import_provider_btn);
 
     // FR-21: toggle button for category grouping in the navigation pane.
     let category_toggle = gtk::ToggleButton::builder()
@@ -698,6 +707,15 @@ pub(crate) fn build(
                     );
                 }
             });
+        }
+    ));
+
+    // FR-26, FR-28: import custom provider configuration handler.
+    import_provider_btn.connect_clicked(clone!(
+        #[weak]
+        window,
+        move |_| {
+            import_provider_dialog::show(&window);
         }
     ));
 
