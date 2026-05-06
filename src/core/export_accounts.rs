@@ -429,6 +429,7 @@ mod tests {
             keep_alive_settings: Some(KeepAliveSettings {
                 use_noop_instead_of_idle: true,
             }),
+            oauth_tenant: None,
         })
         .unwrap()
     }

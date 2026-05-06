@@ -124,6 +124,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         })
         .unwrap()
     }
@@ -155,6 +156,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         }
     }
 
@@ -306,6 +308,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         })
         .unwrap();
 
@@ -342,6 +345,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         };
 
         assert!(should_auto_test_existing_account(&acct, &params, false));

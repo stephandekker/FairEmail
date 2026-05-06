@@ -420,6 +420,9 @@ pub struct NewAccountParams {
     pub fetch_settings: Option<FetchSettings>,
     /// Advanced keep-alive settings (FR-52, FR-53).
     pub keep_alive_settings: Option<KeepAliveSettings>,
+    /// OAuth tenant identifier for multi-tenant providers (FR-10, US-4).
+    /// Stored so that re-authorization uses the same tenant.
+    pub oauth_tenant: Option<String>,
 }
 
 /// Parameters for updating an existing account. Same fields as creation
@@ -468,6 +471,8 @@ pub struct UpdateAccountParams {
     pub fetch_settings: Option<FetchSettings>,
     /// Advanced keep-alive settings (FR-52, FR-53).
     pub keep_alive_settings: Option<KeepAliveSettings>,
+    /// OAuth tenant identifier for multi-tenant providers (FR-10, US-4).
+    pub oauth_tenant: Option<String>,
 }
 
 /// A mail account with connection settings and a stable unique identifier.
@@ -551,6 +556,10 @@ pub struct Account {
     /// the local message store should be re-evaluated at next sync (FR-55).
     #[serde(default)]
     pop3_needs_store_reevaluation: bool,
+    /// OAuth tenant identifier for multi-tenant providers like Microsoft (FR-10, US-4).
+    /// Stored with the account so re-authorization uses the same tenant.
+    #[serde(default)]
+    oauth_tenant: Option<String>,
 }
 
 /// A local folder associated with an account.
@@ -693,6 +702,7 @@ impl Account {
             fetch_settings: params.fetch_settings,
             keep_alive_settings: params.keep_alive_settings,
             pop3_needs_store_reevaluation: false,
+            oauth_tenant: params.oauth_tenant,
         })
     }
 
@@ -746,6 +756,7 @@ impl Account {
             fetch_settings: params.fetch_settings,
             keep_alive_settings: params.keep_alive_settings,
             pop3_needs_store_reevaluation: false,
+            oauth_tenant: params.oauth_tenant,
         })
     }
 
@@ -798,6 +809,7 @@ impl Account {
             fetch_settings: params.fetch_settings,
             keep_alive_settings: params.keep_alive_settings,
             pop3_needs_store_reevaluation: false,
+            oauth_tenant: params.oauth_tenant,
         })
     }
 
@@ -1022,6 +1034,11 @@ impl Account {
         self.pop3_needs_store_reevaluation = false;
     }
 
+    /// OAuth tenant identifier for multi-tenant providers (FR-10, US-4).
+    pub fn oauth_tenant(&self) -> Option<&str> {
+        self.oauth_tenant.as_deref()
+    }
+
     /// Update only the credential and authentication method (FR-33, FR-34).
     /// Used by the re-authorization flow to refresh expired/revoked credentials
     /// without touching any other account properties.
@@ -1062,6 +1079,7 @@ impl Account {
             security_settings: self.security_settings.clone(),
             fetch_settings: self.fetch_settings.clone(),
             keep_alive_settings: self.keep_alive_settings.clone(),
+            oauth_tenant: self.oauth_tenant.clone(),
         }
     }
 
@@ -1113,6 +1131,7 @@ impl Account {
         self.security_settings = params.security_settings;
         self.fetch_settings = params.fetch_settings;
         self.keep_alive_settings = params.keep_alive_settings;
+        self.oauth_tenant = params.oauth_tenant;
         Ok(())
     }
 }
@@ -1183,6 +1202,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         }
     }
 
@@ -1286,6 +1306,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         }
     }
 
@@ -1517,6 +1538,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         };
         acct.update(up).unwrap();
         assert_eq!(acct.id(), original_id);
@@ -1603,6 +1625,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         };
         acct.update(up).unwrap();
         assert!(acct.pop3_needs_store_reevaluation());
@@ -1642,6 +1665,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         };
         acct.update(up).unwrap();
         assert!(!acct.pop3_needs_store_reevaluation());
@@ -1685,6 +1709,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         };
         acct.update(up).unwrap();
         assert!(acct.pop3_needs_store_reevaluation());

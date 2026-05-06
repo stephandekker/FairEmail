@@ -44,6 +44,32 @@ pub struct OAuthConfig {
     pub userinfo_url: Option<String>,
 }
 
+/// Default tenant value used when a provider requires a tenant but the user
+/// does not supply one. `"common"` allows both personal and organizational
+/// Microsoft accounts (FR-10, AC-5).
+pub const DEFAULT_TENANT: &str = "common";
+
+impl OAuthConfig {
+    /// Whether this provider's endpoint URLs contain a `{tenant}` placeholder
+    /// that must be substituted before use (FR-10, US-4).
+    pub fn requires_tenant(&self) -> bool {
+        self.auth_url.contains("{tenant}") || self.token_url.contains("{tenant}")
+    }
+
+    /// Return a copy of this config with `{tenant}` placeholders replaced.
+    /// If `tenant` is empty or `None`, [`DEFAULT_TENANT`] is used.
+    pub fn with_tenant(&self, tenant: Option<&str>) -> Self {
+        let tenant = match tenant {
+            Some(t) if !t.trim().is_empty() => t.trim(),
+            _ => DEFAULT_TENANT,
+        };
+        let mut config = self.clone();
+        config.auth_url = config.auth_url.replace("{tenant}", tenant);
+        config.token_url = config.token_url.replace("{tenant}", tenant);
+        config
+    }
+}
+
 /// Server configuration (incoming or outgoing).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -639,5 +665,140 @@ mod tests {
             elapsed.as_millis() < 1000,
             "Lookups took too long: {elapsed:?}"
         );
+    }
+
+    // --- OAuthConfig tenant tests (FR-10, US-4) ---
+
+    fn make_tenant_oauth_config() -> OAuthConfig {
+        OAuthConfig {
+            auth_url: "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
+                .to_string(),
+            token_url: "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
+            scopes: vec!["mail".to_string()],
+            client_id: None,
+            extra_params: vec![],
+            userinfo_url: None,
+        }
+    }
+
+    fn make_non_tenant_oauth_config() -> OAuthConfig {
+        OAuthConfig {
+            auth_url: "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
+            token_url: "https://oauth2.googleapis.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
+            scopes: vec!["mail".to_string()],
+            client_id: None,
+            extra_params: vec![],
+            userinfo_url: None,
+        }
+    }
+
+    #[test]
+    fn requires_tenant_detects_placeholder_in_auth_url() {
+        let config = make_tenant_oauth_config();
+        assert!(config.requires_tenant());
+    }
+
+    #[test]
+    fn requires_tenant_false_for_non_tenant_provider() {
+        let config = make_non_tenant_oauth_config();
+        assert!(!config.requires_tenant());
+    }
+
+    #[test]
+    fn with_tenant_substitutes_in_both_urls() {
+        let config = make_tenant_oauth_config();
+        let resolved = config.with_tenant(Some("contoso.com"));
+        assert_eq!(
+            resolved.auth_url,
+            "https://login.microsoftonline.com/contoso.com/oauth2/v2.0/authorize"
+        );
+        assert_eq!(
+            resolved.token_url,
+            "https://login.microsoftonline.com/contoso.com/oauth2/v2.0/token"
+        );
+    }
+
+    #[test]
+    fn with_tenant_uses_default_when_none() {
+        let config = make_tenant_oauth_config();
+        let resolved = config.with_tenant(None);
+        assert_eq!(
+            resolved.auth_url,
+            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+        );
+        assert_eq!(
+            resolved.token_url,
+            "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+        );
+    }
+
+    #[test]
+    fn with_tenant_uses_default_when_empty() {
+        let config = make_tenant_oauth_config();
+        let resolved = config.with_tenant(Some(""));
+        assert!(resolved.auth_url.contains("/common/"));
+    }
+
+    #[test]
+    fn with_tenant_uses_default_when_whitespace() {
+        let config = make_tenant_oauth_config();
+        let resolved = config.with_tenant(Some("   "));
+        assert!(resolved.auth_url.contains("/common/"));
+    }
+
+    #[test]
+    fn with_tenant_trims_whitespace() {
+        let config = make_tenant_oauth_config();
+        let resolved = config.with_tenant(Some("  myorg  "));
+        assert!(resolved.auth_url.contains("/myorg/"));
+    }
+
+    #[test]
+    fn with_tenant_preserves_non_tenant_urls() {
+        let config = make_non_tenant_oauth_config();
+        let resolved = config.with_tenant(Some("contoso.com"));
+        // No placeholder, so URLs unchanged.
+        assert_eq!(resolved.auth_url, config.auth_url);
+        assert_eq!(resolved.token_url, config.token_url);
+    }
+
+    #[test]
+    fn with_tenant_preserves_other_fields() {
+        let config = make_tenant_oauth_config();
+        let resolved = config.with_tenant(Some("org"));
+        assert_eq!(resolved.redirect_uri, config.redirect_uri);
+        assert_eq!(resolved.scopes, config.scopes);
+        assert_eq!(resolved.client_id, config.client_id);
+    }
+
+    #[test]
+    fn bundled_outlook_requires_tenant() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("outlook.com").unwrap();
+        let oauth = candidate.provider.oauth.as_ref().unwrap();
+        assert!(oauth.requires_tenant());
+    }
+
+    #[test]
+    fn bundled_office365_requires_tenant() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("office365.com").unwrap();
+        let oauth = candidate.provider.oauth.as_ref().unwrap();
+        assert!(oauth.requires_tenant());
+    }
+
+    #[test]
+    fn bundled_gmail_does_not_require_tenant() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("gmail.com").unwrap();
+        let oauth = candidate.provider.oauth.as_ref().unwrap();
+        assert!(!oauth.requires_tenant());
+    }
+
+    #[test]
+    fn default_tenant_is_common() {
+        assert_eq!(DEFAULT_TENANT, "common");
     }
 }

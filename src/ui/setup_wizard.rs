@@ -80,6 +80,7 @@ struct OAuthSetupState {
     expires_in: Option<u64>,
     imap_result: crate::core::imap_check::ImapCheckSuccess,
     smtp_result: crate::core::smtp_check::SmtpCheckSuccess,
+    oauth_tenant: Option<String>,
 }
 
 /// Build and present the quick-setup wizard dialog (FR-1, FR-2, FR-3).
@@ -244,6 +245,30 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         .halign(gtk::Align::Center)
         .build();
     oauth_box.append(&oauth_caption);
+
+    // Tenant input field for multi-tenant providers like Microsoft (FR-10, US-4).
+    // Hidden by default; shown when the detected provider requires a tenant.
+    let tenant_group = adw::PreferencesGroup::builder()
+        .margin_start(12)
+        .margin_end(12)
+        .margin_top(4)
+        .visible(false)
+        .build();
+    let tenant_row = adw::EntryRow::builder()
+        .title(gettextrs::gettext("Tenant identifier (optional)"))
+        .build();
+    tenant_group.add(&tenant_row);
+    let tenant_hint = gtk::Label::builder()
+        .label(gettextrs::gettext(
+            "Enter your organization's directory ID or domain, or leave blank for personal accounts",
+        ))
+        .css_classes(["dim-label", "caption"])
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .wrap(true)
+        .build();
+    tenant_group.add(&tenant_hint);
+    oauth_box.append(&tenant_group);
 
     let oauth_password_fallback_btn = gtk::Button::builder()
         .label(gettextrs::gettext("Use password instead"))
@@ -525,6 +550,8 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         #[weak]
         oauth_error_box,
         #[weak]
+        tenant_group,
+        #[weak]
         password_group,
         #[weak]
         password_error,
@@ -555,6 +582,13 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                                 .replace("%s", &options.provider_name);
                             oauth_provider_label.set_label(&info_label);
 
+                            // Show tenant field for multi-tenant providers (FR-10, US-4).
+                            let needs_tenant = options
+                                .oauth_config
+                                .as_ref()
+                                .is_some_and(|c| c.requires_tenant());
+                            tenant_group.set_visible(needs_tenant);
+
                             oauth_box.set_visible(true);
                             password_group.set_visible(false);
                             password_error.set_visible(false);
@@ -579,6 +613,8 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         name_row,
         #[weak]
         email_row,
+        #[weak]
+        tenant_row,
         #[weak]
         name_error,
         #[weak]
@@ -624,6 +660,12 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         move |btn| {
             let display_name = name_row.text().trim().to_string();
             let email = email_row.text().trim().to_string();
+            let tenant_input = tenant_row.text().trim().to_string();
+            let tenant_value = if tenant_input.is_empty() {
+                None
+            } else {
+                Some(tenant_input)
+            };
 
             // Validate name and email only (password not needed for OAuth).
             name_error.set_visible(false);
@@ -661,6 +703,9 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                 None => return,
             };
 
+            // Substitute tenant placeholder in endpoint URLs (FR-10, US-4).
+            let oauth_config = oauth_config.with_tenant(tenant_value.as_deref());
+
             // Disable buttons and show progress.
             btn.set_sensitive(false);
             manual_btn.set_sensitive(false);
@@ -670,6 +715,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             let provider = candidate.provider.clone();
             let email_clone = email.clone();
             let display_name_clone = display_name.clone();
+            let tenant_clone = tenant_value.clone();
 
             // Run the full OAuth flow on a background thread (FR-5).
             // Results are polled from the main loop via glib::timeout_add_local.
@@ -788,6 +834,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                                 let provider_result = provider.clone();
                                 let email_result = email_clone.clone();
                                 let display_name_result = display_name_clone.clone();
+                                let tenant_result = tenant_clone.clone();
                                 let oauth_state_inner = oauth_state_clone.clone();
                                 glib::timeout_add_local(
                                     std::time::Duration::from_millis(50),
@@ -873,6 +920,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                                                                 expires_in,
                                                                 imap_result: imap_success,
                                                                 smtp_result: smtp_success,
+                                                                oauth_tenant: tenant_result.clone(),
                                                             });
 
                                                         show_review_screen(
@@ -1287,6 +1335,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                     state.access_token,
                     state.imap_result,
                     state.smtp_result,
+                    state.oauth_tenant,
                 ) {
                     Ok(_result) => {
                         on_done(Some(WizardAction::OAuthComplete(WizardData {

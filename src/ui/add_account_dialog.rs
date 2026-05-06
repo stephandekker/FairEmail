@@ -1606,6 +1606,7 @@ fn show_inner(
                     }
                 },
                 keep_alive_settings: None,
+                oauth_tenant: None,
             }) {
                 Ok(account) => {
                     on_done(Some(SaveResult {

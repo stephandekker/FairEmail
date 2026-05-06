@@ -150,8 +150,8 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 e, 15, false, true, tls13, false,
                 Some("https://support.microsoft.com/en-us/office/pop-imap-and-smtp-settings-8361e398-8af4-4e97-b147-6c6c4ac95353"),
                 Some(OAuthConfig {
-                    auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize".to_string(),
-                    token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".to_string(),
+                    auth_url: "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize".to_string(),
+                    token_url: "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token".to_string(),
                     redirect_uri: "http://127.0.0.1/callback".to_string(),
                     scopes: vec!["https://outlook.office365.com/IMAP.AccessAsUser.All".to_string(), "https://outlook.office365.com/SMTP.Send".to_string(), "offline_access".to_string()],
                     client_id: None,
@@ -460,9 +460,10 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             false,
             None,
             Some(OAuthConfig {
-                auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+                auth_url: "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
                     .to_string(),
-                token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token".to_string(),
+                token_url: "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+                    .to_string(),
                 redirect_uri: "http://127.0.0.1/callback".to_string(),
                 scopes: vec![
                     "https://outlook.office365.com/IMAP.AccessAsUser.All".to_string(),

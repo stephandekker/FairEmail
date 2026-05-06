@@ -163,6 +163,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         })
         .unwrap();
         if !sync_enabled {
@@ -430,6 +431,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         })
         .unwrap()
     }
@@ -482,6 +484,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         })
         .unwrap();
         let config = find_oauth_config_for_reauth(&acct, &db);

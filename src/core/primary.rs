@@ -111,6 +111,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         })
         .unwrap()
     }
@@ -142,6 +143,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         })
         .unwrap()
     }
@@ -267,6 +269,7 @@ mod tests {
                 security_settings: None,
                 fetch_settings: None,
                 keep_alive_settings: None,
+                oauth_tenant: None,
             })
             .unwrap();
 

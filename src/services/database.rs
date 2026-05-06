@@ -347,7 +347,8 @@ fn migrate_v1(conn: &Connection) -> Result<(), DatabaseError> {
             quota_limit_bytes INTEGER,
             security_settings TEXT,
             fetch_settings TEXT,
-            keep_alive_settings TEXT
+            keep_alive_settings TEXT,
+            oauth_tenant TEXT
         );",
     )?;
     Ok(())

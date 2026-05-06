@@ -698,7 +698,8 @@ pub(crate) fn show(
 
     // -- Re-authorize button for OAuth accounts (FR-25, US-18, US-19) --
     let provider_db = ProviderDatabase::bundled();
-    let oauth_config_for_reauth = find_oauth_config_for_reauth(&account, &provider_db);
+    let oauth_config_for_reauth = find_oauth_config_for_reauth(&account, &provider_db)
+        .map(|config| config.with_tenant(account.oauth_tenant()));
     let reauth_btn = gtk::Button::builder()
         .label(gettextrs::gettext("Re-authorize (OAuth)"))
         .css_classes(["suggested-action", "pill"])
@@ -1978,6 +1979,7 @@ pub(crate) fn show(
                         None
                     }
                 },
+                oauth_tenant: None,
             };
 
             // FR-42, NFR-7, US-22: auto-test connection before save when

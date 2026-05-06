@@ -71,6 +71,7 @@ mod tests {
             }),
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         };
         let mut acct = Account::new(params).unwrap();
         // Simulate the source being primary and having state.

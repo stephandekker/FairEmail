@@ -286,6 +286,7 @@ fn exported_to_new_params(
         } else {
             None
         },
+        oauth_tenant: None,
     }
 }
 
@@ -436,6 +437,7 @@ fn exported_to_update_params(
         } else {
             existing.keep_alive_settings().cloned()
         },
+        oauth_tenant: None,
     }
 }
 
@@ -580,6 +582,7 @@ mod tests {
             keep_alive_settings: Some(KeepAliveSettings {
                 use_noop_instead_of_idle: true,
             }),
+            oauth_tenant: None,
         })
         .unwrap()
     }
@@ -714,6 +717,7 @@ mod tests {
             security_settings: None,
             fetch_settings: None,
             keep_alive_settings: None,
+            oauth_tenant: None,
         })
         .unwrap();
 

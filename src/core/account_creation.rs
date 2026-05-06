@@ -103,6 +103,8 @@ pub struct AccountCreationParams {
     pub smtp_result: SmtpCheckSuccess,
     /// Certificate fingerprint accepted by the user, if any (FR-27a).
     pub accepted_certificate_fingerprint: Option<String>,
+    /// OAuth tenant identifier for multi-tenant providers (FR-10, US-4).
+    pub oauth_tenant: Option<String>,
 }
 
 /// The result of a successful account + identity creation (US-21).
@@ -198,6 +200,7 @@ pub fn create_account_and_identity(
         security_settings,
         fetch_settings,
         keep_alive_settings,
+        oauth_tenant: params.oauth_tenant,
     })?;
 
     let identity = SendingIdentity {
@@ -284,6 +287,7 @@ mod tests {
             imap_result: make_imap_success(),
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
         })
         .unwrap();
 
@@ -312,6 +316,7 @@ mod tests {
             imap_result: make_imap_success(),
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
         })
         .unwrap();
 
@@ -332,6 +337,7 @@ mod tests {
             imap_result: make_imap_success(),
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
         })
         .unwrap();
 
@@ -357,6 +363,7 @@ mod tests {
             imap_result: make_imap_success(),
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
         })
         .unwrap();
 
@@ -379,6 +386,7 @@ mod tests {
             imap_result: make_imap_success(),
             smtp_result: smtp,
             accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
         })
         .unwrap();
 
@@ -398,6 +406,7 @@ mod tests {
             imap_result: make_imap_success(),
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: Some(fingerprint.clone()),
+            oauth_tenant: None,
         })
         .unwrap();
 
@@ -419,6 +428,7 @@ mod tests {
             imap_result: make_imap_success(),
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
         })
         .unwrap();
 
@@ -441,6 +451,7 @@ mod tests {
             imap_result: make_imap_success(),
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
         })
         .unwrap();
 
@@ -462,6 +473,7 @@ mod tests {
             imap_result: make_imap_success(),
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
         })
         .unwrap();
 
@@ -480,6 +492,7 @@ mod tests {
                 max_message_size: Some(10_000_000),
             },
             accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
         })
         .unwrap();
 
@@ -510,6 +523,7 @@ mod tests {
             imap_result: make_imap_success(),
             smtp_result: make_smtp_success(),
             accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
         });
 
         assert!(result.is_ok());

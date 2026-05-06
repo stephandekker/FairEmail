@@ -87,6 +87,7 @@ pub fn create_oauth_account(
     access_token: String,
     imap_result: ImapCheckSuccess,
     smtp_result: SmtpCheckSuccess,
+    oauth_tenant: Option<String>,
 ) -> Result<AccountCreationResult, crate::core::account::AccountValidationError> {
     create_account_and_identity(AccountCreationParams {
         provider,
@@ -97,6 +98,7 @@ pub fn create_oauth_account(
         imap_result,
         smtp_result,
         accepted_certificate_fingerprint: None,
+        oauth_tenant,
     })
 }
 
@@ -278,6 +280,7 @@ mod tests {
             "ya29.access-token".to_string(),
             imap_result,
             smtp_result,
+            None,
         )
         .unwrap();
 
@@ -311,6 +314,7 @@ mod tests {
             "token".to_string(),
             imap_result,
             smtp_result,
+            None,
         )
         .unwrap();
 
@@ -347,6 +351,7 @@ mod tests {
             "token".to_string(),
             imap_result,
             smtp_result,
+            None,
         )
         .unwrap();
 
@@ -374,6 +379,7 @@ mod tests {
             "token".to_string(),
             imap_result,
             smtp_result,
+            None,
         )
         .unwrap();
 
