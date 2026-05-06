@@ -699,13 +699,25 @@ pub(crate) fn show(
         .build();
     pop3_group.add(&leave_on_server_row);
 
+    // Initial sensitivity: disabled when leave_on_server is on (AC-4).
+    let leave_on_init = existing_pop3.is_none_or(|s| s.leave_on_server);
     let delete_from_server_row = adw::SwitchRow::builder()
         .title(gettextrs::gettext(
             "Delete from server when deleted on device",
         ))
         .active(existing_pop3.is_some_and(|s| s.delete_from_server_when_deleted_on_device))
+        .sensitive(!leave_on_init)
         .build();
     pop3_group.add(&delete_from_server_row);
+
+    // Toggle delete_from_server_row sensitivity based on leave_on_server state.
+    leave_on_server_row.connect_active_notify(clone!(
+        #[weak]
+        delete_from_server_row,
+        move |row| {
+            delete_from_server_row.set_sensitive(!row.is_active());
+        }
+    ));
 
     let keep_on_device_row = adw::SwitchRow::builder()
         .title(gettextrs::gettext(
@@ -1521,19 +1533,27 @@ pub(crate) fn show(
                         // Display inbound results.
                         match inbound_result {
                             Ok(success) => {
-                                if !success.folders.is_empty() {
-                                    text.push_str(&gettextrs::gettext("Folders:"));
-                                    text.push('\n');
-                                    text.push_str(&success.format_folder_list());
-                                    text.push_str("\n\n");
-                                }
-                                text.push_str(&success.format_capabilities());
+                                if params.protocol == Protocol::Pop3 {
+                                    // POP3 has no server-side folders or IMAP
+                                    // capabilities; just confirm success.
+                                    text.push_str(&gettextrs::gettext(
+                                        "POP3 connection successful",
+                                    ));
+                                } else {
+                                    if !success.folders.is_empty() {
+                                        text.push_str(&gettextrs::gettext("Folders:"));
+                                        text.push('\n');
+                                        text.push_str(&success.format_folder_list());
+                                        text.push_str("\n\n");
+                                    }
+                                    text.push_str(&success.format_capabilities());
 
-                                if !success.idle_supported {
-                                    let warning_toast = adw::Toast::new(&gettextrs::gettext(
-                                    "Server does not support IDLE — polling fallback will be used",
-                                ));
-                                    toast_overlay.add_toast(warning_toast);
+                                    if !success.idle_supported {
+                                        let warning_toast = adw::Toast::new(&gettextrs::gettext(
+                                        "Server does not support IDLE — polling fallback will be used",
+                                    ));
+                                        toast_overlay.add_toast(warning_toast);
+                                    }
                                 }
                             }
                             Err(InboundTestError::TlsHandshakeFailed {

@@ -547,6 +547,10 @@ pub struct Account {
     /// Advanced keep-alive settings (FR-52, FR-53).
     #[serde(default)]
     keep_alive_settings: Option<KeepAliveSettings>,
+    /// Flag indicating that POP3 "leave on server" setting changed and
+    /// the local message store should be re-evaluated at next sync (FR-55).
+    #[serde(default)]
+    pop3_needs_store_reevaluation: bool,
 }
 
 /// A local folder associated with an account.
@@ -688,6 +692,7 @@ impl Account {
             security_settings: params.security_settings,
             fetch_settings: params.fetch_settings,
             keep_alive_settings: params.keep_alive_settings,
+            pop3_needs_store_reevaluation: false,
         })
     }
 
@@ -740,6 +745,7 @@ impl Account {
             security_settings: params.security_settings,
             fetch_settings: params.fetch_settings,
             keep_alive_settings: params.keep_alive_settings,
+            pop3_needs_store_reevaluation: false,
         })
     }
 
@@ -791,6 +797,7 @@ impl Account {
             security_settings: params.security_settings,
             fetch_settings: params.fetch_settings,
             keep_alive_settings: params.keep_alive_settings,
+            pop3_needs_store_reevaluation: false,
         })
     }
 
@@ -1004,6 +1011,17 @@ impl Account {
         self.keep_alive_settings = settings;
     }
 
+    /// Whether the POP3 "leave on server" setting changed and the local
+    /// message store needs re-evaluation at next sync (FR-55).
+    pub fn pop3_needs_store_reevaluation(&self) -> bool {
+        self.pop3_needs_store_reevaluation
+    }
+
+    /// Clear the re-evaluation flag after the sync engine has processed it.
+    pub fn clear_pop3_store_reevaluation(&mut self) {
+        self.pop3_needs_store_reevaluation = false;
+    }
+
     /// Update only the credential and authentication method (FR-33, FR-34).
     /// Used by the re-authorization flow to refresh expired/revoked credentials
     /// without touching any other account properties.
@@ -1061,6 +1079,13 @@ impl Account {
         }
         if params.credential.trim().is_empty() {
             return Err(AccountValidationError::EmptyCredential);
+        }
+
+        // Detect leave_on_server changes for POP3 re-evaluation (FR-55).
+        let old_leave = self.pop3_settings.as_ref().map(|s| s.leave_on_server);
+        let new_leave = params.pop3_settings.as_ref().map(|s| s.leave_on_server);
+        if old_leave != new_leave && params.protocol == Protocol::Pop3 {
+            self.pop3_needs_store_reevaluation = true;
         }
 
         self.display_name = params.display_name;
@@ -1527,6 +1552,145 @@ mod tests {
         json.as_object_mut().unwrap().remove("pop3_settings");
         let restored: Account = serde_json::from_value(json).unwrap();
         assert!(restored.pop3_settings().is_none());
+    }
+
+    // -- POP3 leave_on_server re-evaluation tests (FR-55) --
+
+    #[test]
+    fn new_account_has_no_reevaluation_flag() {
+        let mut p = valid_params();
+        p.protocol = Protocol::Pop3;
+        p.host = "pop.example.com".into();
+        p.pop3_settings = Some(Pop3Settings::default());
+        let acct = Account::new(p).unwrap();
+        assert!(!acct.pop3_needs_store_reevaluation());
+    }
+
+    #[test]
+    fn update_sets_reevaluation_when_leave_on_server_changes() {
+        let mut p = valid_params();
+        p.protocol = Protocol::Pop3;
+        p.host = "pop.example.com".into();
+        p.pop3_settings = Some(Pop3Settings::default()); // leave_on_server = true
+        let mut acct = Account::new(p).unwrap();
+
+        let up = UpdateAccountParams {
+            display_name: "POP3".into(),
+            protocol: Protocol::Pop3,
+            host: "pop.example.com".into(),
+            port: 995,
+            encryption: EncryptionMode::SslTls,
+            auth_method: AuthMethod::Plain,
+            username: "user@example.com".into(),
+            credential: "secret".into(),
+            smtp: None,
+            pop3_settings: Some(Pop3Settings {
+                leave_on_server: false, // changed from true to false
+                ..Pop3Settings::default()
+            }),
+            color: None,
+            avatar_path: None,
+            category: None,
+            sync_enabled: true,
+            on_demand: false,
+            polling_interval_minutes: None,
+            unmetered_only: false,
+            vpn_only: false,
+            schedule_exempt: false,
+            system_folders: None,
+            swipe_defaults: None,
+            notifications_enabled: true,
+            security_settings: None,
+            fetch_settings: None,
+            keep_alive_settings: None,
+        };
+        acct.update(up).unwrap();
+        assert!(acct.pop3_needs_store_reevaluation());
+    }
+
+    #[test]
+    fn update_no_reevaluation_when_leave_on_server_unchanged() {
+        let mut p = valid_params();
+        p.protocol = Protocol::Pop3;
+        p.host = "pop.example.com".into();
+        p.pop3_settings = Some(Pop3Settings::default()); // leave_on_server = true
+        let mut acct = Account::new(p).unwrap();
+
+        let up = UpdateAccountParams {
+            display_name: "POP3 Updated".into(),
+            protocol: Protocol::Pop3,
+            host: "pop2.example.com".into(), // host changed, but leave_on_server same
+            port: 995,
+            encryption: EncryptionMode::SslTls,
+            auth_method: AuthMethod::Plain,
+            username: "user@example.com".into(),
+            credential: "secret".into(),
+            smtp: None,
+            pop3_settings: Some(Pop3Settings::default()), // leave_on_server still true
+            color: None,
+            avatar_path: None,
+            category: None,
+            sync_enabled: true,
+            on_demand: false,
+            polling_interval_minutes: None,
+            unmetered_only: false,
+            vpn_only: false,
+            schedule_exempt: false,
+            system_folders: None,
+            swipe_defaults: None,
+            notifications_enabled: true,
+            security_settings: None,
+            fetch_settings: None,
+            keep_alive_settings: None,
+        };
+        acct.update(up).unwrap();
+        assert!(!acct.pop3_needs_store_reevaluation());
+    }
+
+    #[test]
+    fn clear_reevaluation_flag() {
+        let mut p = valid_params();
+        p.protocol = Protocol::Pop3;
+        p.host = "pop.example.com".into();
+        p.pop3_settings = Some(Pop3Settings::default());
+        let mut acct = Account::new(p).unwrap();
+
+        // Force the flag on by updating leave_on_server.
+        let up = UpdateAccountParams {
+            display_name: "POP3".into(),
+            protocol: Protocol::Pop3,
+            host: "pop.example.com".into(),
+            port: 995,
+            encryption: EncryptionMode::SslTls,
+            auth_method: AuthMethod::Plain,
+            username: "user@example.com".into(),
+            credential: "secret".into(),
+            smtp: None,
+            pop3_settings: Some(Pop3Settings {
+                leave_on_server: false,
+                ..Pop3Settings::default()
+            }),
+            color: None,
+            avatar_path: None,
+            category: None,
+            sync_enabled: true,
+            on_demand: false,
+            polling_interval_minutes: None,
+            unmetered_only: false,
+            vpn_only: false,
+            schedule_exempt: false,
+            system_folders: None,
+            swipe_defaults: None,
+            notifications_enabled: true,
+            security_settings: None,
+            fetch_settings: None,
+            keep_alive_settings: None,
+        };
+        acct.update(up).unwrap();
+        assert!(acct.pop3_needs_store_reevaluation());
+
+        acct.clear_pop3_store_reevaluation();
+        assert!(!acct.pop3_needs_store_reevaluation());
     }
 
     // -- Account colour tests (FR-5, FR-12, FR-15) --
