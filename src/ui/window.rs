@@ -758,6 +758,9 @@ pub(crate) fn build(
             let order_store = order_store.clone();
             let credential_store = credential_store.clone();
             let custom_order = custom_order.clone();
+            // FR-44: capture old credential for password-change detection.
+            let old_credential = account.credential().to_string();
+            let edit_window = window.clone();
             edit_account_dialog::show(&window, account, categories, conn_diag, move |result| {
                 match result {
                     Some(edit_account_dialog::EditDialogResult::Updated(updated)) => {
@@ -766,6 +769,25 @@ pub(crate) fn build(
                         if let Err(e) = store.update(updated.clone()) {
                             eprintln!("Failed to persist account update: {e}");
                             return;
+                        }
+                        // FR-44: if password changed, offer to propagate to identities.
+                        if core::password_has_changed(&old_credential, updated.credential()) {
+                            let identity_ids: Vec<i64> = store
+                                .load_identities_for_account(updated.id())
+                                .unwrap_or_default()
+                                .iter()
+                                .map(|r| r.id)
+                                .collect();
+                            if !identity_ids.is_empty() {
+                                let new_password = updated.credential().to_string();
+                                let cred_store = credential_store.clone();
+                                show_password_propagation_dialog(
+                                    &edit_window,
+                                    identity_ids,
+                                    new_password,
+                                    cred_store,
+                                );
+                            }
                         }
                         {
                             let mut list = accounts.borrow_mut();
@@ -1180,4 +1202,33 @@ fn make_account_row(account: &Account, conn_state: ConnectionState) -> adw::Acti
     }
 
     row
+}
+
+/// FR-44: Show a dialog asking the user whether to propagate the new inbound
+/// password to all associated SMTP identities.
+fn show_password_propagation_dialog(
+    parent: &adw::ApplicationWindow,
+    identity_ids: Vec<i64>,
+    new_password: String,
+    cred_store: Rc<dyn crate::core::CredentialStore>,
+) {
+    let dialog = adw::AlertDialog::builder()
+        .heading(gettextrs::gettext("Update identity passwords?"))
+        .body(gettextrs::gettext(
+            "The account password has changed. Do you want to update the SMTP password on all associated identities to match?",
+        ))
+        .build();
+
+    dialog.add_response("decline", &gettextrs::gettext("No"));
+    dialog.add_response("accept", &gettextrs::gettext("Yes"));
+    dialog.set_default_response(Some("accept"));
+    dialog.set_close_response("decline");
+
+    dialog.connect_response(None, move |_dialog, response| {
+        if response == "accept" {
+            core::propagate_password_to_identities(&*cred_store, &identity_ids, &new_password);
+        }
+    });
+
+    dialog.present(Some(parent));
 }

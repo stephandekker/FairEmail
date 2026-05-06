@@ -29,6 +29,7 @@ pub(crate) mod ispdb_discovery;
 pub mod message;
 pub mod navigation;
 pub(crate) mod oauth_signin;
+pub mod password_propagation;
 pub mod pending_operation;
 pub mod port_autofill;
 #[allow(dead_code)]
@@ -117,6 +118,7 @@ pub use oauth_signin::{
     determine_auth_options, is_oauth_provider, resolve_auth_from_choice, AuthChoice, AuthOptions,
     OAuthTokenResult,
 };
+pub use password_propagation::{password_has_changed, propagate_password_to_identities};
 pub use pending_operation::{
     OperationKind, OperationState, PendingOperation, SendPayload, StoreFlagsPayload,
 };

@@ -243,6 +243,23 @@ impl SqliteAccountStore {
         Ok(())
     }
 
+    /// Load all identities associated with a given account UUID.
+    pub fn load_identities_for_account(
+        &self,
+        account_id: Uuid,
+    ) -> Result<Vec<crate::services::IdentityRow>, StoreError> {
+        let conn = self.conn.borrow();
+        let rows = crate::services::identity_store::load_identities_for_account(
+            &conn,
+            &account_id.to_string(),
+        )
+        .map_err(|e| match e {
+            database::DatabaseError::Sqlite(e) => StoreError::Database(e),
+            database::DatabaseError::Io(e) => StoreError::Io(e),
+        })?;
+        Ok(rows)
+    }
+
     /// Import accounts from JSON in a single transaction. Returns the number imported.
     /// Skips accounts whose ID already exists (idempotent).
     pub fn import_from_json(&self, accounts: &[Account]) -> Result<usize, StoreError> {
