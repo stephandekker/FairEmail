@@ -37,6 +37,7 @@ impl SmtpChecker for RealSmtpChecker {
                 account_id: String::new(),
                 ehlo_hostname: None,
                 auth_method: AuthMethod::Plain,
+                client_certificate: None,
             };
 
             match run_smtp_session(&connect_params) {

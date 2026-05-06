@@ -26,6 +26,10 @@ pub enum AuthMethod {
     Plain,
     Login,
     OAuth2,
+    /// Client certificate authentication via SASL EXTERNAL mechanism.
+    /// When selected, the client presents a TLS client certificate and
+    /// no password-based mechanism is attempted.
+    Certificate,
 }
 
 /// Actions that can be assigned to swipe-left or swipe-right gestures (FR-37).
@@ -1213,6 +1217,7 @@ impl std::fmt::Display for AuthMethod {
             Self::Plain => write!(f, "PLAIN"),
             Self::Login => write!(f, "LOGIN"),
             Self::OAuth2 => write!(f, "OAuth2"),
+            Self::Certificate => write!(f, "Certificate"),
         }
     }
 }
@@ -3499,5 +3504,35 @@ mod tests {
         assert_eq!(acct.auth_method(), AuthMethod::OAuth2);
         assert_eq!(acct.credential(), "new-cred");
         assert!(acct.smtp().is_none()); // still none, no panic
+    }
+
+    #[test]
+    fn certificate_auth_method_display() {
+        assert_eq!(format!("{}", AuthMethod::Certificate), "Certificate");
+    }
+
+    #[test]
+    fn certificate_auth_method_serde_roundtrip() {
+        let method = AuthMethod::Certificate;
+        let json = serde_json::to_string(&method).unwrap();
+        let deserialized: AuthMethod = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, AuthMethod::Certificate);
+    }
+
+    #[test]
+    fn create_account_with_certificate_auth() {
+        let mut p = valid_params();
+        p.auth_method = AuthMethod::Certificate;
+        p.security_settings = Some(SecuritySettings {
+            client_certificate: Some("/etc/pki/client.p12".into()),
+            ..Default::default()
+        });
+        let acct = Account::new(p).unwrap();
+        assert_eq!(acct.auth_method(), AuthMethod::Certificate);
+        assert_eq!(
+            acct.security_settings()
+                .and_then(|s| s.client_certificate.clone()),
+            Some("/etc/pki/client.p12".into())
+        );
     }
 }

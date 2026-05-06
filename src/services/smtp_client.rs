@@ -32,6 +32,8 @@ pub(crate) struct SmtpConnectParams {
     /// Authentication method. When `OAuth2`, the `password` field contains the
     /// access token and XOAUTH2 SASL mechanism is used instead of LOGIN/PLAIN.
     pub auth_method: AuthMethod,
+    /// Path to a PKCS#12 client certificate file for mutual TLS.
+    pub client_certificate: Option<String>,
 }
 
 /// Result of a successful SMTP session.
@@ -192,69 +194,76 @@ fn run_authenticated_session(
         format!("SMTP EHLO response: max_size={:?}", max_message_size),
     ));
 
-    // Authenticate via AUTH LOGIN
-    session.send_line("AUTH LOGIN")?;
-    let auth_response = session.read_response()?;
-
-    if !auth_response.starts_with("334") {
-        // Try AUTH PLAIN instead
-        let plain_credentials = build_auth_plain(&params.username, &params.password);
-        let plain_cmd = format!("AUTH PLAIN {plain_credentials}");
-        session.send_line(&plain_cmd)?;
-        let plain_response = session.read_response()?;
-
-        if plain_response.starts_with("235") {
-            logs.push(ConnectionLogRecord::new(
-                params.account_id.clone(),
-                ConnectionLogEventType::LoginResult,
-                format!("SMTP login successful (PLAIN) as {}", params.username),
-            ));
-        } else if plain_response.starts_with("535")
-            || plain_response.starts_with("534")
-            || plain_response.starts_with("454")
-        {
-            logs.push(ConnectionLogRecord::new(
-                params.account_id.clone(),
-                ConnectionLogEventType::Error,
-                format!("SMTP auth failed: {}", plain_response.trim()),
-            ));
-            return Err(SmtpClientError::AuthenticationFailed);
-        } else {
-            logs.push(ConnectionLogRecord::new(
-                params.account_id.clone(),
-                ConnectionLogEventType::Error,
-                format!("SMTP auth unexpected response: {}", plain_response.trim()),
-            ));
-            return Err(SmtpClientError::AuthenticationFailed);
-        }
+    // Authenticate
+    if params.auth_method == AuthMethod::Certificate {
+        smtp_authenticate_external(session, params, logs)?;
+    } else if params.auth_method == AuthMethod::OAuth2 {
+        smtp_authenticate_xoauth2(session, params, logs)?;
     } else {
-        // Server accepted AUTH LOGIN, send username (base64)
-        let username_b64 = base64_encode(&params.username);
-        session.send_line(&username_b64)?;
-        let user_response = session.read_response()?;
+        // AUTH LOGIN, fallback to AUTH PLAIN
+        session.send_line("AUTH LOGIN")?;
+        let auth_response = session.read_response()?;
 
-        if !user_response.starts_with("334") {
-            return Err(SmtpClientError::AuthenticationFailed);
-        }
+        if !auth_response.starts_with("334") {
+            // Try AUTH PLAIN instead
+            let plain_credentials = build_auth_plain(&params.username, &params.password);
+            let plain_cmd = format!("AUTH PLAIN {plain_credentials}");
+            session.send_line(&plain_cmd)?;
+            let plain_response = session.read_response()?;
 
-        // Send password (base64)
-        let password_b64 = base64_encode(&params.password);
-        session.send_line(&password_b64)?;
-        let pass_response = session.read_response()?;
-
-        if pass_response.starts_with("235") {
-            logs.push(ConnectionLogRecord::new(
-                params.account_id.clone(),
-                ConnectionLogEventType::LoginResult,
-                format!("SMTP login successful (LOGIN) as {}", params.username),
-            ));
+            if plain_response.starts_with("235") {
+                logs.push(ConnectionLogRecord::new(
+                    params.account_id.clone(),
+                    ConnectionLogEventType::LoginResult,
+                    format!("SMTP login successful (PLAIN) as {}", params.username),
+                ));
+            } else if plain_response.starts_with("535")
+                || plain_response.starts_with("534")
+                || plain_response.starts_with("454")
+            {
+                logs.push(ConnectionLogRecord::new(
+                    params.account_id.clone(),
+                    ConnectionLogEventType::Error,
+                    format!("SMTP auth failed: {}", plain_response.trim()),
+                ));
+                return Err(SmtpClientError::AuthenticationFailed);
+            } else {
+                logs.push(ConnectionLogRecord::new(
+                    params.account_id.clone(),
+                    ConnectionLogEventType::Error,
+                    format!("SMTP auth unexpected response: {}", plain_response.trim()),
+                ));
+                return Err(SmtpClientError::AuthenticationFailed);
+            }
         } else {
-            logs.push(ConnectionLogRecord::new(
-                params.account_id.clone(),
-                ConnectionLogEventType::Error,
-                format!("SMTP auth failed: {}", pass_response.trim()),
-            ));
-            return Err(SmtpClientError::AuthenticationFailed);
+            // Server accepted AUTH LOGIN, send username (base64)
+            let username_b64 = base64_encode(&params.username);
+            session.send_line(&username_b64)?;
+            let user_response = session.read_response()?;
+
+            if !user_response.starts_with("334") {
+                return Err(SmtpClientError::AuthenticationFailed);
+            }
+
+            // Send password (base64)
+            let password_b64 = base64_encode(&params.password);
+            session.send_line(&password_b64)?;
+            let pass_response = session.read_response()?;
+
+            if pass_response.starts_with("235") {
+                logs.push(ConnectionLogRecord::new(
+                    params.account_id.clone(),
+                    ConnectionLogEventType::LoginResult,
+                    format!("SMTP login successful (LOGIN) as {}", params.username),
+                ));
+            } else {
+                logs.push(ConnectionLogRecord::new(
+                    params.account_id.clone(),
+                    ConnectionLogEventType::Error,
+                    format!("SMTP auth failed: {}", pass_response.trim()),
+                ));
+                return Err(SmtpClientError::AuthenticationFailed);
+            }
         }
     }
 
@@ -452,12 +461,15 @@ fn send_after_connect_no_greeting(
     })
 }
 
-/// Authenticate via AUTH LOGIN, AUTH PLAIN, or AUTH XOAUTH2.
+/// Authenticate via AUTH LOGIN, AUTH PLAIN, AUTH XOAUTH2, or AUTH EXTERNAL.
 fn smtp_authenticate(
     session: &mut SmtpSession,
     params: &SmtpConnectParams,
     logs: &mut Vec<ConnectionLogRecord>,
 ) -> Result<(), SmtpClientError> {
+    if params.auth_method == AuthMethod::Certificate {
+        return smtp_authenticate_external(session, params, logs);
+    }
     if params.auth_method == AuthMethod::OAuth2 {
         return smtp_authenticate_xoauth2(session, params, logs);
     }
@@ -532,6 +544,43 @@ fn smtp_authenticate_xoauth2(
             params.account_id.clone(),
             ConnectionLogEventType::Error,
             format!("AUTH XOAUTH2 failed: {}", response.trim()),
+        ));
+        Err(SmtpClientError::AuthenticationFailed)
+    }
+}
+
+/// Authenticate via AUTH EXTERNAL for client-certificate accounts.
+///
+/// The EXTERNAL SASL mechanism relies on credentials established by the TLS
+/// layer (client certificate). An empty authorization identity is sent.
+fn smtp_authenticate_external(
+    session: &mut SmtpSession,
+    params: &SmtpConnectParams,
+    logs: &mut Vec<ConnectionLogRecord>,
+) -> Result<(), SmtpClientError> {
+    use base64::Engine;
+
+    // EXTERNAL with empty authorization identity → base64("") = "="
+    let encoded = base64::engine::general_purpose::STANDARD.encode(b"");
+    let cmd = format!("AUTH EXTERNAL {encoded}");
+    session.send_line(&cmd)?;
+    let response = session.read_response()?;
+
+    if response.starts_with("235") {
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::LoginResult,
+            format!(
+                "SMTP login successful (EXTERNAL/certificate) as {}",
+                params.username
+            ),
+        ));
+        Ok(())
+    } else {
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::Error,
+            format!("AUTH EXTERNAL failed: {}", response.trim()),
         ));
         Err(SmtpClientError::AuthenticationFailed)
     }
@@ -776,6 +825,15 @@ fn build_tls_connector(params: &SmtpConnectParams) -> native_tls::TlsConnector {
     if params.insecure || params.accepted_fingerprint.is_some() {
         builder.danger_accept_invalid_certs(true);
         builder.danger_accept_invalid_hostnames(true);
+    }
+    // Load client certificate for mutual TLS if configured.
+    if let Some(ref cert_path) = params.client_certificate {
+        if let Ok(pkcs12_data) = std::fs::read(cert_path) {
+            // Try with empty password first (most common for exported certs).
+            if let Ok(identity) = native_tls::Identity::from_pkcs12(&pkcs12_data, "") {
+                builder.identity(identity);
+            }
+        }
     }
     builder.build().unwrap_or_else(|_| {
         native_tls::TlsConnector::builder()

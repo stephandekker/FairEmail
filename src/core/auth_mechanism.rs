@@ -502,4 +502,48 @@ mod tests {
         let result = negotiate_password_mechanism(AuthProtocol::Pop3, &server);
         assert_eq!(result, Some(AuthMechanism::Plain));
     }
+
+    // --- EXTERNAL mechanism tests ---
+
+    #[test]
+    fn external_not_selected_by_password_negotiation() {
+        // EXTERNAL is not a password mechanism — negotiate_password_mechanism must never pick it.
+        let server = vec![AuthMechanism::External, AuthMechanism::Plain];
+        let result = negotiate_password_mechanism(AuthProtocol::Imap, &server);
+        assert_eq!(result, Some(AuthMechanism::Plain));
+    }
+
+    #[test]
+    fn external_parsed_from_imap_capabilities() {
+        let caps = vec![
+            "AUTH=EXTERNAL".to_string(),
+            "AUTH=PLAIN".to_string(),
+            "IMAP4rev1".to_string(),
+        ];
+        let mechs = parse_imap_capabilities(&caps);
+        assert!(mechs.contains(&AuthMechanism::External));
+        assert!(mechs.contains(&AuthMechanism::Plain));
+    }
+
+    #[test]
+    fn external_parsed_from_smtp_ehlo() {
+        let ehlo = "250-smtp.example.com\r\n250-AUTH EXTERNAL PLAIN LOGIN\r\n250 OK\r\n";
+        let mechs = parse_smtp_ehlo(ehlo);
+        assert!(mechs.contains(&AuthMechanism::External));
+        assert!(mechs.contains(&AuthMechanism::Plain));
+        assert!(mechs.contains(&AuthMechanism::Login));
+    }
+
+    #[test]
+    fn external_supported_for_all_protocols() {
+        assert!(supported_mechanisms(AuthProtocol::Imap).contains(&AuthMechanism::External));
+        assert!(supported_mechanisms(AuthProtocol::Pop3).contains(&AuthMechanism::External));
+        assert!(supported_mechanisms(AuthProtocol::Smtp).contains(&AuthMechanism::External));
+    }
+
+    #[test]
+    fn external_display_and_capability_name() {
+        assert_eq!(AuthMechanism::External.capability_name(), "EXTERNAL");
+        assert_eq!(format!("{}", AuthMechanism::External), "EXTERNAL");
+    }
 }

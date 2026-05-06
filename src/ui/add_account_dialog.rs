@@ -682,6 +682,7 @@ fn show_inner(
             &gettextrs::gettext("PLAIN"),
             &gettextrs::gettext("LOGIN"),
             &gettextrs::gettext("OAuth2"),
+            &gettextrs::gettext("Certificate"),
         ]))
         .build();
     auth_group.add(&auth_method_row);
@@ -959,6 +960,7 @@ fn show_inner(
             &gettextrs::gettext("PLAIN"),
             &gettextrs::gettext("LOGIN"),
             &gettextrs::gettext("OAuth2"),
+            &gettextrs::gettext("Certificate"),
         ]))
         .build();
     smtp_group.add(&smtp_auth_row);
@@ -1678,7 +1680,8 @@ fn combo_to_auth(selected: u32) -> AuthMethod {
     match selected {
         0 => AuthMethod::Plain,
         1 => AuthMethod::Login,
-        _ => AuthMethod::OAuth2,
+        2 => AuthMethod::OAuth2,
+        _ => AuthMethod::Certificate,
     }
 }
 

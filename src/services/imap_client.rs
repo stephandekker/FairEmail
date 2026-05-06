@@ -359,6 +359,9 @@ impl ImapSession {
         if params.auth_method == AuthMethod::OAuth2 {
             return self.do_authenticate_xoauth2(params, logs);
         }
+        if params.auth_method == AuthMethod::Certificate {
+            return self.do_authenticate_external(params, logs);
+        }
         if let Some(ref realm) = params.auth_realm {
             // Use AUTHENTICATE PLAIN with realm as the authorization identity (FR-10).
             self.do_authenticate_plain(params, realm, logs)
@@ -491,6 +494,48 @@ impl ImapSession {
                 params.account_id.clone(),
                 ConnectionLogEventType::Error,
                 format!("AUTHENTICATE XOAUTH2 failed: {}", tag_line.trim()),
+            ));
+            Err(ImapClientError::AuthenticationFailed)
+        }
+    }
+
+    /// AUTHENTICATE EXTERNAL for client-certificate-authenticated accounts.
+    ///
+    /// The EXTERNAL SASL mechanism (RFC 4422) relies on credentials established
+    /// by a lower layer (TLS client certificate). The authorization identity is
+    /// sent as an empty string (the server derives identity from the certificate).
+    fn do_authenticate_external(
+        &mut self,
+        params: &ImapConnectParams,
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<(), ImapClientError> {
+        use base64::Engine;
+
+        // EXTERNAL with empty authorization identity → base64("") = "="
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"");
+        let cmd = format!("AUTHENTICATE EXTERNAL {encoded}");
+        self.send_command("A002", &cmd)?;
+        let response = self.read_tagged_response("A002")?;
+
+        let tag_line = response
+            .lines()
+            .find(|l| l.starts_with("A002"))
+            .unwrap_or("");
+        if tag_line.contains("OK") {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::LoginResult,
+                format!(
+                    "Login successful as {} (EXTERNAL/certificate)",
+                    params.username
+                ),
+            ));
+            Ok(())
+        } else {
+            logs.push(ConnectionLogRecord::new(
+                params.account_id.clone(),
+                ConnectionLogEventType::Error,
+                format!("AUTHENTICATE EXTERNAL failed: {}", tag_line.trim()),
             ));
             Err(ImapClientError::AuthenticationFailed)
         }

@@ -696,6 +696,7 @@ pub(crate) fn show(
             &gettextrs::gettext("PLAIN"),
             &gettextrs::gettext("LOGIN"),
             &gettextrs::gettext("OAuth2"),
+            &gettextrs::gettext("Certificate"),
         ]))
         .selected(auth_to_combo(account.auth_method()))
         .build();
@@ -1034,6 +1035,7 @@ pub(crate) fn show(
             &gettextrs::gettext("PLAIN"),
             &gettextrs::gettext("LOGIN"),
             &gettextrs::gettext("OAuth2"),
+            &gettextrs::gettext("Certificate"),
         ]))
         .selected(smtp_auth_selected)
         .build();
@@ -2509,7 +2511,8 @@ fn combo_to_auth(selected: u32) -> AuthMethod {
     match selected {
         0 => AuthMethod::Plain,
         1 => AuthMethod::Login,
-        _ => AuthMethod::OAuth2,
+        2 => AuthMethod::OAuth2,
+        _ => AuthMethod::Certificate,
     }
 }
 
@@ -2533,6 +2536,7 @@ fn auth_to_combo(a: AuthMethod) -> u32 {
         AuthMethod::Plain => 0,
         AuthMethod::Login => 1,
         AuthMethod::OAuth2 => 2,
+        AuthMethod::Certificate => 3,
     }
 }
 

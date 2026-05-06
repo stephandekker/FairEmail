@@ -1599,6 +1599,7 @@ fn resolve_send_context(
         account_id: identity.account_id.clone(),
         ehlo_hostname,
         auth_method: imap_params.auth_method,
+        client_certificate: identity.smtp_client_certificate.clone(),
     };
 
     let data = resolve_message_bytes(payload, content_reader_fn)?;
@@ -2243,6 +2244,7 @@ mod tests {
             account_id: "acct-1".to_string(),
             ehlo_hostname: None,
             auth_method: AuthMethod::Plain,
+            client_certificate: None,
         }
     }
 
