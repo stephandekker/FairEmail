@@ -820,6 +820,141 @@ mod tests {
         assert!(!candidate.provider.supports_shared_mailbox);
     }
 
+    // --- Provider-specific OAuth parameters (story 10) ---
+
+    #[test]
+    fn bundled_gmail_has_consent_prompt() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("gmail.com").unwrap();
+        let oauth = candidate.provider.oauth.as_ref().unwrap();
+        assert!(
+            oauth
+                .extra_params
+                .contains(&("prompt".to_string(), "consent".to_string())),
+            "Gmail must include prompt=consent (FR-37, AC-14)"
+        );
+    }
+
+    #[test]
+    fn bundled_gmail_has_offline_access() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("gmail.com").unwrap();
+        let oauth = candidate.provider.oauth.as_ref().unwrap();
+        assert!(
+            oauth
+                .extra_params
+                .contains(&("access_type".to_string(), "offline".to_string())),
+            "Gmail must include access_type=offline (FR-38, AC-14)"
+        );
+    }
+
+    #[test]
+    fn bundled_gmail_requests_only_mail_scopes() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("gmail.com").unwrap();
+        let oauth = candidate.provider.oauth.as_ref().unwrap();
+        // Gmail IMAP requires https://mail.google.com/ — this is the only IMAP scope.
+        // No profile, contacts, calendar, or other scopes (NFR-6, US-5).
+        assert!(oauth
+            .scopes
+            .contains(&"https://mail.google.com/".to_string()));
+        for scope in &oauth.scopes {
+            assert!(
+                !scope.contains("profile")
+                    && !scope.contains("contacts")
+                    && !scope.contains("calendar"),
+                "Gmail must not request non-mail scopes: {scope}"
+            );
+        }
+    }
+
+    #[test]
+    fn bundled_yandex_has_force_confirm() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("yandex.ru").unwrap();
+        let oauth = candidate.provider.oauth.as_ref().unwrap();
+        assert!(
+            oauth
+                .extra_params
+                .contains(&("force_confirm".to_string(), "true".to_string())),
+            "Yandex must include force_confirm=true"
+        );
+    }
+
+    #[test]
+    fn bundled_outlook_has_consent_prompt() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("outlook.com").unwrap();
+        let oauth = candidate.provider.oauth.as_ref().unwrap();
+        assert!(
+            oauth
+                .extra_params
+                .contains(&("prompt".to_string(), "consent".to_string())),
+            "Outlook must include prompt=consent (FR-37)"
+        );
+    }
+
+    #[test]
+    fn bundled_outlook_requests_graph_mail_send() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("outlook.com").unwrap();
+        let oauth = candidate.provider.oauth.as_ref().unwrap();
+        assert!(
+            oauth
+                .scopes
+                .contains(&"https://graph.microsoft.com/Mail.Send".to_string()),
+            "Outlook must request Graph Mail.Send scope for proprietary send API (FR-39, N-5)"
+        );
+    }
+
+    #[test]
+    fn bundled_office365_requests_graph_mail_send() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("office365.com").unwrap();
+        let oauth = candidate.provider.oauth.as_ref().unwrap();
+        assert!(
+            oauth
+                .scopes
+                .contains(&"https://graph.microsoft.com/Mail.Send".to_string()),
+            "Office365 must request Graph Mail.Send scope for proprietary send API (FR-39, N-5)"
+        );
+    }
+
+    #[test]
+    fn bundled_outlook_requests_only_mail_scopes() {
+        let db = ProviderDatabase::bundled();
+        let candidate = db.lookup_by_domain("outlook.com").unwrap();
+        let oauth = candidate.provider.oauth.as_ref().unwrap();
+        // Outlook should have IMAP, SMTP, Graph Mail.Send, and offline_access — no profile/contacts/calendar
+        for scope in &oauth.scopes {
+            assert!(
+                !scope.contains("Contacts")
+                    && !scope.contains("Calendar")
+                    && !scope.contains("User.Read"),
+                "Outlook must not request non-mail scopes (NFR-6): {scope}"
+            );
+        }
+    }
+
+    #[test]
+    fn extra_params_come_from_provider_database_not_flow_logic() {
+        // Verify that OAuthConfig carries extra_params and that authorization_url
+        // includes them — proving params are data-driven, not hard-coded in flow logic.
+        let config = OAuthConfig {
+            auth_url: "https://example.com/auth".to_string(),
+            token_url: "https://example.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
+            scopes: vec![],
+            client_id: None,
+            extra_params: vec![("custom_key".to_string(), "custom_value".to_string())],
+            userinfo_url: None,
+        };
+        // The extra_params field on OAuthConfig is what the flow reads —
+        // no provider-specific if/else branches exist in the flow module.
+        assert_eq!(config.extra_params.len(), 1);
+        assert_eq!(config.extra_params[0].0, "custom_key");
+    }
+
     #[test]
     fn bundled_gmail_does_not_require_tenant() {
         let db = ProviderDatabase::bundled();

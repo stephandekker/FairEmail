@@ -154,7 +154,12 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                     auth_url: "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize".to_string(),
                     token_url: "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token".to_string(),
                     redirect_uri: "http://127.0.0.1/callback".to_string(),
-                    scopes: vec!["https://outlook.office365.com/IMAP.AccessAsUser.All".to_string(), "https://outlook.office365.com/SMTP.Send".to_string(), "offline_access".to_string()],
+                    scopes: vec![
+                        "https://outlook.office365.com/IMAP.AccessAsUser.All".to_string(),
+                        "https://outlook.office365.com/SMTP.Send".to_string(),
+                        "https://graph.microsoft.com/Mail.Send".to_string(),
+                        "offline_access".to_string(),
+                    ],
                     client_id: None,
                     extra_params: vec![
                         ("prompt".to_string(), "consent".to_string()),
@@ -471,6 +476,7 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                     scopes: vec![
                         "https://outlook.office365.com/IMAP.AccessAsUser.All".to_string(),
                         "https://outlook.office365.com/SMTP.Send".to_string(),
+                        "https://graph.microsoft.com/Mail.Send".to_string(),
                         "offline_access".to_string(),
                     ],
                     client_id: None,
