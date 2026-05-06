@@ -2,6 +2,7 @@ pub mod account;
 pub mod account_creation;
 pub mod account_order;
 pub mod account_review;
+pub mod auth_conversion;
 pub mod auth_error;
 pub mod auto_config;
 pub mod certificate;
@@ -71,6 +72,7 @@ pub use account_creation::{
 };
 pub use account_order::{apply_custom_order, default_order, move_account, order_from_accounts};
 pub use account_review::{build_review_data, AccountReviewData, ReviewFolderEntry};
+pub use auth_conversion::{can_convert_to_password, find_oauth_config_for_conversion};
 pub use auth_error::{
     app_password_hint_text, build_provider_hint, is_outlook_domain, outlook_documentation_url,
     present_connectivity_error, present_imap_error, present_smtp_error, AuthErrorKind,

@@ -947,6 +947,84 @@ pub(crate) fn build(
                             &conn_state_mgr.borrow(),
                         );
                     }
+                    Some(edit_account_dialog::EditDialogResult::ConvertedToPassword {
+                        account_id,
+                        new_password,
+                    }) => {
+                        // FR-30: Convert OAuth → password. Remove old OAuth tokens,
+                        // store the new password, and update the account auth method.
+                        // All other account state (folders, identities, etc.) is preserved.
+                        let _ =
+                            credential_store.delete(account_id, CredentialRole::OAuthRefreshToken);
+                        let _ =
+                            credential_store.delete(account_id, CredentialRole::OAuthTokenExpiry);
+                        if let Err(e) = credential_store.write(
+                            account_id,
+                            CredentialRole::ImapPassword,
+                            &SecretValue::new(new_password.clone()),
+                        ) {
+                            eprintln!("Failed to store new password: {e}");
+                            return;
+                        }
+                        {
+                            let mut list = accounts.borrow_mut();
+                            if let Some(acct) = list.iter_mut().find(|a| a.id() == account_id) {
+                                acct.update_credentials(
+                                    new_password,
+                                    crate::core::AuthMethod::Plain,
+                                );
+                                let _ = store.update(acct.clone());
+                            }
+                        }
+                        rebuild_account_list(
+                            &account_list,
+                            &accounts.borrow(),
+                            settings.borrow().category_display_enabled,
+                            custom_order.borrow().as_deref(),
+                            &conn_state_mgr.borrow(),
+                        );
+                    }
+                    Some(edit_account_dialog::EditDialogResult::ConvertedToOAuth {
+                        account_id,
+                        access_token,
+                        refresh_token,
+                        expires_in,
+                    }) => {
+                        // FR-30: Convert password → OAuth. Store new OAuth tokens,
+                        // remove the old password role (overwritten by access token),
+                        // and update the account auth method.
+                        // All other account state (folders, identities, etc.) is preserved.
+                        let validated = crate::core::ValidatedTokenResponse {
+                            access_token: access_token.clone(),
+                            refresh_token,
+                            expires_in,
+                        };
+                        if let Err(e) = crate::services::oauth_service::store_oauth_tokens(
+                            &*credential_store,
+                            account_id,
+                            &validated,
+                        ) {
+                            eprintln!("Failed to store OAuth tokens: {e}");
+                            return;
+                        }
+                        {
+                            let mut list = accounts.borrow_mut();
+                            if let Some(acct) = list.iter_mut().find(|a| a.id() == account_id) {
+                                acct.update_credentials(
+                                    access_token,
+                                    crate::core::AuthMethod::OAuth2,
+                                );
+                                let _ = store.update(acct.clone());
+                            }
+                        }
+                        rebuild_account_list(
+                            &account_list,
+                            &accounts.borrow(),
+                            settings.borrow().category_display_enabled,
+                            custom_order.borrow().as_deref(),
+                            &conn_state_mgr.borrow(),
+                        );
+                    }
                     None => {}
                 }
             });

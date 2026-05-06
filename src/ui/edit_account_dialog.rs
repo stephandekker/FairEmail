@@ -7,6 +7,7 @@ use gtk4::prelude::*;
 use libadwaita as adw;
 use libadwaita::prelude::*;
 
+use crate::core::auth_conversion::{can_convert_to_password, find_oauth_config_for_conversion};
 use crate::core::inbound_test::{InboundTestError, InboundTestParams};
 use crate::core::oauth_flow::OAuthSession;
 use crate::core::provider::{
@@ -38,6 +39,22 @@ pub(crate) enum EditDialogResult {
     /// The caller must store the new tokens in the credential store
     /// and clear the needs-reauth flag.
     Reauthorized {
+        account_id: uuid::Uuid,
+        access_token: String,
+        refresh_token: String,
+        expires_in: Option<u64>,
+    },
+    /// Account was converted from OAuth to password authentication (FR-30).
+    /// The caller must update the account credential, store the new password
+    /// in the credential store, and remove the old OAuth tokens.
+    ConvertedToPassword {
+        account_id: uuid::Uuid,
+        new_password: String,
+    },
+    /// Account was converted from password to OAuth authentication (FR-30).
+    /// The caller must update the account credential/auth_method, store the
+    /// new OAuth tokens, and remove the old password credential.
+    ConvertedToOAuth {
         account_id: uuid::Uuid,
         access_token: String,
         refresh_token: String,
@@ -714,6 +731,38 @@ pub(crate) fn show(
         .build();
     auth_group.add(&reauth_row);
 
+    // -- Auth conversion buttons (FR-30, US-17, AC-11) --
+    let oauth_config_for_conversion = find_oauth_config_for_conversion(&account, &provider_db)
+        .map(|config| config.with_tenant(account.oauth_tenant()));
+    let convert_to_oauth_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Convert to OAuth"))
+        .css_classes(["pill"])
+        .tooltip_text(gettextrs::gettext(
+            "Convert this account from password to OAuth authentication",
+        ))
+        .visible(oauth_config_for_conversion.is_some())
+        .build();
+    let convert_to_oauth_row = adw::ActionRow::builder()
+        .child(&convert_to_oauth_btn)
+        .visible(oauth_config_for_conversion.is_some())
+        .build();
+    auth_group.add(&convert_to_oauth_row);
+
+    let show_convert_to_password = can_convert_to_password(&account);
+    let convert_to_password_btn = gtk::Button::builder()
+        .label(gettextrs::gettext("Convert to Password"))
+        .css_classes(["pill"])
+        .tooltip_text(gettextrs::gettext(
+            "Convert this account from OAuth to password authentication",
+        ))
+        .visible(show_convert_to_password)
+        .build();
+    let convert_to_password_row = adw::ActionRow::builder()
+        .child(&convert_to_password_btn)
+        .visible(show_convert_to_password)
+        .build();
+    auth_group.add(&convert_to_password_row);
+
     // -- Shared mailbox (FR-40, N-8) --
     let shared_mailbox_group = adw::PreferencesGroup::builder()
         .title(gettextrs::gettext("Shared Mailbox"))
@@ -1306,6 +1355,8 @@ pub(crate) fn show(
     let on_done_close = on_done.clone();
     let on_done_save = on_done.clone();
     let on_done_reauth = on_done.clone();
+    let on_done_convert_oauth = on_done.clone();
+    let on_done_convert_password = on_done.clone();
     let account = std::rc::Rc::new(std::cell::RefCell::new(account));
 
     // -- Session-level flag: has a successful connection test been run? (FR-42, US-22) --
@@ -2196,6 +2247,155 @@ pub(crate) fn show(
                         }
                     }
                 });
+            }
+        ));
+    }
+
+    // -- Convert to OAuth button handler (FR-30, US-17) --
+    if let Some(oauth_config) = oauth_config_for_conversion {
+        let convert_account_id = account.borrow().id();
+        convert_to_oauth_btn.connect_clicked(clone!(
+            #[weak]
+            dialog,
+            #[weak]
+            toast_overlay,
+            #[weak]
+            convert_to_oauth_btn,
+            move |_| {
+                // Show confirmation dialog before starting the OAuth flow.
+                let confirm = adw::AlertDialog::builder()
+                    .heading(gettextrs::gettext("Convert to OAuth?"))
+                    .body(gettextrs::gettext(
+                        "This will replace password authentication with OAuth. \
+                         All account settings, folders, and messages will be preserved.",
+                    ))
+                    .build();
+                confirm.add_response("cancel", &gettextrs::gettext("Cancel"));
+                confirm.add_response("convert", &gettextrs::gettext("Convert"));
+                confirm.set_response_appearance("convert", adw::ResponseAppearance::Suggested);
+
+                let oauth_config = oauth_config.clone();
+                let on_done_convert_oauth = on_done_convert_oauth.clone();
+                let dialog_ref = dialog.clone();
+                let toast_overlay_ref = toast_overlay.clone();
+                let convert_to_oauth_btn_ref = convert_to_oauth_btn.clone();
+
+                confirm.connect_response(None, move |_, response| {
+                    if response != "convert" {
+                        return;
+                    }
+                    convert_to_oauth_btn_ref.set_sensitive(false);
+
+                    let progress_toast = adw::Toast::builder()
+                        .title(gettextrs::gettext("Opening browser for OAuth sign-in…"))
+                        .build();
+                    toast_overlay_ref.add_toast(progress_toast);
+
+                    let oauth_config_clone = oauth_config.clone();
+                    let (tx, rx) = std::sync::mpsc::channel::<ReauthOAuthMessage>();
+                    std::thread::spawn(move || {
+                        run_reauth_oauth_thread(oauth_config_clone, tx);
+                    });
+
+                    let on_done = on_done_convert_oauth.clone();
+                    let dialog_ref2 = dialog_ref.clone();
+                    let toast_ref2 = toast_overlay_ref.clone();
+                    let btn_ref2 = convert_to_oauth_btn_ref.clone();
+                    glib::timeout_add_local(
+                        std::time::Duration::from_millis(100),
+                        move || match rx.try_recv() {
+                            Ok(ReauthOAuthMessage::Success {
+                                access_token,
+                                refresh_token,
+                                expires_in,
+                            }) => {
+                                on_done(Some(EditDialogResult::ConvertedToOAuth {
+                                    account_id: convert_account_id,
+                                    access_token,
+                                    refresh_token,
+                                    expires_in,
+                                }));
+                                dialog_ref2.close();
+                                glib::ControlFlow::Break
+                            }
+                            Ok(ReauthOAuthMessage::Error(err)) => {
+                                btn_ref2.set_sensitive(true);
+                                let toast = adw::Toast::new(&format!(
+                                    "{} {}",
+                                    gettextrs::gettext("OAuth conversion failed:"),
+                                    err
+                                ));
+                                toast_ref2.add_toast(toast);
+                                glib::ControlFlow::Break
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                glib::ControlFlow::Continue
+                            }
+                            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                btn_ref2.set_sensitive(true);
+                                glib::ControlFlow::Break
+                            }
+                        },
+                    );
+                });
+                confirm.present(Some(&dialog));
+            }
+        ));
+    }
+
+    // -- Convert to Password button handler (FR-30, US-17) --
+    if show_convert_to_password {
+        let convert_pw_account_id = account.borrow().id();
+        convert_to_password_btn.connect_clicked(clone!(
+            #[weak]
+            dialog,
+            #[weak]
+            toast_overlay,
+            move |_| {
+                // Build a dialog asking for the new password with confirmation.
+                let pw_dialog = adw::AlertDialog::builder()
+                    .heading(gettextrs::gettext("Convert to Password Authentication?"))
+                    .body(gettextrs::gettext(
+                        "Enter the password for this account. All account settings, \
+                         folders, and messages will be preserved. The existing OAuth \
+                         tokens will be removed.",
+                    ))
+                    .build();
+                pw_dialog.add_response("cancel", &gettextrs::gettext("Cancel"));
+                pw_dialog.add_response("convert", &gettextrs::gettext("Convert"));
+                pw_dialog.set_response_appearance("convert", adw::ResponseAppearance::Suggested);
+
+                let pw_entry = adw::PasswordEntryRow::builder()
+                    .title(gettextrs::gettext("New password"))
+                    .build();
+                let extra_content = gtk::Box::new(gtk::Orientation::Vertical, 6);
+                extra_content.append(&adw::PreferencesGroup::builder().build());
+                let pw_group = adw::PreferencesGroup::builder().build();
+                pw_group.add(&pw_entry);
+                extra_content.append(&pw_group);
+                pw_dialog.set_extra_child(Some(&extra_content));
+
+                let on_done = on_done_convert_password.clone();
+                let dialog_ref = dialog.clone();
+                let toast_ref = toast_overlay.clone();
+                pw_dialog.connect_response(None, move |_, response| {
+                    if response != "convert" {
+                        return;
+                    }
+                    let new_password = pw_entry.text().to_string();
+                    if new_password.trim().is_empty() {
+                        let toast =
+                            adw::Toast::new(&gettextrs::gettext("Password must not be empty."));
+                        toast_ref.add_toast(toast);
+                        return;
+                    }
+                    on_done(Some(EditDialogResult::ConvertedToPassword {
+                        account_id: convert_pw_account_id,
+                        new_password,
+                    }));
+                    dialog_ref.close();
+                });
+                pw_dialog.present(Some(&dialog));
             }
         ));
     }
