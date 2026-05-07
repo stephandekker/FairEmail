@@ -61,6 +61,7 @@ pub mod reauth;
 #[allow(dead_code)]
 pub(crate) mod revocation;
 pub mod save_auto_test;
+pub mod server_flag_detection;
 #[allow(dead_code)]
 pub(crate) mod server_prefill;
 pub mod set_flags;

@@ -8,11 +8,15 @@ use rusqlite::Connection;
 
 use crate::core::content_store::ContentStore;
 use crate::core::message::{flags_from_imap, parse_raw_message};
+use crate::core::server_flag_detection::{
+    detect_flag_change, make_flag_change_event, FlagChangeAction,
+};
 use crate::core::sync_event::SyncEvent;
 use crate::services::imap_client::{fetch_folder_messages, ImapConnectParams};
 use crate::services::message_store::{
-    delete_messages_for_folder, find_folder_id, find_message_by_uid_in_folder, insert_message,
-    load_folder_sync_state, load_uids_for_folder, update_folder_sync_state, update_message_flags,
+    delete_messages_for_folder, find_folder_id, find_message_by_uid_in_folder_with_pending,
+    insert_message, load_folder_sync_state, load_uids_for_folder, update_folder_sync_state,
+    update_message_flags,
 };
 use crate::services::sync_state_store::load_sync_state;
 
@@ -210,34 +214,28 @@ fn sync_condstore(
     let mut events = Vec::new();
 
     for changed in &result.changed {
-        let existing =
-            find_message_by_uid_in_folder(&tx, &params.account_id, changed.uid, folder_id)?;
+        let existing = find_message_by_uid_in_folder_with_pending(
+            &tx,
+            &params.account_id,
+            changed.uid,
+            folder_id,
+        )?;
 
         match (existing, &changed.body) {
-            // Existing message, flags changed (no body = flag-only update).
-            (Some((msg_id, old_flags)), None) => {
+            // Existing message — check flags with pending-sync guard.
+            (Some((msg_id, old_flags, pending)), None | Some(_)) => {
                 let new_flags = flags_from_imap(&changed.flags);
-                if new_flags != old_flags {
-                    update_message_flags(&tx, msg_id, new_flags)?;
-                    events.push(SyncEvent::ServerFlagChange {
-                        account_id: params.account_id.clone(),
-                        message_id: msg_id,
-                        new_flags,
-                    });
-                    flags_updated += 1;
-                }
-            }
-            // Existing message with body — update flags and content.
-            (Some((msg_id, old_flags)), Some(_body)) => {
-                let new_flags = flags_from_imap(&changed.flags);
-                if new_flags != old_flags {
-                    update_message_flags(&tx, msg_id, new_flags)?;
-                    events.push(SyncEvent::ServerFlagChange {
-                        account_id: params.account_id.clone(),
-                        message_id: msg_id,
-                        new_flags,
-                    });
-                    flags_updated += 1;
+                match detect_flag_change(old_flags, new_flags, pending) {
+                    FlagChangeAction::Apply { new_flags } => {
+                        update_message_flags(&tx, msg_id, new_flags)?;
+                        events.push(make_flag_change_event(
+                            &params.account_id,
+                            msg_id,
+                            new_flags,
+                        ));
+                        flags_updated += 1;
+                    }
+                    FlagChangeAction::NoChange | FlagChangeAction::SkippedPendingSync => {}
                 }
             }
             // New message (not in local DB).
@@ -301,7 +299,7 @@ fn sync_uid_diff(
         .into_iter()
         .collect();
 
-    // First pass: get server UIDs (need to connect, SELECT, UID SEARCH ALL).
+    // First pass: get server UIDs + flags (UID FETCH 1:* (UID FLAGS)).
     // We pass an empty slice for new_uids first — we'll compute them from the diff.
     let diff_result =
         fetch_uid_diff(params, folder_name, &[]).map_err(|e| FetchError::Imap(format!("{e:?}")))?;
@@ -315,6 +313,45 @@ fn sync_uid_diff(
 
     // New UIDs = on server but not locally.
     let new_uids: Vec<u32> = server_uids.difference(&local_uids).copied().collect();
+
+    // Detect flag changes for existing messages (UIDs in both local and server sets).
+    let mut flags_updated = 0;
+    let mut events = Vec::new();
+    {
+        let tx = conn.unchecked_transaction().map_err(|e| {
+            FetchError::Database(crate::services::database::DatabaseError::Sqlite(e))
+        })?;
+
+        for entry in &diff_result.server_flags {
+            if !local_uids.contains(&entry.uid) {
+                continue; // New message — handled below.
+            }
+            if let Some((msg_id, old_flags, pending)) = find_message_by_uid_in_folder_with_pending(
+                &tx,
+                &params.account_id,
+                entry.uid,
+                folder_id,
+            )? {
+                let server_flags = flags_from_imap(&entry.flags);
+                match detect_flag_change(old_flags, server_flags, pending) {
+                    FlagChangeAction::Apply { new_flags } => {
+                        update_message_flags(&tx, msg_id, new_flags)?;
+                        events.push(make_flag_change_event(
+                            &params.account_id,
+                            msg_id,
+                            new_flags,
+                        ));
+                        flags_updated += 1;
+                    }
+                    FlagChangeAction::NoChange | FlagChangeAction::SkippedPendingSync => {}
+                }
+            }
+        }
+
+        tx.commit().map_err(|e| {
+            FetchError::Database(crate::services::database::DatabaseError::Sqlite(e))
+        })?;
+    }
 
     // If there are new messages, fetch them.
     let bodies_fetched = if !new_uids.is_empty() {
@@ -365,9 +402,9 @@ fn sync_uid_diff(
 
     Ok(IncrementalSyncResult {
         bodies_fetched,
-        flags_updated: 0,
+        flags_updated,
         full_refetch: false,
-        events: Vec::new(),
+        events,
         orphaned_hashes: Vec::new(),
         uidvalidity: diff_result.select.uidvalidity,
         highestmodseq: diff_result.select.highestmodseq,
@@ -427,19 +464,19 @@ pub(crate) fn incremental_sync_condstore_with_data(
     let mut events = Vec::new();
 
     for changed in &changed_messages {
-        let existing = find_message_by_uid_in_folder(&tx, account_id, changed.uid, folder_id)?;
+        let existing =
+            find_message_by_uid_in_folder_with_pending(&tx, account_id, changed.uid, folder_id)?;
 
         match (existing, &changed.body) {
-            (Some((msg_id, old_flags)), _) => {
+            (Some((msg_id, old_flags, pending)), _) => {
                 let new_flags = flags_from_imap(&changed.flags);
-                if new_flags != old_flags {
-                    update_message_flags(&tx, msg_id, new_flags)?;
-                    events.push(SyncEvent::ServerFlagChange {
-                        account_id: account_id.to_string(),
-                        message_id: msg_id,
-                        new_flags,
-                    });
-                    flags_updated += 1;
+                match detect_flag_change(old_flags, new_flags, pending) {
+                    FlagChangeAction::Apply { new_flags } => {
+                        update_message_flags(&tx, msg_id, new_flags)?;
+                        events.push(make_flag_change_event(account_id, msg_id, new_flags));
+                        flags_updated += 1;
+                    }
+                    FlagChangeAction::NoChange | FlagChangeAction::SkippedPendingSync => {}
                 }
             }
             (None, Some(body)) => {
@@ -485,7 +522,8 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
     folder_name: &str,
     select_uidvalidity: u32,
     select_highestmodseq: Option<u64>,
-    server_uids: &[u32],
+    _server_uids: &[u32],
+    server_flags: &[crate::services::imap_client::UidFlagEntry],
     new_messages: Vec<crate::services::imap_client::RawFetchedMessage>,
 ) -> Result<IncrementalSyncResult, FetchError> {
     use std::collections::HashSet;
@@ -524,12 +562,34 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
     let local_uids: HashSet<u32> = load_uids_for_folder(conn, account_id, folder_id)?
         .into_iter()
         .collect();
-    let _server_uid_set: HashSet<u32> = server_uids.iter().copied().collect();
 
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
 
+    // Detect flag changes for existing messages.
+    let mut flags_updated = 0;
+    let mut events = Vec::new();
+    for entry in server_flags {
+        if !local_uids.contains(&entry.uid) {
+            continue;
+        }
+        if let Some((msg_id, old_flags, pending)) =
+            find_message_by_uid_in_folder_with_pending(&tx, account_id, entry.uid, folder_id)?
+        {
+            let sf = flags_from_imap(&entry.flags);
+            match detect_flag_change(old_flags, sf, pending) {
+                FlagChangeAction::Apply { new_flags } => {
+                    update_message_flags(&tx, msg_id, new_flags)?;
+                    events.push(make_flag_change_event(account_id, msg_id, new_flags));
+                    flags_updated += 1;
+                }
+                FlagChangeAction::NoChange | FlagChangeAction::SkippedPendingSync => {}
+            }
+        }
+    }
+
+    // Insert new messages.
     let mut bodies_fetched = 0;
     for raw_msg in &new_messages {
         if local_uids.contains(&raw_msg.uid) {
@@ -555,9 +615,9 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
 
     Ok(IncrementalSyncResult {
         bodies_fetched,
-        flags_updated: 0,
+        flags_updated,
         full_refetch: false,
-        events: Vec::new(),
+        events,
         orphaned_hashes: Vec::new(),
         uidvalidity: select_uidvalidity,
         highestmodseq: select_highestmodseq,
@@ -609,11 +669,12 @@ fn handle_uidvalidity_change(
 mod tests {
     use super::*;
     use crate::core::imap_check::ImapFolder;
-    use crate::core::message::{NewMessage, FLAG_SEEN};
+    use crate::core::message::{NewMessage, FLAG_FLAGGED, FLAG_SEEN};
     use crate::services::database::open_and_migrate;
     use crate::services::folder_store::replace_folders;
     use crate::services::imap_client::{ChangedMessage, RawFetchedMessage};
     use crate::services::memory_content_store::MemoryContentStore;
+    use crate::services::message_store::find_message_by_uid_in_folder;
     use tempfile::TempDir;
 
     fn setup_db() -> (TempDir, Connection) {
@@ -857,7 +918,7 @@ mod tests {
 
         seed_initial_messages(&conn, fid);
 
-        // Server has same UIDs as local.
+        // Server has same UIDs as local, no flag changes.
         let result = incremental_sync_uid_diff_with_data(
             &conn,
             &store,
@@ -866,6 +927,7 @@ mod tests {
             100,
             None,
             &[1, 2, 3],
+            &[], // no flag data — flags unchanged
             Vec::new(),
         )
         .unwrap();
@@ -898,6 +960,7 @@ mod tests {
             100,
             None,
             &[1, 2, 3, 4],
+            &[], // no flag changes for existing messages
             new_messages,
         )
         .unwrap();
@@ -923,6 +986,7 @@ mod tests {
             999, // different!
             None,
             &[1, 2, 3],
+            &[],
             Vec::new(),
         )
         .unwrap();
@@ -932,5 +996,301 @@ mod tests {
             crate::services::message_store::count_messages(&conn, "acct-1").unwrap(),
             0
         );
+    }
+
+    // --- Server flag change detection tests ---
+
+    #[test]
+    fn condstore_skips_flag_update_when_pending_sync() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Mark message uid=2 as having pending local flag changes.
+        let (msg_id, _) = find_message_by_uid_in_folder(&conn, "acct-1", 2, fid)
+            .unwrap()
+            .unwrap();
+        crate::services::message_store::update_message_flags_pending(&conn, msg_id, FLAG_FLAGGED)
+            .unwrap();
+
+        // Server reports uid=2 flags changed to \Seen (different from local \Flagged).
+        let changed = vec![ChangedMessage {
+            uid: 2,
+            flags: "\\Seen".to_string(),
+            modseq: Some(55),
+            body: None,
+        }];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(55),
+            changed,
+        )
+        .unwrap();
+
+        // Should NOT update flags because pending_sync is set.
+        assert_eq!(result.flags_updated, 0);
+        assert!(result.events.is_empty());
+
+        // Verify local flags are still \Flagged (not overwritten with \Seen).
+        let (_, flags) = find_message_by_uid_in_folder(&conn, "acct-1", 2, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            flags, FLAG_FLAGGED,
+            "local flags should not be overwritten when pending_sync"
+        );
+    }
+
+    #[test]
+    fn uid_diff_detects_flag_change_on_existing_message() {
+        use crate::services::imap_client::UidFlagEntry;
+
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server reports uid=1 now has \Seen flag.
+        let server_flags = vec![
+            UidFlagEntry {
+                uid: 1,
+                flags: "\\Seen".to_string(),
+            },
+            UidFlagEntry {
+                uid: 2,
+                flags: String::new(),
+            },
+            UidFlagEntry {
+                uid: 3,
+                flags: String::new(),
+            },
+        ];
+
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3],
+            &server_flags,
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 0);
+        assert_eq!(result.flags_updated, 1);
+        assert_eq!(result.events.len(), 1);
+
+        // Verify the flag was persisted.
+        let (msg_id, new_flags) = find_message_by_uid_in_folder(&conn, "acct-1", 1, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(new_flags, FLAG_SEEN);
+
+        // Verify the event.
+        match &result.events[0] {
+            SyncEvent::ServerFlagChange {
+                account_id,
+                message_id,
+                new_flags,
+            } => {
+                assert_eq!(account_id, "acct-1");
+                assert_eq!(*message_id, msg_id);
+                assert_eq!(*new_flags, FLAG_SEEN);
+            }
+            _ => panic!("expected ServerFlagChange event"),
+        }
+    }
+
+    #[test]
+    fn uid_diff_skips_flag_update_when_pending_sync() {
+        use crate::services::imap_client::UidFlagEntry;
+
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Mark message uid=1 as having pending local flag changes.
+        let (msg_id, _) = find_message_by_uid_in_folder(&conn, "acct-1", 1, fid)
+            .unwrap()
+            .unwrap();
+        crate::services::message_store::update_message_flags_pending(&conn, msg_id, FLAG_FLAGGED)
+            .unwrap();
+
+        // Server reports uid=1 has \Seen.
+        let server_flags = vec![UidFlagEntry {
+            uid: 1,
+            flags: "\\Seen".to_string(),
+        }];
+
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3],
+            &server_flags,
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result.flags_updated, 0);
+        assert!(result.events.is_empty());
+
+        // Verify local flags unchanged.
+        let (_, flags) = find_message_by_uid_in_folder(&conn, "acct-1", 1, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(flags, FLAG_FLAGGED);
+    }
+
+    #[test]
+    fn uid_diff_detects_multiple_flag_types() {
+        use crate::core::message::{FLAG_ANSWERED, FLAG_DELETED, FLAG_DRAFT};
+        use crate::services::imap_client::UidFlagEntry;
+
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server reports all five standard flags on uid=1.
+        let all_flags = "\\Seen \\Flagged \\Answered \\Deleted \\Draft";
+        let server_flags = vec![UidFlagEntry {
+            uid: 1,
+            flags: all_flags.to_string(),
+        }];
+
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3],
+            &server_flags,
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result.flags_updated, 1);
+
+        let (_, new_flags) = find_message_by_uid_in_folder(&conn, "acct-1", 1, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            new_flags,
+            FLAG_SEEN | FLAG_FLAGGED | FLAG_ANSWERED | FLAG_DELETED | FLAG_DRAFT
+        );
+    }
+
+    #[test]
+    fn condstore_detects_all_five_standard_flags() {
+        use crate::core::message::{FLAG_ANSWERED, FLAG_DELETED, FLAG_DRAFT};
+
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server reports uid=3 with all five flags.
+        let changed = vec![ChangedMessage {
+            uid: 3,
+            flags: "\\Seen \\Flagged \\Answered \\Deleted \\Draft".to_string(),
+            modseq: Some(60),
+            body: None,
+        }];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(60),
+            changed,
+        )
+        .unwrap();
+
+        assert_eq!(result.flags_updated, 1);
+
+        let (_, new_flags) = find_message_by_uid_in_folder(&conn, "acct-1", 3, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            new_flags,
+            FLAG_SEEN | FLAG_FLAGGED | FLAG_ANSWERED | FLAG_DELETED | FLAG_DRAFT
+        );
+    }
+
+    #[test]
+    fn uid_diff_flag_change_with_new_message_simultaneously() {
+        use crate::services::imap_client::UidFlagEntry;
+
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server reports uid=2 flagged, and a new uid=4.
+        let server_flags = vec![
+            UidFlagEntry {
+                uid: 1,
+                flags: String::new(),
+            },
+            UidFlagEntry {
+                uid: 2,
+                flags: "\\Flagged".to_string(),
+            },
+            UidFlagEntry {
+                uid: 3,
+                flags: String::new(),
+            },
+            UidFlagEntry {
+                uid: 4,
+                flags: String::new(),
+            },
+        ];
+        let new_body = make_raw_email("NewMsg4");
+        let new_messages = vec![RawFetchedMessage {
+            uid: 4,
+            flags: String::new(),
+            data: new_body,
+        }];
+
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3, 4],
+            &server_flags,
+            new_messages,
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 1);
+        assert_eq!(result.flags_updated, 1);
+        assert_eq!(result.events.len(), 1);
     }
 }

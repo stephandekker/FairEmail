@@ -292,6 +292,27 @@ pub fn delete_messages_for_folder(
     Ok(orphaned_hashes)
 }
 
+/// Find a message by UID and folder, returning (message_id, current_flags, flags_pending_sync).
+pub fn find_message_by_uid_in_folder_with_pending(
+    conn: &Connection,
+    account_id: &str,
+    uid: u32,
+    folder_id: i64,
+) -> Result<Option<(i64, u32, bool)>, DatabaseError> {
+    let result = conn.query_row(
+        "SELECT m.id, m.flags, m.flags_pending_sync FROM messages m
+         JOIN message_folders mf ON mf.message_id = m.id
+         WHERE m.account_id = ?1 AND m.uid = ?2 AND mf.folder_id = ?3",
+        rusqlite::params![account_id, uid, folder_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i32>(2)? != 0)),
+    );
+    match result {
+        Ok(triple) => Ok(Some(triple)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
 /// Find a message by UID and folder, returning (message_id, current_flags).
 pub fn find_message_by_uid_in_folder(
     conn: &Connection,

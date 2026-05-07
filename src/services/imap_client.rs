@@ -1074,6 +1074,7 @@ impl ImapSession {
     }
 
     /// UID SEARCH ALL — returns the set of UIDs currently in the folder.
+    #[allow(dead_code)]
     fn do_uid_search_all(
         &mut self,
         params: &ImapConnectParams,
@@ -1112,6 +1113,50 @@ impl ImapSession {
         ));
 
         Ok(uids)
+    }
+
+    /// UID FETCH 1:* (UID FLAGS) — returns UIDs and their flags without bodies.
+    fn do_fetch_all_flags(
+        &mut self,
+        params: &ImapConnectParams,
+        logs: &mut Vec<ConnectionLogRecord>,
+    ) -> Result<Vec<UidFlagEntry>, ImapClientError> {
+        self.send_command("A010", "UID FETCH 1:* (UID FLAGS)")?;
+
+        let mut entries = Vec::new();
+
+        loop {
+            let line = self.read_line()?;
+
+            if line.starts_with("A010") {
+                if !line.to_uppercase().contains("OK") {
+                    return Err(ImapClientError::ConnectionFailed(format!(
+                        "UID FETCH FLAGS failed: {}",
+                        line.trim()
+                    )));
+                }
+                break;
+            }
+
+            if !line.starts_with("* ") || !line.to_uppercase().contains("FETCH") {
+                continue;
+            }
+
+            let uid = extract_fetch_value(&line, "UID")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0);
+            let flags = extract_flags(&line).unwrap_or_default();
+
+            entries.push(UidFlagEntry { uid, flags });
+        }
+
+        logs.push(ConnectionLogRecord::new(
+            params.account_id.clone(),
+            ConnectionLogEventType::ListFolders,
+            format!("UID FETCH FLAGS: {} entries", entries.len()),
+        ));
+
+        Ok(entries)
     }
 
     /// UID FETCH specific UIDs — fetch full messages for a set of UIDs.
@@ -1615,10 +1660,19 @@ pub(crate) struct IncrementalFetchResult {
     pub logs: Vec<ConnectionLogRecord>,
 }
 
+/// A UID + flags pair returned by a flags-only FETCH.
+#[derive(Debug, Clone)]
+pub(crate) struct UidFlagEntry {
+    pub uid: u32,
+    pub flags: String,
+}
+
 /// Result of a UID-set-diff fetch (no CONDSTORE).
 #[derive(Debug)]
 pub(crate) struct UidDiffFetchResult {
     pub server_uids: Vec<u32>,
+    /// Flags for all server UIDs (fetched alongside the UID list).
+    pub server_flags: Vec<UidFlagEntry>,
     pub new_messages: Vec<RawFetchedMessage>,
     pub select: ImapSelectResult,
     #[allow(dead_code)]
@@ -1714,6 +1768,9 @@ pub(crate) fn fetch_changed_since(
 }
 
 /// Run an IMAP session that does a UID-set diff (no CONDSTORE).
+///
+/// Fetches UIDs and FLAGS for all server messages (for flag change detection),
+/// plus full bodies for any `new_uids`.
 pub(crate) fn fetch_uid_diff(
     params: &ImapConnectParams,
     folder_name: &str,
@@ -1723,11 +1780,12 @@ pub(crate) fn fetch_uid_diff(
     let mut session = connect_and_login(params, &mut logs)?;
 
     let select = session.do_select(params, folder_name, &mut logs)?;
-    let server_uids = if select.exists > 0 {
-        session.do_uid_search_all(params, &mut logs)?
+    let server_flags = if select.exists > 0 {
+        session.do_fetch_all_flags(params, &mut logs)?
     } else {
         Vec::new()
     };
+    let server_uids = server_flags.iter().map(|e| e.uid).collect();
     let new_messages = if !new_uids.is_empty() {
         session.do_fetch_uids(params, new_uids, &mut logs)?
     } else {
@@ -1737,6 +1795,7 @@ pub(crate) fn fetch_uid_diff(
 
     Ok(UidDiffFetchResult {
         server_uids,
+        server_flags,
         new_messages,
         select,
         logs,
