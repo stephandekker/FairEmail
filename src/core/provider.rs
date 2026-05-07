@@ -242,6 +242,12 @@ struct CompiledPattern {
     is_exact: bool,
 }
 
+/// A compiled MX pattern for regex-based matching (FR-8).
+struct CompiledMxPattern {
+    regex: Regex,
+    provider_idx: usize,
+}
+
 /// The bundled provider database.
 pub struct ProviderDatabase {
     providers: Vec<Provider>,
@@ -249,6 +255,8 @@ pub struct ProviderDatabase {
     domain_index: HashMap<String, Vec<(usize, bool)>>,
     /// Compiled regex patterns for domain matching (FR-5, FR-7).
     compiled_patterns: Vec<CompiledPattern>,
+    /// Compiled regex patterns for MX-based matching (FR-8).
+    compiled_mx_patterns: Vec<CompiledMxPattern>,
 }
 
 /// Convert a domain pattern string to a regex pattern.
@@ -275,6 +283,7 @@ impl ProviderDatabase {
     pub fn new(providers: Vec<Provider>) -> Self {
         let mut domain_index: HashMap<String, Vec<(usize, bool)>> = HashMap::new();
         let mut compiled_patterns = Vec::new();
+        let mut compiled_mx_patterns = Vec::new();
 
         for (idx, provider) in providers.iter().enumerate() {
             if !provider.enabled {
@@ -307,12 +316,23 @@ impl ProviderDatabase {
                     });
                 }
             }
+
+            // Compile MX patterns for regex-based MX matching (FR-8)
+            for pattern in &provider.mx_patterns {
+                if let Some(regex) = pattern_to_regex(pattern) {
+                    compiled_mx_patterns.push(CompiledMxPattern {
+                        regex,
+                        provider_idx: idx,
+                    });
+                }
+            }
         }
 
         Self {
             providers,
             domain_index,
             compiled_patterns,
+            compiled_mx_patterns,
         }
     }
 
@@ -415,6 +435,27 @@ impl ProviderDatabase {
             p.incoming.hostname.to_lowercase() == lower
                 || p.outgoing.hostname.to_lowercase() == lower
         })
+    }
+
+    /// Match pre-resolved MX records against all enabled providers' MX patterns
+    /// using regular-expression matching (FR-8).
+    ///
+    /// Returns the first matching provider with a `DNS_MX` score, or `None`.
+    pub fn lookup_by_mx_records(&self, mx_records: &[(u16, String)]) -> Option<ProviderCandidate> {
+        for (_priority, exchange) in mx_records {
+            let exchange_lower = exchange.to_lowercase();
+            let exchange_clean = exchange_lower.trim_end_matches('.');
+
+            for cp in &self.compiled_mx_patterns {
+                if cp.regex.is_match(exchange_clean) {
+                    return Some(ProviderCandidate {
+                        provider: self.providers[cp.provider_idx].clone(),
+                        score: MatchScore::DNS_MX,
+                    });
+                }
+            }
+        }
+        None
     }
 }
 
@@ -1241,5 +1282,129 @@ mod tests {
             derive_username("alice@test.com", &provider.username_type),
             "alice@test.com"
         );
+    }
+
+    // --- MX-based matching tests (FR-8) ---
+
+    fn make_mx_provider(id: &str, domains: &[&str], mx_patterns: &[&str]) -> Provider {
+        let mut p = make_test_provider(id, domains);
+        p.mx_patterns = mx_patterns.iter().map(|s| s.to_string()).collect();
+        p
+    }
+
+    #[test]
+    fn test_mx_records_wildcard_match() {
+        let db = ProviderDatabase::new(vec![make_mx_provider(
+            "gmail",
+            &["gmail.com"],
+            &["*.google.com", "*.googlemail.com"],
+        )]);
+        let mx = vec![(10, "alt1.aspmx.l.google.com".to_string())];
+        let candidate = db.lookup_by_mx_records(&mx).unwrap();
+        assert_eq!(candidate.provider.id, "gmail");
+        assert_eq!(candidate.score, MatchScore::DNS_MX);
+    }
+
+    #[test]
+    fn test_mx_records_exact_match() {
+        let db = ProviderDatabase::new(vec![make_mx_provider(
+            "custom",
+            &["custom.com"],
+            &["mail.custom.com"],
+        )]);
+        let mx = vec![(10, "mail.custom.com".to_string())];
+        let candidate = db.lookup_by_mx_records(&mx).unwrap();
+        assert_eq!(candidate.provider.id, "custom");
+    }
+
+    #[test]
+    fn test_mx_records_no_match() {
+        let db = ProviderDatabase::new(vec![make_mx_provider(
+            "gmail",
+            &["gmail.com"],
+            &["*.google.com"],
+        )]);
+        let mx = vec![(10, "mail.unknown-provider.example.org".to_string())];
+        assert!(db.lookup_by_mx_records(&mx).is_none());
+    }
+
+    #[test]
+    fn test_mx_records_trailing_dot_stripped() {
+        let db = ProviderDatabase::new(vec![make_mx_provider(
+            "gmail",
+            &["gmail.com"],
+            &["*.google.com"],
+        )]);
+        let mx = vec![(10, "aspmx.l.google.com.".to_string())];
+        let candidate = db.lookup_by_mx_records(&mx).unwrap();
+        assert_eq!(candidate.provider.id, "gmail");
+    }
+
+    #[test]
+    fn test_mx_records_case_insensitive() {
+        let db = ProviderDatabase::new(vec![make_mx_provider(
+            "gmail",
+            &["gmail.com"],
+            &["*.google.com"],
+        )]);
+        let mx = vec![(10, "ASPMX.L.GOOGLE.COM".to_string())];
+        let candidate = db.lookup_by_mx_records(&mx).unwrap();
+        assert_eq!(candidate.provider.id, "gmail");
+    }
+
+    #[test]
+    fn test_mx_records_empty_returns_none() {
+        let db = ProviderDatabase::new(vec![make_mx_provider(
+            "gmail",
+            &["gmail.com"],
+            &["*.google.com"],
+        )]);
+        assert!(db.lookup_by_mx_records(&[]).is_none());
+    }
+
+    #[test]
+    fn test_mx_records_disabled_provider_skipped() {
+        let mut provider = make_mx_provider("disabled", &["test.com"], &["*.test.com"]);
+        provider.enabled = false;
+        let db = ProviderDatabase::new(vec![provider]);
+        let mx = vec![(10, "mx.test.com".to_string())];
+        assert!(db.lookup_by_mx_records(&mx).is_none());
+    }
+
+    #[test]
+    fn test_mx_records_bundled_google_workspace() {
+        // Custom domain hosted on Google Workspace should match via MX
+        let db = ProviderDatabase::bundled();
+        let mx = vec![
+            (10, "alt1.aspmx.l.google.com".to_string()),
+            (20, "alt2.aspmx.l.google.com".to_string()),
+        ];
+        let candidate = db.lookup_by_mx_records(&mx).unwrap();
+        assert_eq!(candidate.provider.id, "gmail");
+        assert_eq!(candidate.score, MatchScore::DNS_MX);
+    }
+
+    #[test]
+    fn test_mx_records_bundled_outlook() {
+        let db = ProviderDatabase::bundled();
+        let mx = vec![(10, "mail.protection.outlook.com".to_string())];
+        let candidate = db.lookup_by_mx_records(&mx).unwrap();
+        assert!(
+            candidate.provider.id == "office365" || candidate.provider.id == "outlook",
+            "Got provider: {}",
+            candidate.provider.id
+        );
+    }
+
+    #[test]
+    fn test_mx_records_root_domain_does_not_match_wildcard() {
+        // "google.com" should NOT match "*.google.com"
+        let db = ProviderDatabase::new(vec![make_mx_provider(
+            "gmail",
+            &["gmail.com"],
+            &["*.google.com"],
+        )]);
+        let mx = vec![(10, "google.com".to_string())];
+        assert!(db.lookup_by_mx_records(&mx).is_none());
     }
 }

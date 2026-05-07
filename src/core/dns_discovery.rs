@@ -123,37 +123,20 @@ pub(crate) fn discover_by_ns(
 }
 
 /// FR-10.3: Look up MX records and match against known provider MX patterns.
+///
+/// When the device is offline the DNS lookup returns an error which is
+/// silently converted to `None` — no network error is surfaced.
 pub(crate) fn discover_by_mx(
     domain: &str,
     resolver: &dyn DnsResolver,
     provider_db: &ProviderDatabase,
 ) -> Option<ProviderCandidate> {
     let mx_records = resolver.lookup_mx(domain).ok()?;
-
-    for (_priority, exchange) in &mx_records {
-        let exchange_lower = exchange.to_lowercase();
-        // Strip trailing dot if present
-        let exchange_clean = exchange_lower.trim_end_matches('.');
-
-        for provider in provider_db.providers() {
-            if !provider.enabled || provider.mx_patterns.is_empty() {
-                continue;
-            }
-            for pattern in &provider.mx_patterns {
-                if matches_mx_pattern(exchange_clean, pattern) {
-                    return Some(ProviderCandidate {
-                        provider: provider.clone(),
-                        score: MatchScore::DNS_MX,
-                    });
-                }
-            }
-        }
-    }
-
-    None
+    provider_db.lookup_by_mx_records(&mx_records)
 }
 
 /// Check if an MX hostname matches a pattern (supports *.domain.com wildcards).
+#[cfg(test)]
 fn matches_mx_pattern(exchange: &str, pattern: &str) -> bool {
     let pattern_lower = pattern.to_lowercase();
     if let Some(suffix) = pattern_lower.strip_prefix("*.") {

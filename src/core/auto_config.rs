@@ -46,23 +46,24 @@ pub(crate) fn discover_inbound(
         return Err(AutoConfigError::EmptyDomain);
     }
 
-    // 1. Bundled provider database
+    // 1. Bundled provider database (domain match)
     if let Some(candidate) = provider_db.lookup_by_domain(&domain) {
         return Ok(to_result(&candidate.provider.incoming));
     }
 
-    // 2. DNS NS record lookup
+    // 2. DNS MX record lookup (FR-8 — secondary strategy after domain matching)
+    //    Silently skipped when offline (resolver returns Err).
+    if let Some(candidate) = super::dns_discovery::discover_by_mx(&domain, resolver, provider_db) {
+        return Ok(to_result(&candidate.provider.incoming));
+    }
+
+    // 3. DNS NS record lookup
     if let Some(candidate) = super::dns_discovery::discover_by_ns(&domain, resolver, provider_db) {
         return Ok(to_result(&candidate.provider.incoming));
     }
 
-    // 3. DNS SRV records (RFC 6186)
+    // 4. DNS SRV records (RFC 6186)
     if let Some(candidate) = super::dns_discovery::discover_by_srv(&domain, resolver) {
-        return Ok(to_result(&candidate.provider.incoming));
-    }
-
-    // 4. DNS MX record lookup
-    if let Some(candidate) = super::dns_discovery::discover_by_mx(&domain, resolver, provider_db) {
         return Ok(to_result(&candidate.provider.incoming));
     }
 
@@ -105,23 +106,24 @@ pub(crate) fn discover_outbound(
         return Err(AutoConfigError::EmptyDomain);
     }
 
-    // 1. Bundled provider database
+    // 1. Bundled provider database (domain match)
     if let Some(candidate) = provider_db.lookup_by_domain(&domain) {
         return Ok(to_result(&candidate.provider.outgoing));
     }
 
-    // 2. DNS NS record lookup
+    // 2. DNS MX record lookup (FR-8 — secondary strategy after domain matching)
+    //    Silently skipped when offline (resolver returns Err).
+    if let Some(candidate) = super::dns_discovery::discover_by_mx(&domain, resolver, provider_db) {
+        return Ok(to_result(&candidate.provider.outgoing));
+    }
+
+    // 3. DNS NS record lookup
     if let Some(candidate) = super::dns_discovery::discover_by_ns(&domain, resolver, provider_db) {
         return Ok(to_result(&candidate.provider.outgoing));
     }
 
-    // 3. DNS SRV records (RFC 6186)
+    // 4. DNS SRV records (RFC 6186)
     if let Some(candidate) = super::dns_discovery::discover_by_srv(&domain, resolver) {
-        return Ok(to_result(&candidate.provider.outgoing));
-    }
-
-    // 4. DNS MX record lookup
-    if let Some(candidate) = super::dns_discovery::discover_by_mx(&domain, resolver, provider_db) {
         return Ok(to_result(&candidate.provider.outgoing));
     }
 
