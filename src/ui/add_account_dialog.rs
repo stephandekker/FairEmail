@@ -12,7 +12,7 @@ use crate::core::inbound_test::InboundTestParams;
 use crate::core::inbound_test_diagnostics::diagnose_error;
 use crate::core::port_autofill::{default_port, should_autofill};
 use crate::core::provider::{
-    MaxTlsVersion, ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
+    MaxTlsVersion, ProviderEncryption, ServerConfig, UsernameType,
 };
 use crate::core::provider_dropdown;
 use crate::core::save_auto_test;
@@ -347,7 +347,8 @@ fn show_inner(
         .build();
 
     // -- Provider dropdown (FR-29, FR-30, FR-31) --
-    let provider_db_for_dropdown = ProviderDatabase::bundled();
+    let provider_db_for_dropdown =
+        crate::services::user_provider_service::load_merged_provider_database();
     let dropdown_entries = provider_dropdown::build_dropdown_entries(&provider_db_for_dropdown);
     let provider_labels: Vec<String> = dropdown_entries
         .iter()
@@ -496,7 +497,7 @@ fn show_inner(
             let entry = &dropdown_entries_rc[idx];
 
             // Pre-fill from provider database.
-            let db = ProviderDatabase::bundled();
+            let db = crate::services::user_provider_service::load_merged_provider_database();
             if let Some(prefill) = provider_dropdown::prefill_for_provider(&db, &entry.id) {
                 host_row.set_text(&prefill.hostname);
                 port_row.set_value(f64::from(prefill.port));
@@ -584,7 +585,8 @@ fn show_inner(
                     #[weak]
                     toast_overlay,
                     move || {
-                        let provider_db = ProviderDatabase::bundled();
+                        let provider_db =
+                            crate::services::user_provider_service::load_merged_provider_database();
 
                         // Use mock implementations matching the rest of the dialog.
                         struct NoopResolver;
@@ -1268,7 +1270,7 @@ fn show_inner(
                             }
                             Err(e) => {
                                 any_error = true;
-                                let provider_db = ProviderDatabase::bundled();
+                                let provider_db = crate::services::user_provider_service::load_merged_provider_database();
                                 let hostname = host_row.text().to_string();
                                 let hostname_ref = if hostname.trim().is_empty() {
                                     None

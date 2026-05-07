@@ -22,7 +22,6 @@ use crate::core::provider::ProviderDatabase;
 use crate::core::provider_dropdown::{
     build_provider_list, full_prefill_for_provider, is_debug_mode, provider_guidance_detail,
 };
-use crate::core::user_provider_file::build_merged_database;
 use crate::core::wizard_validation::{
     validate_wizard_fields, WizardFieldError, WizardValidationResult,
 };
@@ -2094,8 +2093,5 @@ fn update_guidance_widgets(
 /// Falls back to the bundled-only database if the user provider file is
 /// absent or cannot be read/parsed.
 fn load_merged_provider_database() -> ProviderDatabase {
-    let user_content = crate::services::user_provider_service::load_user_provider_file()
-        .ok()
-        .flatten();
-    build_merged_database(user_content.as_deref()).unwrap_or_else(|_| ProviderDatabase::bundled())
+    crate::services::user_provider_service::load_merged_provider_database()
 }

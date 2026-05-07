@@ -394,11 +394,20 @@ impl ProviderDatabase {
     }
 
     /// Look up a provider by domain.
+    ///
+    /// When multiple providers match the same domain with equal confidence,
+    /// the provider appearing later in the database wins. This is intentional:
+    /// user-imported providers are appended after bundled entries by
+    /// [`merge_user_providers`](super::user_provider_file::merge_user_providers),
+    /// so imported profiles deterministically override bundled ones for
+    /// overlapping domains (FR-41, "imported wins" conflict-resolution policy).
     pub fn lookup_by_domain(&self, domain: &str) -> Option<ProviderCandidate> {
         let lower = domain.to_lowercase();
         let mut best: Option<ProviderCandidate> = None;
 
-        // Fast path: check HashMap for exact domain match
+        // Fast path: check HashMap for exact domain match.
+        // On equal scores the later entry wins (>= not >), so that
+        // user-imported providers override bundled ones for the same domain.
         if let Some(entries) = self.domain_index.get(&lower) {
             for &(idx, is_wildcard) in entries {
                 if !is_wildcard {
@@ -407,7 +416,7 @@ impl ProviderDatabase {
                         provider: self.providers[idx].clone(),
                         score,
                     };
-                    if best.as_ref().is_none_or(|b| score > b.score) {
+                    if best.as_ref().is_none_or(|b| score >= b.score) {
                         best = Some(candidate);
                     }
                 }
@@ -427,7 +436,7 @@ impl ProviderDatabase {
                                 provider: self.providers[idx].clone(),
                                 score,
                             };
-                            if best.as_ref().is_none_or(|b| score > b.score) {
+                            if best.as_ref().is_none_or(|b| score >= b.score) {
                                 best = Some(candidate);
                             }
                         }
@@ -452,7 +461,7 @@ impl ProviderDatabase {
                         provider: self.providers[cp.provider_idx].clone(),
                         score,
                     };
-                    if best.as_ref().is_none_or(|b| score > b.score) {
+                    if best.as_ref().is_none_or(|b| score >= b.score) {
                         best = Some(candidate);
                     }
                 }

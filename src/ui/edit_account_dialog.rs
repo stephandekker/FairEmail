@@ -11,7 +11,7 @@ use crate::core::auth_conversion::{can_convert_to_password, find_oauth_config_fo
 use crate::core::inbound_test::{InboundTestError, InboundTestParams};
 use crate::core::oauth_flow::OAuthSession;
 use crate::core::provider::{
-    MaxTlsVersion, ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
+    MaxTlsVersion, ProviderEncryption, ServerConfig, UsernameType,
 };
 use crate::core::provider_dropdown;
 use crate::core::reauth::find_oauth_config_for_reauth;
@@ -554,7 +554,8 @@ pub(crate) fn show(
         .build();
 
     // -- Provider dropdown (FR-29, FR-30, FR-31) --
-    let provider_db_for_dropdown = ProviderDatabase::bundled();
+    let provider_db_for_dropdown =
+        crate::services::user_provider_service::load_merged_provider_database();
     let dropdown_entries = provider_dropdown::build_dropdown_entries(&provider_db_for_dropdown);
     let provider_labels: Vec<String> = dropdown_entries
         .iter()
@@ -646,7 +647,7 @@ pub(crate) fn show(
             let entry = &dropdown_entries_rc[idx];
 
             // Pre-fill from provider database.
-            let db = ProviderDatabase::bundled();
+            let db = crate::services::user_provider_service::load_merged_provider_database();
             if let Some(prefill) = provider_dropdown::prefill_for_provider(&db, &entry.id) {
                 host_row.set_text(&prefill.hostname);
                 port_row.set_value(f64::from(prefill.port));
@@ -715,7 +716,7 @@ pub(crate) fn show(
     auth_group.add(&password_row);
 
     // -- Re-authorize button for OAuth accounts (FR-25, US-18, US-19) --
-    let provider_db = ProviderDatabase::bundled();
+    let provider_db = crate::services::user_provider_service::load_merged_provider_database();
     let oauth_config_for_reauth = find_oauth_config_for_reauth(&account, &provider_db)
         .map(|config| config.with_tenant(account.oauth_tenant()));
     let reauth_btn = gtk::Button::builder()

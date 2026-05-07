@@ -96,6 +96,16 @@ pub fn import_provider_file(source_path: &std::path::Path) -> Result<usize, User
     Ok(import_count)
 }
 
+/// Load the provider database merged with any user-supplied custom providers.
+///
+/// Falls back to the bundled-only database if the user provider file is
+/// absent or cannot be read/parsed.
+pub fn load_merged_provider_database() -> crate::core::provider::ProviderDatabase {
+    let user_content = load_user_provider_file().ok().flatten();
+    crate::core::user_provider_file::build_merged_database(user_content.as_deref())
+        .unwrap_or_else(|_| crate::core::provider::ProviderDatabase::bundled())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
