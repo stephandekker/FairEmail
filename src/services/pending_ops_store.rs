@@ -157,6 +157,23 @@ pub fn remove_pending_move_for_message(
     Ok(count)
 }
 
+/// Remove any pending copy operations for a specific message (supersession).
+pub fn remove_pending_copy_for_message(
+    conn: &Connection,
+    account_id: &str,
+    message_id: i64,
+) -> Result<usize, DatabaseError> {
+    let count = conn.execute(
+        "DELETE FROM pending_operations
+         WHERE account_id = ?1
+           AND kind = 'copy_message'
+           AND state IN ('pending', 'in_flight')
+           AND json_extract(payload, '$.message_id') = ?2",
+        rusqlite::params![account_id, message_id],
+    )?;
+    Ok(count)
+}
+
 /// Count pending operations for an account.
 pub fn count_pending_ops(conn: &Connection, account_id: &str) -> Result<i64, DatabaseError> {
     let count: i64 = conn.query_row(

@@ -9,6 +9,8 @@ pub enum OperationKind {
     StoreFlags,
     /// Move a message between folders.
     MoveMessage,
+    /// Copy a message to another folder.
+    CopyMessage,
     /// Delete a message (expunge from server).
     DeleteMessage,
     /// Send a message via SMTP.
@@ -26,6 +28,7 @@ impl OperationKind {
         match self {
             OperationKind::StoreFlags => "store_flags",
             OperationKind::MoveMessage => "move_message",
+            OperationKind::CopyMessage => "copy_message",
             OperationKind::DeleteMessage => "delete_message",
             OperationKind::Send => "send",
             OperationKind::FolderCreate => "folder-create",
@@ -38,6 +41,7 @@ impl OperationKind {
         match s {
             "store_flags" => Some(OperationKind::StoreFlags),
             "move_message" => Some(OperationKind::MoveMessage),
+            "copy_message" => Some(OperationKind::CopyMessage),
             "delete_message" => Some(OperationKind::DeleteMessage),
             "send" => Some(OperationKind::Send),
             "folder-create" => Some(OperationKind::FolderCreate),
@@ -99,6 +103,15 @@ pub struct SendPayload {
 /// Payload for a move-message operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MoveMessagePayload {
+    pub message_id: i64,
+    pub uid: u32,
+    pub source_folder: String,
+    pub destination_folder: String,
+}
+
+/// Payload for a copy-message operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CopyMessagePayload {
     pub message_id: i64,
     pub uid: u32,
     pub source_folder: String,
@@ -201,6 +214,22 @@ mod tests {
     }
 
     #[test]
+    fn copy_message_payload_serializes() {
+        let payload = CopyMessagePayload {
+            message_id: 10,
+            uid: 200,
+            source_folder: "INBOX".to_string(),
+            destination_folder: "Archive".to_string(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        let parsed: CopyMessagePayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.message_id, 10);
+        assert_eq!(parsed.uid, 200);
+        assert_eq!(parsed.source_folder, "INBOX");
+        assert_eq!(parsed.destination_folder, "Archive");
+    }
+
+    #[test]
     fn delete_message_payload_serializes() {
         let payload = DeleteMessagePayload {
             message_id: 5,
@@ -219,6 +248,7 @@ mod tests {
         let kinds = [
             OperationKind::StoreFlags,
             OperationKind::MoveMessage,
+            OperationKind::CopyMessage,
             OperationKind::DeleteMessage,
             OperationKind::Send,
             OperationKind::FolderCreate,

@@ -191,6 +191,21 @@ pub fn move_message_to_folder(
     Ok(true)
 }
 
+/// Add a message to an additional folder (for copy operations).
+/// The message remains in all existing folders; only the new folder link is added.
+/// Returns true if the row was inserted (false if already present due to OR IGNORE).
+pub fn copy_message_to_folder(
+    conn: &Connection,
+    message_id: i64,
+    destination_folder_id: i64,
+) -> Result<bool, DatabaseError> {
+    let inserted = conn.execute(
+        "INSERT OR IGNORE INTO message_folders (message_id, folder_id) VALUES (?1, ?2)",
+        rusqlite::params![message_id, destination_folder_id],
+    )?;
+    Ok(inserted > 0)
+}
+
 /// Update the UID on a message row (after a server-side move assigns a new UID).
 /// Returns true if the row was found and updated.
 pub fn update_message_uid(

@@ -40,6 +40,14 @@ pub enum SyncEvent {
         destination_folder: String,
         new_uid: Option<u32>,
     },
+    /// A message was successfully copied to another folder on the server.
+    MessageCopied {
+        account_id: String,
+        message_id: i64,
+        source_folder: String,
+        destination_folder: String,
+        new_uid: Option<u32>,
+    },
     /// The folder list for an account has changed (create, rename, or delete).
     FolderListChanged { account_id: String },
     /// A message was permanently deleted (expunged) from the server.

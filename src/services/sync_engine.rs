@@ -25,8 +25,9 @@ use crate::core::account::FolderRole;
 use crate::core::content_store::ContentStore;
 use crate::core::message::FLAG_SEEN;
 use crate::core::pending_operation::{
-    DeleteMessagePayload, FolderCreatePayload, FolderDeletePayload, FolderRenamePayload,
-    MoveMessagePayload, OperationKind, OperationState, SendPayload, StoreFlagsPayload,
+    CopyMessagePayload, DeleteMessagePayload, FolderCreatePayload, FolderDeletePayload,
+    FolderRenamePayload, MoveMessagePayload, OperationKind, OperationState, SendPayload,
+    StoreFlagsPayload,
 };
 use crate::core::sync_event::SyncEvent;
 use crate::services::database::{open_and_migrate, DatabaseError};
@@ -374,6 +375,58 @@ impl ImapExpunger for MockImapExpunger {
         match &self.should_fail {
             Some(err) => Err(err.clone()),
             None => Ok(()),
+        }
+    }
+}
+
+/// Trait abstracting IMAP copy operations for testability.
+///
+/// Executes a UID COPY command on the server. The original message remains
+/// in the source folder; only a copy is placed in the destination folder.
+pub(crate) trait ImapCopier: Send + Sync {
+    /// Copy a message from source to destination folder on the server.
+    /// Returns the new UID in the destination folder on success (if available).
+    fn copy_message(
+        &self,
+        params: &ImapConnectParams,
+        source_folder: &str,
+        destination_folder: &str,
+        uid: u32,
+    ) -> Result<Option<u32>, String>;
+}
+
+/// Real IMAP copier that connects to the server.
+pub(crate) struct RealImapCopier;
+
+impl ImapCopier for RealImapCopier {
+    fn copy_message(
+        &self,
+        params: &ImapConnectParams,
+        source_folder: &str,
+        destination_folder: &str,
+        uid: u32,
+    ) -> Result<Option<u32>, String> {
+        imap_copy_message(params, source_folder, destination_folder, uid)
+    }
+}
+
+/// Mock IMAP copier for testing.
+pub(crate) struct MockImapCopier {
+    pub should_fail: Option<String>,
+    pub new_uid: Option<u32>,
+}
+
+impl ImapCopier for MockImapCopier {
+    fn copy_message(
+        &self,
+        _params: &ImapConnectParams,
+        _source_folder: &str,
+        _destination_folder: &str,
+        _uid: u32,
+    ) -> Result<Option<u32>, String> {
+        match &self.should_fail {
+            Some(err) => Err(err.clone()),
+            None => Ok(self.new_uid),
         }
     }
 }
@@ -1631,6 +1684,218 @@ fn imap_move_message(
     }
 }
 
+/// Perform an IMAP COPY command (UID COPY) to copy a message to another folder.
+///
+/// Unlike `imap_move_message`, the source message is left untouched — no STORE
+/// \Deleted and no EXPUNGE. Returns the new UID from the COPYUID response code
+/// when the server provides one.
+fn imap_copy_message(
+    params: &ImapConnectParams,
+    source_folder: &str,
+    destination_folder: &str,
+    uid: u32,
+) -> Result<Option<u32>, String> {
+    use crate::core::account::EncryptionMode;
+    use native_tls::TlsConnector;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let addr_str = format!("{}:{}", params.host, params.port);
+    let addr: std::net::SocketAddr = addr_str
+        .parse()
+        .or_else(|_| {
+            use std::net::ToSocketAddrs;
+            addr_str
+                .to_socket_addrs()
+                .map_err(|e| e.to_string())?
+                .next()
+                .ok_or_else(|| "DNS resolution failed".to_string())
+        })
+        .map_err(|e| format!("DNS resolution failed: {e}"))?;
+
+    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(30))
+        .map_err(|e| format!("connection failed: {e}"))?;
+    tcp.set_read_timeout(Some(Duration::from_secs(60))).ok();
+    tcp.set_write_timeout(Some(Duration::from_secs(60))).ok();
+
+    /// Parse a COPYUID response code to extract the destination UID.
+    fn parse_copyuid(response: &str) -> Option<u32> {
+        if let Some(start) = response.find("[COPYUID ") {
+            let after = &response[start + 9..];
+            let parts: Vec<&str> = after.split_whitespace().collect();
+            if parts.len() >= 3 {
+                let uid_str = parts[2].trim_end_matches(']');
+                return uid_str.parse().ok();
+            }
+        }
+        None
+    }
+
+    macro_rules! run_copy_session {
+        ($reader:expr, $writer:expr) => {{
+            // Read greeting
+            let mut line = String::new();
+            $reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read greeting: {e}"))?;
+            if !line.to_uppercase().starts_with("* OK")
+                && !line.to_uppercase().starts_with("* PREAUTH")
+            {
+                return Err(format!("unexpected greeting: {}", line.trim()));
+            }
+
+            // Login
+            let username = imap_quote(&params.username);
+            let password = imap_quote(&params.password);
+            let cmd = format!("A001 LOGIN {username} {password}\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write login: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush login: {e}"))?;
+
+            let mut resp = String::new();
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read login response: {e}"))?;
+                resp.push_str(&l);
+                if l.starts_with("A001") {
+                    break;
+                }
+            }
+            if !resp.contains("A001 OK") {
+                return Err("authentication failed".to_string());
+            }
+
+            // SELECT source folder
+            let quoted_src = imap_quote(source_folder);
+            let cmd = format!("A002 SELECT {quoted_src}\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write select: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush select: {e}"))?;
+
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read select: {e}"))?;
+                if l.starts_with("A002") {
+                    if !l.contains("OK") {
+                        return Err(format!("SELECT failed: {}", l.trim()));
+                    }
+                    break;
+                }
+            }
+
+            // UID COPY to destination folder
+            let quoted_dst = imap_quote(destination_folder);
+            let cmd = format!("A003 UID COPY {uid} {quoted_dst}\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write COPY: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush COPY: {e}"))?;
+
+            let mut copy_resp = String::new();
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read COPY response: {e}"))?;
+                copy_resp.push_str(&l);
+                if l.starts_with("A003") {
+                    if !l.contains("OK") {
+                        return Err(format!("COPY failed: {}", l.trim()));
+                    }
+                    break;
+                }
+            }
+            let new_uid = parse_copyuid(&copy_resp);
+
+            // Logout
+            let cmd = "A099 LOGOUT\r\n";
+            let _ = $writer.write_all(cmd.as_bytes());
+            let _ = $writer.flush();
+
+            Ok(new_uid)
+        }};
+    }
+
+    match params.encryption {
+        EncryptionMode::SslTls => {
+            let mut builder = TlsConnector::builder();
+            if params.insecure || params.accepted_fingerprint.is_some() {
+                builder.danger_accept_invalid_certs(true);
+                builder.danger_accept_invalid_hostnames(true);
+            }
+            let connector = builder
+                .build()
+                .map_err(|e| format!("TLS build error: {e}"))?;
+            let tls = connector
+                .connect(&params.host, tcp)
+                .map_err(|e| format!("TLS handshake failed: {e}"))?;
+            let mut reader = BufReader::new(tls);
+            run_copy_session!(reader, reader.get_mut())
+        }
+        EncryptionMode::None => {
+            let tcp_clone = tcp.try_clone().map_err(|e| format!("clone tcp: {e}"))?;
+            let mut reader = BufReader::new(tcp);
+            let mut writer = tcp_clone;
+            run_copy_session!(reader, writer)
+        }
+        EncryptionMode::StartTls => {
+            let tcp_clone = tcp.try_clone().map_err(|e| format!("clone tcp: {e}"))?;
+            let mut reader = BufReader::new(tcp);
+            let mut writer = tcp_clone;
+
+            let mut line = String::new();
+            reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read greeting: {e}"))?;
+            if !line.to_uppercase().starts_with("* OK")
+                && !line.to_uppercase().starts_with("* PREAUTH")
+            {
+                return Err(format!("unexpected greeting: {}", line.trim()));
+            }
+
+            writer
+                .write_all(b"A000 STARTTLS\r\n")
+                .map_err(|e| format!("write STARTTLS: {e}"))?;
+            writer.flush().map_err(|e| format!("flush STARTTLS: {e}"))?;
+
+            let mut resp = String::new();
+            loop {
+                let mut l = String::new();
+                reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read STARTTLS resp: {e}"))?;
+                resp.push_str(&l);
+                if l.starts_with("A000") {
+                    break;
+                }
+            }
+            if !resp.to_uppercase().contains("OK") {
+                return Err("STARTTLS rejected".to_string());
+            }
+
+            let tcp_inner = reader.into_inner();
+            let mut builder = TlsConnector::builder();
+            if params.insecure || params.accepted_fingerprint.is_some() {
+                builder.danger_accept_invalid_certs(true);
+                builder.danger_accept_invalid_hostnames(true);
+            }
+            let connector = builder.build().map_err(|e| format!("TLS build: {e}"))?;
+            let tls = connector
+                .connect(&params.host, tcp_inner)
+                .map_err(|e| format!("STARTTLS upgrade: {e}"))?;
+            let mut reader = BufReader::new(tls);
+            run_copy_session!(reader, reader.get_mut())
+        }
+    }
+}
+
 /// Handle to the running sync engine. Dropping it signals shutdown.
 pub(crate) struct SyncEngineHandle {
     _shutdown_tx: tokio::sync::watch::Sender<bool>,
@@ -1824,6 +2089,7 @@ async fn process_account_ops(
         Arc::new(RealImapAppender),
         Arc::new(RealImapMover),
         Arc::new(RealImapExpunger),
+        Arc::new(RealImapCopier),
         None,
         None,
         folder_ops,
@@ -1849,6 +2115,7 @@ async fn process_account_ops_full(
     imap_appender: Arc<dyn ImapAppender>,
     imap_mover: Arc<dyn ImapMover>,
     imap_expunger: Arc<dyn ImapExpunger>,
+    imap_copier: Arc<dyn ImapCopier>,
     smtp_params_fn: Option<Arc<SmtpParamsFn>>,
     content_reader_fn: Option<Arc<ContentReaderFn>>,
     folder_ops: Arc<dyn ImapFolderOps>,
@@ -2044,6 +2311,79 @@ async fn process_account_ops_full(
                             message_id: move_payload.message_id,
                             source_folder: move_payload.source_folder,
                             destination_folder: move_payload.destination_folder,
+                            new_uid,
+                        });
+                    }
+                    Ok(Err(err_msg)) => {
+                        let sync_err = SyncError::Imap(err_msg.clone());
+                        if is_transient_error(&sync_err) {
+                            match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
+                                Ok(retry_count) => {
+                                    let delay = backoff_duration(retry_count - 1);
+                                    tokio::time::sleep(delay).await;
+                                }
+                                Err(e) => {
+                                    eprintln!("sync engine: requeue failed: {e}");
+                                }
+                            }
+                        } else {
+                            let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                            let _ = event_sender.send(SyncEvent::OperationFailed {
+                                account_id: account_id.to_string(),
+                                operation_id: op.id,
+                                error: err_msg,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        let err_msg = format!("task join error: {e}");
+                        let _ = pending_ops_store::requeue_op(&conn, op.id, &err_msg);
+                    }
+                }
+            }
+            OperationKind::CopyMessage => {
+                let copy_payload: CopyMessagePayload = match serde_json::from_str(&op.payload) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let err_msg = format!("invalid copy payload: {e}");
+                        let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                        let _ = event_sender.send(SyncEvent::OperationFailed {
+                            account_id: account_id.to_string(),
+                            operation_id: op.id,
+                            error: err_msg,
+                        });
+                        i += 1;
+                        continue;
+                    }
+                };
+
+                let copier_clone = imap_copier.clone();
+                let params_clone = params.clone();
+                let src = copy_payload.source_folder.clone();
+                let dst = copy_payload.destination_folder.clone();
+                let uid = copy_payload.uid;
+
+                let result = tokio::task::spawn_blocking(move || {
+                    copier_clone.copy_message(&params_clone, &src, &dst, uid)
+                })
+                .await;
+
+                match result {
+                    Ok(Ok(new_uid)) => {
+                        let _ = pending_ops_store::complete_op(&conn, op.id);
+                        // Update the local UID mapping if the server assigned a new UID.
+                        if let Some(nuid) = new_uid {
+                            let _ = crate::services::message_store::update_message_uid(
+                                &conn,
+                                copy_payload.message_id,
+                                nuid,
+                            );
+                        }
+                        let _ = event_sender.send(SyncEvent::MessageCopied {
+                            account_id: account_id.to_string(),
+                            message_id: copy_payload.message_id,
+                            source_folder: copy_payload.source_folder,
+                            destination_folder: copy_payload.destination_folder,
                             new_uid,
                         });
                     }
@@ -3333,6 +3673,10 @@ mod tests {
                 new_uid: None,
             }),
             Arc::new(MockImapExpunger { should_fail: None }),
+            Arc::new(MockImapCopier {
+                should_fail: None,
+                new_uid: None,
+            }),
             Some(smtp_params_fn),
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
@@ -3387,6 +3731,10 @@ mod tests {
                     new_uid: None,
                 }),
                 Arc::new(MockImapExpunger { should_fail: None }),
+                Arc::new(MockImapCopier {
+                    should_fail: None,
+                    new_uid: None,
+                }),
                 Some(smtp_params_fn),
                 None,
                 Arc::new(MockImapFolderOps { should_fail: None }),
@@ -3435,6 +3783,10 @@ mod tests {
                 new_uid: None,
             }),
             Arc::new(MockImapExpunger { should_fail: None }),
+            Arc::new(MockImapCopier {
+                should_fail: None,
+                new_uid: None,
+            }),
             Some(smtp_params_fn),
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
@@ -3490,6 +3842,10 @@ mod tests {
                 new_uid: None,
             }),
             Arc::new(MockImapExpunger { should_fail: None }),
+            Arc::new(MockImapCopier {
+                should_fail: None,
+                new_uid: None,
+            }),
             Some(smtp_params_fn),
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
@@ -3713,6 +4069,10 @@ mod tests {
                 new_uid: None,
             }),
             Arc::new(MockImapExpunger { should_fail: None }),
+            Arc::new(MockImapCopier {
+                should_fail: None,
+                new_uid: None,
+            }),
             None,
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
@@ -3780,6 +4140,10 @@ mod tests {
             Arc::new(MockImapExpunger {
                 should_fail: Some("authentication failed".to_string()),
             }),
+            Arc::new(MockImapCopier {
+                should_fail: None,
+                new_uid: None,
+            }),
             None,
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
@@ -3843,6 +4207,10 @@ mod tests {
                 }),
                 Arc::new(MockImapExpunger {
                     should_fail: Some("connection timed out".to_string()),
+                }),
+                Arc::new(MockImapCopier {
+                    should_fail: None,
+                    new_uid: None,
                 }),
                 None,
                 None,

@@ -12,6 +12,7 @@ pub mod connection_log;
 pub mod connection_state;
 pub mod connection_test;
 pub mod content_store;
+pub mod copy_message;
 pub mod credential_log;
 pub mod credential_store;
 pub mod delete_account;
@@ -118,6 +119,7 @@ pub use connection_test::{
     ConnectionTestError, ConnectionTestRequest, ConnectionTestResult, ServerTestOutcome,
 };
 pub use content_store::{ContentStore, ContentStoreError};
+pub use copy_message::{copy_message, CopyMessageError, CopyMessageResult};
 pub use credential_log::{
     log_auth_result, log_mechanism_negotiation, sanitize_log_message, AuthDiagnosticEvent,
 };
@@ -191,8 +193,8 @@ pub use oauth_wizard::{
 };
 pub use password_propagation::{password_has_changed, propagate_password_to_identities};
 pub use pending_operation::{
-    DeleteMessagePayload, MoveMessagePayload, OperationKind, OperationState, PendingOperation,
-    SendPayload, StoreFlagsPayload,
+    CopyMessagePayload, DeleteMessagePayload, MoveMessagePayload, OperationKind, OperationState,
+    PendingOperation, SendPayload, StoreFlagsPayload,
 };
 pub use permanent_delete::{permanent_delete, PermanentDeleteError, PermanentDeleteResult};
 pub use port_autofill::{default_port, should_autofill, smtp_default_port};
