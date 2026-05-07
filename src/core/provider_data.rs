@@ -56,6 +56,8 @@ fn p(
         subtitle: None,
         registration_url: None,
         graph: None,
+        debug_only: false,
+        variant_of: None,
     }
 }
 
@@ -511,6 +513,7 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 13,
             );
             prov.supports_shared_mailbox = true;
+            prov.variant_of = Some("outlook".to_string());
             prov
         },
         // 14. Comcast / Xfinity
@@ -2161,5 +2164,18 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             "smtp.tuta.com",
             160,
         ),
+        // Debug-only test provider — visible only in debug/development mode (FR-12).
+        {
+            let mut prov = ssl_provider(
+                "debug_test_provider",
+                "Debug Test Provider",
+                &["debug-test.example.com"],
+                "imap.debug-test.example.com",
+                "smtp.debug-test.example.com",
+                9999,
+            );
+            prov.debug_only = true;
+            prov
+        },
     ]
 }

@@ -1171,5 +1171,7 @@ fn build_smtp_provider(host: &str, port: u16, encryption: EncryptionMode) -> Pro
         subtitle: None,
         registration_url: None,
         graph: None,
+        debug_only: false,
+        variant_of: None,
     }
 }

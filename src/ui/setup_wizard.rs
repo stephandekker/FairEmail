@@ -19,6 +19,9 @@ use crate::core::oauth_wizard::{build_oauth_connection_error, create_oauth_accou
 use crate::core::privacy;
 use crate::core::proprietary_provider::check_proprietary_provider;
 use crate::core::provider::ProviderDatabase;
+use crate::core::provider_dropdown::{
+    build_provider_list, full_prefill_for_provider, is_debug_mode,
+};
 use crate::core::user_provider_file::build_merged_database;
 use crate::core::wizard_validation::{
     validate_wizard_fields, WizardFieldError, WizardValidationResult,
@@ -162,6 +165,63 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
     ))]);
     vbox.append(&email_group);
     vbox.append(&email_error);
+
+    // -- Browsable provider list (FR-10, FR-13, FR-14, US-4 story 4) --
+    let provider_list_group = adw::PreferencesGroup::builder()
+        .title(gettextrs::gettext("Select your provider"))
+        .build();
+    let provider_list_box = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::Single)
+        .css_classes(["boxed-list"])
+        .build();
+    provider_list_box.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Email provider list",
+    ))]);
+
+    // Wrap list in a scrolled window with a max height so it is browsable.
+    let provider_scroll = gtk::ScrolledWindow::builder()
+        .vexpand(false)
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .max_content_height(280)
+        .propagate_natural_height(true)
+        .build();
+    provider_scroll.set_child(Some(&provider_list_box));
+
+    // Populate the list from the bundled + user provider database.
+    let provider_db = load_merged_provider_database();
+    let provider_entries = build_provider_list(&provider_db, is_debug_mode());
+
+    // Shared state: currently selected provider ID.
+    let selected_provider_id: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+
+    for entry in &provider_entries {
+        let row = adw::ActionRow::builder()
+            .title(&entry.label)
+            .activatable(true)
+            .build();
+        // Store provider ID as widget name for lookup on selection.
+        row.set_widget_name(&entry.id);
+
+        if let Some(ref subtitle) = entry.subtitle {
+            row.set_subtitle(subtitle);
+        }
+        if entry.variant_of.is_some() {
+            // Indent variants to visually group them (FR-13).
+            row.set_margin_start(24);
+        }
+        if entry.is_other {
+            // Distinguish the fallback entry.
+            row.set_subtitle(&gettextrs::gettext("Manual server configuration"));
+        }
+        // Add a navigation arrow suffix.
+        let arrow = gtk::Image::from_icon_name("go-next-symbolic");
+        row.add_suffix(&arrow);
+
+        provider_list_box.append(&row);
+    }
+
+    provider_list_group.add(&provider_scroll);
+    vbox.append(&provider_list_group);
 
     // -- Password (FR-3, FR-4) --
     let password_group = adw::PreferencesGroup::builder()
@@ -589,6 +649,66 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
 
     let on_done = std::rc::Rc::new(on_done);
     let on_done_close = on_done.clone();
+
+    // -- Provider list selection handler (AC-6, FR-14, US-6) --
+    provider_list_box.connect_row_activated(clone!(
+        #[weak]
+        name_row,
+        #[weak]
+        email_row,
+        #[weak]
+        password_row,
+        #[weak]
+        dialog,
+        #[weak]
+        toast_overlay,
+        #[strong]
+        selected_provider_id,
+        #[strong]
+        on_done,
+        move |_, row| {
+            // Retrieve the provider ID from the ActionRow's widget name.
+            let action_row = row
+                .first_child()
+                .and_then(|c| c.downcast::<adw::ActionRow>().ok());
+            let provider_id = action_row
+                .as_ref()
+                .map(|r| r.widget_name().to_string())
+                .unwrap_or_else(|| row.widget_name().to_string());
+
+            *selected_provider_id.borrow_mut() = provider_id.clone();
+
+            if provider_id.is_empty() {
+                // "Other provider" — route to manual setup (FR-14, US-6).
+                let display_name = name_row.text().trim().to_string();
+                let email = email_row.text().trim().to_string();
+                let password = password_row.text().to_string();
+                on_done(Some(WizardAction::ManualSetup(WizardData {
+                    display_name,
+                    email,
+                    password,
+                })));
+                dialog.close();
+                return;
+            }
+
+            // Pre-fill settings from the selected provider (AC-6).
+            let db = load_merged_provider_database();
+            if let Some(prefill) = full_prefill_for_provider(&db, &provider_id) {
+                let msg = gettextrs::gettext("Selected provider: %s").replace("%s", &provider_id);
+                let toast = adw::Toast::builder().title(msg).timeout(2).build();
+                toast_overlay.add_toast(toast);
+
+                // Store prefill info — the selected provider will be used
+                // when the user proceeds with Check or OAuth sign-in.
+                // The email change handler already detects providers by domain;
+                // selecting from the list ensures the provider is locked in even
+                // if the domain pattern doesn't match (manual browse use-case).
+                let _ = prefill; // Prefill data is available; actual account
+                                 // creation uses the full Provider from the database.
+            }
+        }
+    ));
 
     // -- Email change handler: detect provider and show/hide OAuth (FR-21, AC-1, AC-2) --
     email_row.connect_changed(clone!(

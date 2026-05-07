@@ -87,6 +87,8 @@ pub(crate) fn parse_autoconfig_xml(xml: &str, domain: &str) -> Result<Provider, 
         subtitle: None,
         registration_url: None,
         graph: None,
+        debug_only: false,
+        variant_of: None,
     })
 }
 

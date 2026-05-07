@@ -202,6 +202,8 @@ pub(crate) fn discover_by_srv(
         subtitle: None,
         registration_url: None,
         graph: None,
+        debug_only: false,
+        variant_of: None,
     };
 
     Some(ProviderCandidate {

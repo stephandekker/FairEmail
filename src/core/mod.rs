@@ -183,8 +183,9 @@ pub use provider::{
     UsernameType,
 };
 pub use provider_dropdown::{
-    build_dropdown_entries, index_for_provider_id, prefill_for_provider, provider_guidance,
-    ProviderDropdownEntry, ProviderPrefill,
+    build_dropdown_entries, build_provider_list, full_prefill_for_provider, index_for_provider_id,
+    is_debug_mode, prefill_for_provider, provider_guidance, FullProviderPrefill,
+    ProviderDropdownEntry, ProviderListEntry, ProviderPrefill,
 };
 pub use provider_quirks::{lookup_quirks, ProviderQuirks, SmtpOAuthStrategy};
 pub use reauth::{

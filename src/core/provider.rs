@@ -185,6 +185,13 @@ pub struct Provider {
     /// Microsoft Graph profile for REST-based mail operations (FR-3, FR-23).
     #[serde(default)]
     pub graph: Option<OAuthConfig>,
+    /// Whether this provider is only shown in debug/development mode (FR-12).
+    #[serde(default)]
+    pub debug_only: bool,
+    /// If set, this provider is an alternative variant of the named primary
+    /// provider (FR-13). The value is the `id` of the primary provider.
+    #[serde(default)]
+    pub variant_of: Option<String>,
 }
 
 /// Confidence score for a provider match.
@@ -485,6 +492,8 @@ mod tests {
             subtitle: None,
             registration_url: None,
             graph: None,
+            debug_only: false,
+            variant_of: None,
         }
     }
 
@@ -647,6 +656,8 @@ mod tests {
             subtitle: None,
             registration_url: None,
             graph: None,
+            debug_only: false,
+            variant_of: None,
         };
 
         let candidate = ProviderCandidate {
@@ -704,6 +715,8 @@ mod tests {
             subtitle: None,
             registration_url: None,
             graph: None,
+            debug_only: false,
+            variant_of: None,
         };
 
         let candidate = ProviderCandidate {
@@ -772,6 +785,8 @@ mod tests {
             subtitle: None,
             registration_url: None,
             graph: None,
+            debug_only: false,
+            variant_of: None,
         };
 
         let candidate = ProviderCandidate {

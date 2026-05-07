@@ -2698,6 +2698,8 @@ fn build_smtp_provider(
         subtitle: None,
         registration_url: None,
         graph: None,
+        debug_only: false,
+        variant_of: None,
     }
 }
 

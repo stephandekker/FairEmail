@@ -112,6 +112,8 @@ pub(crate) fn discover_by_port_scan(
         subtitle: None,
         registration_url: None,
         graph: None,
+        debug_only: false,
+        variant_of: None,
     };
 
     Ok(PortScanResult {

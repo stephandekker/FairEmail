@@ -142,6 +142,8 @@ mod tests {
             subtitle: None,
             registration_url: None,
             graph: None,
+            debug_only: false,
+            variant_of: None,
         }
     }
 
