@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 17;
+const CURRENT_VERSION: u32 = 18;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -89,10 +89,24 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 17 {
         migrate_v17(conn)?;
     }
+    if version < 18 {
+        migrate_v18(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v18: Add `sync_window_days` and `keep_window_days` columns to
+/// `folders` table. These control how far back the application synchronizes
+/// and how long messages are kept locally, per folder (US-25, FR-41–FR-44).
+fn migrate_v18(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        "ALTER TABLE folders ADD COLUMN sync_window_days INTEGER NOT NULL DEFAULT 7;
+         ALTER TABLE folders ADD COLUMN keep_window_days INTEGER NOT NULL DEFAULT 30;",
+    )?;
     Ok(())
 }
 

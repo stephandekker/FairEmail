@@ -218,6 +218,71 @@ pub fn folder_name_by_role(
     }
 }
 
+/// Load the retention config (sync_window_days, keep_window_days) for a folder.
+/// Returns the default (7, 30) if the folder is not found.
+pub fn load_retention_config(
+    conn: &Connection,
+    account_id: &str,
+    folder_name: &str,
+) -> Result<crate::core::retention::RetentionConfig, DatabaseError> {
+    let result = conn.query_row(
+        "SELECT sync_window_days, keep_window_days FROM folders WHERE account_id = ?1 AND name = ?2",
+        rusqlite::params![account_id, folder_name],
+        |row| {
+            let sync: u32 = row.get(0)?;
+            let keep: u32 = row.get(1)?;
+            Ok((sync, keep))
+        },
+    );
+    match result {
+        Ok((sync, keep)) => Ok(crate::core::retention::RetentionConfig::new(sync, keep)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            Ok(crate::core::retention::RetentionConfig::default())
+        }
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
+/// Load the retention config by folder id.
+pub fn load_retention_config_by_id(
+    conn: &Connection,
+    folder_id: i64,
+) -> Result<crate::core::retention::RetentionConfig, DatabaseError> {
+    let result = conn.query_row(
+        "SELECT sync_window_days, keep_window_days FROM folders WHERE id = ?1",
+        rusqlite::params![folder_id],
+        |row| {
+            let sync: u32 = row.get(0)?;
+            let keep: u32 = row.get(1)?;
+            Ok((sync, keep))
+        },
+    );
+    match result {
+        Ok((sync, keep)) => Ok(crate::core::retention::RetentionConfig::new(sync, keep)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            Ok(crate::core::retention::RetentionConfig::default())
+        }
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
+/// Update the retention config for a folder.
+/// Enforces that keep_window_days >= sync_window_days.
+pub fn set_retention_config(
+    conn: &Connection,
+    account_id: &str,
+    folder_name: &str,
+    sync_window_days: u32,
+    keep_window_days: u32,
+) -> Result<bool, DatabaseError> {
+    let cfg = crate::core::retention::RetentionConfig::new(sync_window_days, keep_window_days);
+    let updated = conn.execute(
+        "UPDATE folders SET sync_window_days = ?1, keep_window_days = ?2 WHERE account_id = ?3 AND name = ?4",
+        rusqlite::params![cfg.sync_window_days, cfg.keep_window_days, account_id, folder_name],
+    )?;
+    Ok(updated > 0)
+}
+
 fn parse_folder_role(s: &str) -> Option<FolderRole> {
     match s {
         "Drafts" => Some(FolderRole::Drafts),

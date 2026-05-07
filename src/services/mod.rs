@@ -51,8 +51,9 @@ pub use connection_log_store::{append_connection_logs, load_connection_logs};
 pub use connection_tester::{ConnectionTester, MockConnectionTester};
 pub use export_service::{export_to_file, ExportResult, ExportServiceError};
 pub use folder_store::{
-    is_folder_notifications_enabled, load_folders, replace_folders,
-    set_folder_notifications_enabled,
+    is_folder_notifications_enabled, load_folders, load_retention_config,
+    load_retention_config_by_id, replace_folders, set_folder_notifications_enabled,
+    set_retention_config,
 };
 pub use folder_sync::{
     perform_folder_setup, FolderSyncService, MockFolderSyncService, RealFolderSyncService,
@@ -75,10 +76,11 @@ pub(crate) use message_fetch::{
     fetch_and_store_folder, incremental_sync_folder, IncrementalSyncResult,
 };
 pub use message_store::{
-    count_messages, count_messages_in_folder, delete_message, delete_messages_for_folder,
-    find_folder_id, find_message_by_uid_in_folder, insert_message, load_folder_sync_state,
-    load_message, load_uids_for_folder, mark_flags_confirmed, update_folder_sync_state,
-    update_message_flags, update_message_flags_pending,
+    count_messages, count_messages_in_folder, delete_message, delete_messages_beyond_keep_window,
+    delete_messages_for_folder, find_folder_id, find_message_by_uid_in_folder, insert_message,
+    load_folder_sync_state, load_message, load_uids_for_folder, load_uids_within_sync_window,
+    mark_flags_confirmed, update_folder_sync_state, update_message_flags,
+    update_message_flags_pending,
 };
 pub use notification_channel::{
     FreedesktopNotificationChannelManager, MockNotificationChannelManager,

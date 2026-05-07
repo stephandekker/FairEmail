@@ -436,6 +436,75 @@ pub fn delete_messages_by_uids_in_folder(
     Ok(orphaned_hashes)
 }
 
+/// Delete messages in a folder whose `date_received` is older than the given
+/// cutoff timestamp. This is a local-only cleanup — it does NOT delete messages
+/// from the server (FR-44). Returns content hashes that should be deleted from
+/// the content store (those with no remaining references).
+pub fn delete_messages_beyond_keep_window(
+    conn: &Connection,
+    account_id: &str,
+    folder_id: i64,
+    keep_cutoff_timestamp: i64,
+) -> Result<Vec<String>, DatabaseError> {
+    // Find messages in this folder older than the cutoff.
+    let mut stmt = conn.prepare(
+        "SELECT m.id, m.content_hash FROM messages m
+         JOIN message_folders mf ON mf.message_id = m.id
+         WHERE m.account_id = ?1 AND mf.folder_id = ?2
+           AND m.date_received IS NOT NULL
+           AND m.date_received < ?3",
+    )?;
+    let rows: Vec<(i64, String)> = stmt
+        .query_map(
+            rusqlite::params![account_id, folder_id, keep_cutoff_timestamp],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut orphaned_hashes = Vec::new();
+    for (msg_id, hash) in &rows {
+        conn.execute(
+            "DELETE FROM message_folders WHERE message_id = ?1 AND folder_id = ?2",
+            rusqlite::params![msg_id, folder_id],
+        )?;
+        conn.execute(
+            "DELETE FROM messages WHERE id = ?1",
+            rusqlite::params![msg_id],
+        )?;
+        let remaining = count_by_content_hash(conn, hash)?;
+        if remaining == 0 {
+            orphaned_hashes.push(hash.clone());
+        }
+    }
+
+    Ok(orphaned_hashes)
+}
+
+/// Load UIDs of messages in a folder whose `date_received` is within the sync
+/// window (i.e. at or after the cutoff). Messages outside this window are
+/// not checked for flag changes on routine sync cycles (AC-24).
+pub fn load_uids_within_sync_window(
+    conn: &Connection,
+    account_id: &str,
+    folder_id: i64,
+    sync_cutoff_timestamp: i64,
+) -> Result<Vec<u32>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT m.uid FROM messages m
+         JOIN message_folders mf ON mf.message_id = m.id
+         WHERE m.account_id = ?1 AND mf.folder_id = ?2
+           AND (m.date_received IS NULL OR m.date_received >= ?3)
+         ORDER BY m.uid",
+    )?;
+    let uids = stmt
+        .query_map(
+            rusqlite::params![account_id, folder_id, sync_cutoff_timestamp],
+            |row| row.get(0),
+        )?
+        .collect::<Result<Vec<u32>, _>>()?;
+    Ok(uids)
+}
+
 /// Find a message by UID and folder, returning (message_id, current_flags, flags_pending_sync).
 pub fn find_message_by_uid_in_folder_with_pending(
     conn: &Connection,

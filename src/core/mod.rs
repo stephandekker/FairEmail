@@ -66,6 +66,7 @@ pub(crate) mod provider_data;
 pub mod provider_dropdown;
 pub mod provider_quirks;
 pub mod reauth;
+pub mod retention;
 #[allow(dead_code)]
 pub(crate) mod revocation;
 pub mod save_auto_test;
@@ -226,6 +227,10 @@ pub use provider_quirks::{lookup_quirks, ProviderQuirks, SmtpOAuthStrategy};
 pub use reauth::{
     find_matching_account, find_oauth_config_for_reauth, reauthorize_account, ReauthError,
     ReauthParams,
+};
+pub use retention::{
+    RetentionConfig, DEFAULT_KEEP_WINDOW_DAYS, DEFAULT_KEEP_WINDOW_DAYS_DRAFTS,
+    DEFAULT_SYNC_WINDOW_DAYS,
 };
 #[allow(unused_imports)]
 pub(crate) use revocation::{

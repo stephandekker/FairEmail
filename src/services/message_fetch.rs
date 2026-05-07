@@ -16,10 +16,11 @@ use crate::core::server_flag_detection::{
 use crate::core::sync_event::SyncEvent;
 use crate::services::imap_client::{fetch_folder_messages, ImapConnectParams};
 use crate::services::message_store::{
-    delete_messages_by_uids_in_folder, delete_messages_for_folder, find_folder_id,
-    find_message_by_uid_in_folder_with_pending, insert_message, load_folder_last_sync_at,
-    load_folder_sync_state, load_uids_for_folder, update_folder_last_sync_at,
-    update_folder_sync_state, update_message_flags,
+    delete_messages_beyond_keep_window, delete_messages_by_uids_in_folder,
+    delete_messages_for_folder, find_folder_id, find_message_by_uid_in_folder_with_pending,
+    insert_message, load_folder_last_sync_at, load_folder_sync_state, load_uids_for_folder,
+    load_uids_within_sync_window, update_folder_last_sync_at, update_folder_sync_state,
+    update_message_flags,
 };
 use crate::services::pending_ops_store::cancel_pending_ops_for_folder;
 use crate::services::sync_state_store::load_sync_state;
@@ -208,9 +209,21 @@ pub(crate) fn incremental_sync_folder(
         )
     };
 
-    // Record successful sync timestamp.
+    // Record successful sync timestamp and run keep-window cleanup.
     if result.is_ok() {
         let _ = update_folder_last_sync_at(conn, folder_id, now);
+
+        // FR-44: Remove messages outside the keep window (local only).
+        let retention = crate::services::folder_store::load_retention_config_by_id(conn, folder_id)
+            .unwrap_or_default();
+        let keep_cutoff = retention.keep_cutoff_timestamp(now);
+        if let Ok(orphaned) =
+            delete_messages_beyond_keep_window(conn, &params.account_id, folder_id, keep_cutoff)
+        {
+            for hash in &orphaned {
+                let _ = content_store.delete(hash);
+            }
+        }
     }
 
     result
@@ -253,6 +266,19 @@ fn sync_condstore(
         });
     }
 
+    // AC-24: Compute sync window cutoff so we skip flag checks for old messages.
+    let retention = crate::services::folder_store::load_retention_config_by_id(conn, folder_id)
+        .unwrap_or_default();
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let sync_cutoff = retention.sync_cutoff_timestamp(now_secs);
+    let windowed_uids: std::collections::HashSet<u32> =
+        load_uids_within_sync_window(conn, &params.account_id, folder_id, sync_cutoff)?
+            .into_iter()
+            .collect();
+
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
@@ -271,7 +297,10 @@ fn sync_condstore(
 
         match (existing, &changed.body) {
             // Existing message — check flags with pending-sync guard.
-            (Some((msg_id, old_flags, pending)), None | Some(_)) => {
+            // Skip flag updates for messages outside the sync window (AC-24).
+            (Some((msg_id, old_flags, pending)), None | Some(_))
+                if windowed_uids.contains(&changed.uid) =>
+            {
                 let new_flags = flags_from_imap(&changed.flags);
                 match detect_flag_change(old_flags, new_flags, pending) {
                     FlagChangeAction::Apply { new_flags } => {
@@ -300,6 +329,8 @@ fn sync_condstore(
                 insert_message(&tx, &new_msg, folder_id)?;
                 bodies_fetched += 1;
             }
+            // Existing message outside the sync window — skip flag check (AC-24).
+            (Some(_), _) => {}
             // New message but no body (shouldn't happen with BODY.PEEK[] in FETCH).
             (None, None) => {
                 // Skip — cannot store without body data.
@@ -389,10 +420,20 @@ fn sync_uid_diff(
         return handle_uidvalidity_change(conn, content_store, params, folder_name, folder_id);
     }
 
-    // Scope UIDs to the sync window (None = no restriction).
-    // Currently sync_window_min_uid is not yet configurable (story 19);
-    // defaulting to None means the full UID range is compared.
-    let sync_window_min_uid: Option<u32> = None;
+    // AC-24: Scope UIDs to the sync window so messages outside the window
+    // are not checked for flag changes on routine sync cycles.
+    let retention = crate::services::folder_store::load_retention_config_by_id(conn, folder_id)
+        .unwrap_or_default();
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let sync_cutoff = retention.sync_cutoff_timestamp(now_secs);
+    let windowed_local_uids =
+        load_uids_within_sync_window(conn, &params.account_id, folder_id, sync_cutoff)?;
+    // Derive a minimum UID from the windowed local set. Messages with UIDs
+    // below this are outside the sync window and not actively compared.
+    let sync_window_min_uid: Option<u32> = windowed_local_uids.first().copied();
     let scoped_server_uids = scope_uids_to_window(&diff_result.server_uids, sync_window_min_uid);
     let scoped_local_uids = scope_uids_to_window(&local_uids, sync_window_min_uid);
 
