@@ -30,6 +30,8 @@ pub struct Message {
     pub body_text: Option<String>,
     pub thread_id: Option<String>,
     pub server_thread_id: Option<String>,
+    /// Whether local flag changes are pending server confirmation.
+    pub flags_pending_sync: bool,
 }
 
 /// Parameters for inserting a new message (before the id is assigned).

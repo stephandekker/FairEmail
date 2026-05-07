@@ -61,7 +61,8 @@ pub fn load_message(conn: &Connection, id: i64) -> Result<Option<Message>, Datab
         "SELECT id, account_id, uid, modseq, message_id, in_reply_to, references_header,
                 from_addresses, to_addresses, cc_addresses, bcc_addresses,
                 subject, date_received, date_sent, flags, size,
-                content_hash, body_text, thread_id, server_thread_id
+                content_hash, body_text, thread_id, server_thread_id,
+                flags_pending_sync
          FROM messages WHERE id = ?1",
     )?;
 
@@ -87,6 +88,7 @@ pub fn load_message(conn: &Connection, id: i64) -> Result<Option<Message>, Datab
             body_text: row.get(17)?,
             thread_id: row.get(18)?,
             server_thread_id: row.get(19)?,
+            flags_pending_sync: row.get::<_, i32>(20)? != 0,
         })
     });
 
@@ -141,6 +143,30 @@ pub fn update_message_flags(
     let updated = conn.execute(
         "UPDATE messages SET flags = ?1 WHERE id = ?2",
         rusqlite::params![new_flags, message_id],
+    )?;
+    Ok(updated > 0)
+}
+
+/// Update the flags on a message and mark the change as pending server sync.
+/// Returns true if the row was found and updated.
+pub fn update_message_flags_pending(
+    conn: &Connection,
+    message_id: i64,
+    new_flags: u32,
+) -> Result<bool, DatabaseError> {
+    let updated = conn.execute(
+        "UPDATE messages SET flags = ?1, flags_pending_sync = 1 WHERE id = ?2",
+        rusqlite::params![new_flags, message_id],
+    )?;
+    Ok(updated > 0)
+}
+
+/// Mark a message's flags as confirmed by the server (no longer pending sync).
+/// Returns true if the row was found and updated.
+pub fn mark_flags_confirmed(conn: &Connection, message_id: i64) -> Result<bool, DatabaseError> {
+    let updated = conn.execute(
+        "UPDATE messages SET flags_pending_sync = 0 WHERE id = ?1",
+        rusqlite::params![message_id],
     )?;
     Ok(updated > 0)
 }

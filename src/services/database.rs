@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 13;
+const CURRENT_VERSION: u32 = 14;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -77,10 +77,22 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 13 {
         migrate_v13(conn)?;
     }
+    if version < 14 {
+        migrate_v14(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v14: Add `flags_pending_sync` column to `messages` table.
+/// Tracks whether local flag changes have been confirmed by the IMAP server.
+fn migrate_v14(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        "ALTER TABLE messages ADD COLUMN flags_pending_sync INTEGER NOT NULL DEFAULT 0;",
+    )?;
     Ok(())
 }
 

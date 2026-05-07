@@ -1161,6 +1161,11 @@ async fn process_account_ops_full(
                 match result {
                     Ok(Ok(())) => {
                         let _ = pending_ops_store::complete_op(&conn, op.id);
+                        // Mark local flags as confirmed by the server.
+                        let _ = crate::services::message_store::mark_flags_confirmed(
+                            &conn,
+                            payload.message_id,
+                        );
                         let _ = event_sender.send(SyncEvent::MessageFlagsChanged {
                             account_id: account_id.to_string(),
                             message_id: payload.message_id,

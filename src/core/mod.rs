@@ -34,6 +34,7 @@ pub mod inbound_test;
 pub mod inbound_test_diagnostics;
 #[allow(dead_code)]
 pub(crate) mod ispdb_discovery;
+pub mod mark_read;
 pub mod message;
 pub mod navigation;
 pub(crate) mod ntlm;
@@ -152,6 +153,7 @@ pub use inbound_test::{
 };
 pub use inbound_test_diagnostics::{diagnose_error, ConnectionDiagnostic};
 pub use ispdb_discovery::AutoconfigError;
+pub use mark_read::{mark_message_read, MarkReadError, MarkReadResult};
 pub use message::{
     derive_body_text, flags_from_imap, parse_raw_message, Message, NewMessage, FLAG_ANSWERED,
     FLAG_DELETED, FLAG_DRAFT, FLAG_FLAGGED, FLAG_SEEN,
