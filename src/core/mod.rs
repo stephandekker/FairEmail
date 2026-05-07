@@ -182,7 +182,8 @@ pub use oauth_wizard::{
 };
 pub use password_propagation::{password_has_changed, propagate_password_to_identities};
 pub use pending_operation::{
-    OperationKind, OperationState, PendingOperation, SendPayload, StoreFlagsPayload,
+    DeleteMessagePayload, MoveMessagePayload, OperationKind, OperationState, PendingOperation,
+    SendPayload, StoreFlagsPayload,
 };
 pub use port_autofill::{default_port, should_autofill, smtp_default_port};
 pub use primary::{

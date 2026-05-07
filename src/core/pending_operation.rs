@@ -5,8 +5,12 @@ use serde::{Deserialize, Serialize};
 /// The kind of pending operation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperationKind {
-    /// STORE flags (mark read/unread).
+    /// STORE flags (mark read/unread, flag/unflag).
     StoreFlags,
+    /// Move a message between folders.
+    MoveMessage,
+    /// Delete a message (expunge from server).
+    DeleteMessage,
     /// Send a message via SMTP.
     Send,
     /// Create a folder on the IMAP server.
@@ -21,6 +25,8 @@ impl OperationKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             OperationKind::StoreFlags => "store_flags",
+            OperationKind::MoveMessage => "move_message",
+            OperationKind::DeleteMessage => "delete_message",
             OperationKind::Send => "send",
             OperationKind::FolderCreate => "folder-create",
             OperationKind::FolderRename => "folder-rename",
@@ -31,6 +37,8 @@ impl OperationKind {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "store_flags" => Some(OperationKind::StoreFlags),
+            "move_message" => Some(OperationKind::MoveMessage),
+            "delete_message" => Some(OperationKind::DeleteMessage),
             "send" => Some(OperationKind::Send),
             "folder-create" => Some(OperationKind::FolderCreate),
             "folder-rename" => Some(OperationKind::FolderRename),
@@ -86,6 +94,23 @@ pub struct SendPayload {
     /// Inline RFC 5322 message bytes (base64-encoded), used when the draft
     /// was not previously persisted in the content store.
     pub inline_rfc822_b64: Option<String>,
+}
+
+/// Payload for a move-message operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MoveMessagePayload {
+    pub message_id: i64,
+    pub uid: u32,
+    pub source_folder: String,
+    pub destination_folder: String,
+}
+
+/// Payload for a delete-message operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteMessagePayload {
+    pub message_id: i64,
+    pub uid: u32,
+    pub folder_name: String,
 }
 
 /// Payload for a folder-create operation.
@@ -157,5 +182,56 @@ mod tests {
         assert_eq!(parsed.message_id, 42);
         assert_eq!(parsed.uid, 100);
         assert_eq!(parsed.new_flags, 1);
+    }
+
+    #[test]
+    fn move_message_payload_serializes() {
+        let payload = MoveMessagePayload {
+            message_id: 10,
+            uid: 200,
+            source_folder: "INBOX".to_string(),
+            destination_folder: "Archive".to_string(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        let parsed: MoveMessagePayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.message_id, 10);
+        assert_eq!(parsed.uid, 200);
+        assert_eq!(parsed.source_folder, "INBOX");
+        assert_eq!(parsed.destination_folder, "Archive");
+    }
+
+    #[test]
+    fn delete_message_payload_serializes() {
+        let payload = DeleteMessagePayload {
+            message_id: 5,
+            uid: 300,
+            folder_name: "Trash".to_string(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        let parsed: DeleteMessagePayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.message_id, 5);
+        assert_eq!(parsed.uid, 300);
+        assert_eq!(parsed.folder_name, "Trash");
+    }
+
+    #[test]
+    fn all_operation_kinds_roundtrip() {
+        let kinds = [
+            OperationKind::StoreFlags,
+            OperationKind::MoveMessage,
+            OperationKind::DeleteMessage,
+            OperationKind::Send,
+            OperationKind::FolderCreate,
+            OperationKind::FolderRename,
+            OperationKind::FolderDelete,
+        ];
+        for kind in kinds {
+            assert_eq!(
+                OperationKind::parse(kind.as_str()),
+                Some(kind.clone()),
+                "roundtrip failed for {:?}",
+                kind
+            );
+        }
     }
 }

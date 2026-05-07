@@ -229,4 +229,76 @@ mod tests {
 
         assert_eq!(count_pending_ops(&conn, "acct-1").unwrap(), 1);
     }
+
+    #[test]
+    fn queue_holds_1000_entries_without_degradation() {
+        let (_dir, conn) = setup_db();
+        let mut ids = Vec::with_capacity(1000);
+        for i in 0..1000 {
+            let payload = format!(r#"{{"n":{}}}"#, i);
+            let id =
+                insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, &payload).unwrap();
+            ids.push(id);
+        }
+
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 1000);
+        // Verify insertion order preserved
+        for (i, op) in ops.iter().enumerate() {
+            assert_eq!(op.id, ids[i]);
+        }
+        assert_eq!(count_pending_ops(&conn, "acct-1").unwrap(), 1000);
+    }
+
+    #[test]
+    fn operations_survive_close_and_reopen() {
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("test.db");
+
+        // Open DB, insert operations, then drop (close) the connection.
+        {
+            let conn = open_and_migrate(&db_path).unwrap();
+            conn.execute(
+                "INSERT INTO accounts (id, display_name, protocol, host, port, encryption, auth_method, username, credential)
+                 VALUES ('acct-1', 'Test', 'Imap', 'imap.example.com', 993, 'SslTls', 'Plain', 'user', '')",
+                [],
+            ).unwrap();
+            insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, r#"{"n":1}"#).unwrap();
+            insert_pending_op(&conn, "acct-1", &OperationKind::MoveMessage, r#"{"n":2}"#).unwrap();
+            insert_pending_op(&conn, "acct-1", &OperationKind::DeleteMessage, r#"{"n":3}"#)
+                .unwrap();
+            // Connection dropped here — simulates crash/restart.
+        }
+
+        // Reopen and verify operations survived.
+        let conn2 = open_and_migrate(&db_path).unwrap();
+        let ops = load_pending_ops(&conn2, "acct-1").unwrap();
+        assert_eq!(ops.len(), 3);
+        assert_eq!(ops[0].kind, OperationKind::StoreFlags);
+        assert_eq!(ops[1].kind, OperationKind::MoveMessage);
+        assert_eq!(ops[2].kind, OperationKind::DeleteMessage);
+        // Verify ordering is preserved after reopen.
+        assert!(ops[0].id < ops[1].id);
+        assert!(ops[1].id < ops[2].id);
+    }
+
+    #[test]
+    fn different_accounts_are_independent() {
+        let (_dir, conn) = setup_db();
+        conn.execute(
+            "INSERT INTO accounts (id, display_name, protocol, host, port, encryption, auth_method, username, credential)
+             VALUES ('acct-2', 'Test2', 'Imap', 'imap.example.com', 993, 'SslTls', 'Plain', 'user2', '')",
+            [],
+        ).unwrap();
+
+        insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, r#"{"a":1}"#).unwrap();
+        insert_pending_op(&conn, "acct-2", &OperationKind::MoveMessage, r#"{"b":2}"#).unwrap();
+
+        let ops1 = load_pending_ops(&conn, "acct-1").unwrap();
+        let ops2 = load_pending_ops(&conn, "acct-2").unwrap();
+        assert_eq!(ops1.len(), 1);
+        assert_eq!(ops2.len(), 1);
+        assert_eq!(ops1[0].kind, OperationKind::StoreFlags);
+        assert_eq!(ops2[0].kind, OperationKind::MoveMessage);
+    }
 }

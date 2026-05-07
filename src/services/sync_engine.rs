@@ -1194,6 +1194,19 @@ async fn process_account_ops_full(
                     }
                 }
             }
+            OperationKind::MoveMessage | OperationKind::DeleteMessage => {
+                // Queue infrastructure is in place; execution will be implemented
+                // in a later story (two-way IMAP sync execution).
+                let err_msg = format!("{} execution not yet implemented", op.kind.as_str());
+                let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                let _ = event_sender.send(SyncEvent::OperationFailed {
+                    account_id: account_id.to_string(),
+                    operation_id: op.id,
+                    error: err_msg,
+                });
+                i += 1;
+                continue;
+            }
             OperationKind::Send => {
                 let send_payload: SendPayload = match serde_json::from_str(&op.payload) {
                     Ok(p) => p,
