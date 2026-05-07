@@ -109,6 +109,31 @@ pub fn requeue_op(conn: &Connection, op_id: i64, error: &str) -> Result<i32, Dat
     Ok(retry_count)
 }
 
+/// Remove all pending/in-flight StoreFlags operations for a specific message.
+///
+/// Used during conflict resolution: when a new local flag change supersedes
+/// a stale pending operation (e.g. flag after a pending unflag from a previous
+/// session), the old operations are deleted so only the latest intent is queued.
+///
+/// Returns the number of operations removed.
+pub fn remove_pending_store_flags_for_message(
+    conn: &Connection,
+    account_id: &str,
+    message_id: i64,
+) -> Result<usize, DatabaseError> {
+    // StoreFlags payloads contain a "message_id" JSON field.
+    // We match on kind = 'store_flags' and use json_extract to find the message_id.
+    let count = conn.execute(
+        "DELETE FROM pending_operations
+         WHERE account_id = ?1
+           AND kind = 'store_flags'
+           AND state IN ('pending', 'in_flight')
+           AND json_extract(payload, '$.message_id') = ?2",
+        rusqlite::params![account_id, message_id],
+    )?;
+    Ok(count)
+}
+
 /// Count pending operations for an account.
 pub fn count_pending_ops(conn: &Connection, account_id: &str) -> Result<i64, DatabaseError> {
     let count: i64 = conn.query_row(
@@ -280,6 +305,41 @@ mod tests {
         // Verify ordering is preserved after reopen.
         assert!(ops[0].id < ops[1].id);
         assert!(ops[1].id < ops[2].id);
+    }
+
+    #[test]
+    fn remove_pending_store_flags_for_message_deletes_matching() {
+        let (_dir, conn) = setup_db();
+        let payload_a = r#"{"message_id":42,"uid":100,"folder_name":"INBOX","new_flags":1}"#;
+        let payload_b = r#"{"message_id":99,"uid":200,"folder_name":"INBOX","new_flags":2}"#;
+
+        insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, payload_a).unwrap();
+        insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, payload_b).unwrap();
+        assert_eq!(load_pending_ops(&conn, "acct-1").unwrap().len(), 2);
+
+        // Remove ops for message_id=42.
+        let removed = remove_pending_store_flags_for_message(&conn, "acct-1", 42).unwrap();
+        assert_eq!(removed, 1);
+
+        // Only message_id=99 op remains.
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 1);
+        assert!(ops[0].payload.contains("99"));
+    }
+
+    #[test]
+    fn remove_pending_store_flags_ignores_non_store_flags_ops() {
+        let (_dir, conn) = setup_db();
+        let store_payload = r#"{"message_id":42,"uid":100,"folder_name":"INBOX","new_flags":1}"#;
+        let move_payload =
+            r#"{"message_id":42,"uid":100,"source_folder":"INBOX","destination_folder":"Archive"}"#;
+
+        insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, store_payload).unwrap();
+        insert_pending_op(&conn, "acct-1", &OperationKind::MoveMessage, move_payload).unwrap();
+
+        let removed = remove_pending_store_flags_for_message(&conn, "acct-1", 42).unwrap();
+        assert_eq!(removed, 1, "only StoreFlags op removed");
+        assert_eq!(load_pending_ops(&conn, "acct-1").unwrap().len(), 1);
     }
 
     #[test]

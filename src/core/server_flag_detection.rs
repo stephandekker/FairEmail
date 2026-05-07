@@ -1,9 +1,10 @@
-//! Server flag change detection logic.
+//! Server flag change detection and conflict resolution logic.
 //!
 //! Pure business logic for deciding whether a server-side flag change should
 //! be applied to local state. The key rule: if the message has pending local
 //! flag changes (`flags_pending_sync`), the server update is skipped to avoid
-//! overwriting the user's intent. Conflict resolution is handled by story 5.
+//! overwriting the user's intent. This deterministic resolution ensures the
+//! most recent local action always wins over concurrent server changes.
 
 use crate::core::sync_event::SyncEvent;
 
@@ -115,6 +116,58 @@ mod tests {
         let server = FLAG_SEEN | FLAG_FLAGGED | FLAG_ANSWERED;
         let action = detect_flag_change(FLAG_SEEN, server, false);
         assert_eq!(action, FlagChangeAction::Apply { new_flags: server });
+    }
+
+    // --- Conflict resolution tests (story 5) ---
+
+    #[test]
+    fn conflict_local_pending_wins_over_server_seen() {
+        // User flagged locally, server reports \Seen — local pending wins.
+        let action = detect_flag_change(FLAG_FLAGGED, FLAG_SEEN, true);
+        assert_eq!(action, FlagChangeAction::SkippedPendingSync);
+    }
+
+    #[test]
+    fn conflict_server_accepted_when_no_pending() {
+        // No pending local change — server state is accepted.
+        let action = detect_flag_change(FLAG_FLAGGED, FLAG_SEEN, false);
+        assert_eq!(
+            action,
+            FlagChangeAction::Apply {
+                new_flags: FLAG_SEEN
+            }
+        );
+    }
+
+    #[test]
+    fn conflict_deleted_flag_skipped_when_pending() {
+        // Server sets \Deleted while local has a pending change — prefer
+        // keeping the message (skip server delete). This satisfies the
+        // "no data loss" acceptance criterion.
+        let action = detect_flag_change(FLAG_SEEN, FLAG_DELETED, true);
+        assert_eq!(action, FlagChangeAction::SkippedPendingSync);
+    }
+
+    #[test]
+    fn conflict_deleted_flag_accepted_when_no_pending() {
+        // Server sets \Deleted and no local pending — accept it.
+        let action = detect_flag_change(FLAG_SEEN, FLAG_DELETED, false);
+        assert_eq!(
+            action,
+            FlagChangeAction::Apply {
+                new_flags: FLAG_DELETED
+            }
+        );
+    }
+
+    #[test]
+    fn conflict_multiple_flags_pending_wins() {
+        // Complex scenario: local has SEEN|FLAGGED pending, server reports
+        // ANSWERED|DRAFT — local pending still wins.
+        let local = FLAG_SEEN | FLAG_FLAGGED;
+        let server = FLAG_ANSWERED | FLAG_DRAFT;
+        let action = detect_flag_change(local, server, true);
+        assert_eq!(action, FlagChangeAction::SkippedPendingSync);
     }
 
     #[test]

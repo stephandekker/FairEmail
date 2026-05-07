@@ -1240,6 +1240,146 @@ mod tests {
         );
     }
 
+    // --- Conflict resolution integration tests (story 5) ---
+
+    #[test]
+    fn conflict_server_change_skipped_pending_local_flag_then_local_wins() {
+        // AC1+AC3 integration: local flag change creates pending op, server
+        // sends a different flag change during sync — local intent is preserved.
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // User flags message uid=1 locally.
+        let (msg_id, _) = find_message_by_uid_in_folder(&conn, "acct-1", 1, fid)
+            .unwrap()
+            .unwrap();
+        crate::services::message_store::update_message_flags_pending(&conn, msg_id, FLAG_FLAGGED)
+            .unwrap();
+
+        // Server simultaneously reports uid=1 as \Seen (different change).
+        let changed = vec![ChangedMessage {
+            uid: 1,
+            flags: "\\Seen".to_string(),
+            modseq: Some(55),
+            body: None,
+        }];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(55),
+            changed,
+        )
+        .unwrap();
+
+        // Server change must be skipped — local intent wins.
+        assert_eq!(result.flags_updated, 0);
+        assert!(result.events.is_empty());
+
+        // Local flags remain as the user set them.
+        let (_, flags) = find_message_by_uid_in_folder(&conn, "acct-1", 1, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(flags, FLAG_FLAGGED);
+    }
+
+    #[test]
+    fn conflict_server_accepted_when_no_pending_op() {
+        // AC2: When no pending local op exists, server state is accepted.
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // No pending local changes on uid=2.
+        let changed = vec![ChangedMessage {
+            uid: 2,
+            flags: "\\Seen \\Flagged".to_string(),
+            modseq: Some(55),
+            body: None,
+        }];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(55),
+            changed,
+        )
+        .unwrap();
+
+        assert_eq!(result.flags_updated, 1);
+        assert_eq!(result.events.len(), 1);
+
+        let (_, flags) = find_message_by_uid_in_folder(&conn, "acct-1", 2, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(flags, FLAG_SEEN | FLAG_FLAGGED);
+    }
+
+    #[test]
+    fn conflict_deleted_flag_from_server_skipped_when_local_pending() {
+        // AC4: Server sets \Deleted while local has a pending flag change.
+        // Conflict resolution prefers keeping the message (no data loss).
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // User has a pending local flag change on uid=3.
+        let (msg_id, _) = find_message_by_uid_in_folder(&conn, "acct-1", 3, fid)
+            .unwrap()
+            .unwrap();
+        crate::services::message_store::update_message_flags_pending(
+            &conn,
+            msg_id,
+            crate::core::message::FLAG_SEEN,
+        )
+        .unwrap();
+
+        // Server reports uid=3 as \Deleted.
+        let changed = vec![ChangedMessage {
+            uid: 3,
+            flags: "\\Deleted".to_string(),
+            modseq: Some(60),
+            body: None,
+        }];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(60),
+            changed,
+        )
+        .unwrap();
+
+        // Server's \Deleted must be skipped — message is preserved.
+        assert_eq!(result.flags_updated, 0);
+        assert!(result.events.is_empty());
+
+        let (_, flags) = find_message_by_uid_in_folder(&conn, "acct-1", 3, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            flags,
+            crate::core::message::FLAG_SEEN,
+            "message kept with local flags, not deleted"
+        );
+    }
+
     #[test]
     fn uid_diff_flag_change_with_new_message_simultaneously() {
         use crate::services::imap_client::UidFlagEntry;

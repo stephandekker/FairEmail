@@ -75,6 +75,11 @@ pub fn set_message_flag(
     // Update flags locally and mark as pending sync.
     message_store::update_message_flags_pending(conn, message_id, new_flags)?;
 
+    // Supersede any stale pending StoreFlags operations for this message.
+    // This ensures the most recent local intent wins (e.g. a flag after a
+    // pending unflag from a previous session).
+    pending_ops_store::remove_pending_store_flags_for_message(conn, &msg.account_id, message_id)?;
+
     // Enqueue the operation for server execution.
     let payload = StoreFlagsPayload {
         message_id,
@@ -277,6 +282,120 @@ mod tests {
         // Local flags should be unchanged.
         let loaded = load_message(&conn, mid).unwrap().unwrap();
         assert_eq!(loaded.flags, 0);
+    }
+
+    // --- Conflict resolution: supersede stale pending ops (story 5) ---
+
+    #[test]
+    fn flag_after_pending_unflag_supersedes_old_op() {
+        // AC3: If flagged locally while a pending unflag exists, the most
+        // recent local action wins — old operation is removed.
+        let (_dir, conn) = setup_db();
+        let fid = find_folder_id(&conn, "acct-1", "INBOX").unwrap().unwrap();
+        let msg = make_message(60, FLAG_FLAGGED);
+        let mid = insert_message(&conn, &msg, fid).unwrap();
+
+        // First action: unflag.
+        set_message_flag(&conn, mid, "INBOX", FLAG_FLAGGED, FlagAction::Remove).unwrap();
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 1, "one pending unflag op");
+
+        // Second action: re-flag (supersedes the unflag).
+        set_message_flag(&conn, mid, "INBOX", FLAG_FLAGGED, FlagAction::Set).unwrap();
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(
+            ops.len(),
+            1,
+            "stale unflag removed, only new flag op remains"
+        );
+
+        // The remaining operation should carry the latest flags.
+        let payload: StoreFlagsPayload = serde_json::from_str(&ops[0].payload).unwrap();
+        assert_eq!(payload.new_flags, FLAG_FLAGGED);
+    }
+
+    #[test]
+    fn mark_read_then_unread_supersedes() {
+        let (_dir, conn) = setup_db();
+        let fid = find_folder_id(&conn, "acct-1", "INBOX").unwrap().unwrap();
+        let msg = make_message(61, 0);
+        let mid = insert_message(&conn, &msg, fid).unwrap();
+
+        // Mark read.
+        set_message_flag(&conn, mid, "INBOX", FLAG_SEEN, FlagAction::Set).unwrap();
+        assert_eq!(load_pending_ops(&conn, "acct-1").unwrap().len(), 1);
+
+        // Mark unread — supersedes the mark-read op.
+        set_message_flag(&conn, mid, "INBOX", FLAG_SEEN, FlagAction::Remove).unwrap();
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 1);
+        let payload: StoreFlagsPayload = serde_json::from_str(&ops[0].payload).unwrap();
+        assert_eq!(payload.new_flags, 0, "flags should be back to 0 (unseen)");
+    }
+
+    #[test]
+    fn supersede_does_not_affect_other_messages() {
+        let (_dir, conn) = setup_db();
+        let fid = find_folder_id(&conn, "acct-1", "INBOX").unwrap().unwrap();
+        let msg_a = make_message(70, 0);
+        let mid_a = insert_message(&conn, &msg_a, fid).unwrap();
+        let msg_b = make_message(71, 0);
+        let mid_b = insert_message(&conn, &msg_b, fid).unwrap();
+
+        // Flag both messages.
+        set_message_flag(&conn, mid_a, "INBOX", FLAG_FLAGGED, FlagAction::Set).unwrap();
+        set_message_flag(&conn, mid_b, "INBOX", FLAG_FLAGGED, FlagAction::Set).unwrap();
+        assert_eq!(load_pending_ops(&conn, "acct-1").unwrap().len(), 2);
+
+        // Unflag message A — should only supersede A's op, not B's.
+        set_message_flag(&conn, mid_a, "INBOX", FLAG_FLAGGED, FlagAction::Remove).unwrap();
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 2, "B's op is untouched, A's old op replaced");
+
+        // Verify the payloads: one for A (unflagged), one for B (flagged).
+        let payloads: Vec<StoreFlagsPayload> = ops
+            .iter()
+            .map(|op| serde_json::from_str(&op.payload).unwrap())
+            .collect();
+        let a_payload = payloads.iter().find(|p| p.message_id == mid_a).unwrap();
+        let b_payload = payloads.iter().find(|p| p.message_id == mid_b).unwrap();
+        assert_eq!(a_payload.new_flags, 0);
+        assert_eq!(b_payload.new_flags, FLAG_FLAGGED);
+    }
+
+    #[test]
+    fn dual_state_consistent_after_supersede() {
+        // AC5: The dual-state model is maintained after superseding ops.
+        let (_dir, conn) = setup_db();
+        let fid = find_folder_id(&conn, "acct-1", "INBOX").unwrap().unwrap();
+        let msg = make_message(62, FLAG_SEEN);
+        let mid = insert_message(&conn, &msg, fid).unwrap();
+
+        // Flag the message.
+        set_message_flag(&conn, mid, "INBOX", FLAG_FLAGGED, FlagAction::Set).unwrap();
+
+        // Then also mark as answered — supersedes the flag-only op.
+        set_message_flag(&conn, mid, "INBOX", FLAG_ANSWERED, FlagAction::Set).unwrap();
+
+        let loaded = load_message(&conn, mid).unwrap().unwrap();
+        assert_eq!(
+            loaded.flags,
+            FLAG_SEEN | FLAG_FLAGGED | FLAG_ANSWERED,
+            "local flags reflect all changes"
+        );
+        assert!(
+            loaded.flags_pending_sync,
+            "pending sync still true until server confirms"
+        );
+
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 1, "only the latest op remains");
+        let payload: StoreFlagsPayload = serde_json::from_str(&ops[0].payload).unwrap();
+        assert_eq!(
+            payload.new_flags,
+            FLAG_SEEN | FLAG_FLAGGED | FLAG_ANSWERED,
+            "pending op carries the full intended state"
+        );
     }
 
     // --- Not found ---
