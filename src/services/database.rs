@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 16;
+const CURRENT_VERSION: u32 = 17;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -86,10 +86,21 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 16 {
         migrate_v16(conn)?;
     }
+    if version < 17 {
+        migrate_v17(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v17: Add `last_sync_at` column to `folders` table.
+/// Stores a Unix timestamp of the last successful sync for this folder,
+/// enabling rapid re-sync detection (FR-12) for the full-sync fallback.
+fn migrate_v17(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch("ALTER TABLE folders ADD COLUMN last_sync_at INTEGER;")?;
     Ok(())
 }
 

@@ -8,6 +8,7 @@ use rusqlite::Connection;
 
 use crate::core::content_store::ContentStore;
 use crate::core::detect_new_messages::{find_new_uids, find_removed_uids};
+use crate::core::full_sync_fallback::{should_force_full_sync, RAPID_RESYNC_THRESHOLD_SECS};
 use crate::core::message::{flags_from_imap, parse_raw_message};
 use crate::core::server_flag_detection::{
     detect_flag_change, make_flag_change_event, FlagChangeAction,
@@ -16,8 +17,9 @@ use crate::core::sync_event::SyncEvent;
 use crate::services::imap_client::{fetch_folder_messages, ImapConnectParams};
 use crate::services::message_store::{
     delete_messages_by_uids_in_folder, delete_messages_for_folder, find_folder_id,
-    find_message_by_uid_in_folder_with_pending, insert_message, load_folder_sync_state,
-    load_uids_for_folder, update_folder_sync_state, update_message_flags,
+    find_message_by_uid_in_folder_with_pending, insert_message, load_folder_last_sync_at,
+    load_folder_sync_state, load_uids_for_folder, update_folder_last_sync_at,
+    update_folder_sync_state, update_message_flags,
 };
 use crate::services::sync_state_store::load_sync_state;
 
@@ -162,9 +164,18 @@ pub(crate) fn incremental_sync_folder(
         .map(|s| s.condstore_supported || s.qresync_supported)
         .unwrap_or(false);
 
-    if condstore {
+    // FR-12: If we synced recently (within 30s), force a full UID/flag
+    // comparison instead of relying on CONDSTORE cached state.
+    let last_sync_at = load_folder_last_sync_at(conn, folder_id)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let force_full = should_force_full_sync(last_sync_at, now, RAPID_RESYNC_THRESHOLD_SECS);
+
+    let result = if condstore && !force_full {
         if let Some(modseq) = cached_highestmodseq {
-            return sync_condstore(
+            sync_condstore(
                 conn,
                 content_store,
                 params,
@@ -172,19 +183,36 @@ pub(crate) fn incremental_sync_folder(
                 folder_id,
                 cached_uv,
                 modseq,
-            );
+            )
+        } else {
+            // No cached modseq — fall back to UID-set diff.
+            sync_uid_diff(
+                conn,
+                content_store,
+                params,
+                folder_name,
+                folder_id,
+                cached_uv,
+            )
         }
+    } else {
+        // Fallback: UID-set diff (no CONDSTORE or rapid re-sync).
+        sync_uid_diff(
+            conn,
+            content_store,
+            params,
+            folder_name,
+            folder_id,
+            cached_uv,
+        )
+    };
+
+    // Record successful sync timestamp.
+    if result.is_ok() {
+        let _ = update_folder_last_sync_at(conn, folder_id, now);
     }
 
-    // Fallback: UID-set diff.
-    sync_uid_diff(
-        conn,
-        content_store,
-        params,
-        folder_name,
-        folder_id,
-        cached_uv,
-    )
+    result
 }
 
 /// CONDSTORE incremental sync path.
@@ -332,6 +360,10 @@ fn sync_condstore(
 }
 
 /// UID-set diff fallback sync path (no CONDSTORE).
+///
+/// When `sync_window_min_uid` is `Some(min)`, only messages with UID >= min
+/// are checked for removal and flag changes. Messages below the window are
+/// retained locally but not compared during this sync cycle.
 fn sync_uid_diff(
     conn: &Connection,
     content_store: &dyn ContentStore,
@@ -340,6 +372,7 @@ fn sync_uid_diff(
     folder_id: i64,
     cached_uidvalidity: u32,
 ) -> Result<IncrementalSyncResult, FetchError> {
+    use crate::core::full_sync_fallback::scope_uids_to_window;
     use crate::services::imap_client::fetch_uid_diff;
 
     // Get local UIDs.
@@ -355,12 +388,21 @@ fn sync_uid_diff(
         return handle_uidvalidity_change(conn, content_store, params, folder_name, folder_id);
     }
 
-    // Use core detection logic to find new and removed UIDs.
-    let new_uids = find_new_uids(&diff_result.server_uids, &local_uids);
-    let removed_uids = find_removed_uids(&diff_result.server_uids, &local_uids, None);
-    let local_uid_set: std::collections::HashSet<u32> = local_uids.into_iter().collect();
+    // Scope UIDs to the sync window (None = no restriction).
+    // Currently sync_window_min_uid is not yet configurable (story 19);
+    // defaulting to None means the full UID range is compared.
+    let sync_window_min_uid: Option<u32> = None;
+    let scoped_server_uids = scope_uids_to_window(&diff_result.server_uids, sync_window_min_uid);
+    let scoped_local_uids = scope_uids_to_window(&local_uids, sync_window_min_uid);
 
-    // Detect flag changes for existing messages (UIDs in both local and server sets).
+    // Use core detection logic to find new and removed UIDs within the window.
+    let new_uids = find_new_uids(&scoped_server_uids, &scoped_local_uids);
+    let removed_uids =
+        find_removed_uids(&scoped_server_uids, &scoped_local_uids, sync_window_min_uid);
+    let scoped_local_set: std::collections::HashSet<u32> =
+        scoped_local_uids.iter().copied().collect();
+
+    // Detect flag changes for existing messages within the sync window.
     let mut flags_updated = 0;
     let mut events = Vec::new();
     {
@@ -369,7 +411,11 @@ fn sync_uid_diff(
         })?;
 
         for entry in &diff_result.server_flags {
-            if !local_uid_set.contains(&entry.uid) {
+            // Skip messages outside the sync window or not in local store.
+            if sync_window_min_uid.is_some_and(|min| entry.uid < min) {
+                continue;
+            }
+            if !scoped_local_set.contains(&entry.uid) {
                 continue; // New message — handled below.
             }
             if let Some((msg_id, old_flags, pending)) = find_message_by_uid_in_folder_with_pending(
@@ -644,6 +690,36 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
     server_flags: &[crate::services::imap_client::UidFlagEntry],
     new_messages: Vec<crate::services::imap_client::RawFetchedMessage>,
 ) -> Result<IncrementalSyncResult, FetchError> {
+    incremental_sync_uid_diff_with_window(
+        conn,
+        content_store,
+        account_id,
+        folder_name,
+        select_uidvalidity,
+        select_highestmodseq,
+        server_uids,
+        server_flags,
+        new_messages,
+        None,
+    )
+}
+
+/// Perform UID-set-diff sync with sync-window scoping (for testing).
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn incremental_sync_uid_diff_with_window(
+    conn: &Connection,
+    content_store: &dyn ContentStore,
+    account_id: &str,
+    folder_name: &str,
+    select_uidvalidity: u32,
+    select_highestmodseq: Option<u64>,
+    server_uids: &[u32],
+    server_flags: &[crate::services::imap_client::UidFlagEntry],
+    new_messages: Vec<crate::services::imap_client::RawFetchedMessage>,
+    sync_window_min_uid: Option<u32>,
+) -> Result<IncrementalSyncResult, FetchError> {
+    use crate::core::full_sync_fallback::scope_uids_to_window;
     use std::collections::HashSet;
 
     let folder_id = find_folder_id(conn, account_id, folder_name)?
@@ -679,17 +755,24 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
     }
 
     let local_uids_vec = load_uids_for_folder(conn, account_id, folder_id)?;
-    let local_uids: HashSet<u32> = local_uids_vec.iter().copied().collect();
+
+    // Scope to sync window.
+    let scoped_server = scope_uids_to_window(server_uids, sync_window_min_uid);
+    let scoped_local = scope_uids_to_window(&local_uids_vec, sync_window_min_uid);
+    let scoped_local_set: HashSet<u32> = scoped_local.iter().copied().collect();
 
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
 
-    // Detect flag changes for existing messages.
+    // Detect flag changes for existing messages within the sync window.
     let mut flags_updated = 0;
     let mut events = Vec::new();
     for entry in server_flags {
-        if !local_uids.contains(&entry.uid) {
+        if sync_window_min_uid.is_some_and(|min| entry.uid < min) {
+            continue;
+        }
+        if !scoped_local_set.contains(&entry.uid) {
             continue;
         }
         if let Some((msg_id, old_flags, pending)) =
@@ -707,10 +790,13 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
         }
     }
 
-    // Insert new messages.
+    // Insert new messages (within the sync window).
     let mut bodies_fetched = 0;
     for raw_msg in &new_messages {
-        if local_uids.contains(&raw_msg.uid) {
+        if sync_window_min_uid.is_some_and(|min| raw_msg.uid < min) {
+            continue;
+        }
+        if scoped_local_set.contains(&raw_msg.uid) {
             continue;
         }
         let content_hash = content_store.put(&raw_msg.data)?;
@@ -726,8 +812,8 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
         bodies_fetched += 1;
     }
 
-    // Detect messages removed on the server.
-    let removed_uids = find_removed_uids(server_uids, &local_uids_vec, None);
+    // Detect messages removed on the server (within the sync window).
+    let removed_uids = find_removed_uids(&scoped_server, &scoped_local, sync_window_min_uid);
     let messages_removed = removed_uids.len();
     let orphaned_hashes =
         delete_messages_by_uids_in_folder(&tx, account_id, folder_id, &removed_uids)?;
@@ -2517,5 +2603,335 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(flags3, 0);
+    }
+
+    // --- Full sync fallback tests (story 17) ---
+
+    #[test]
+    fn uid_diff_sync_window_scopes_removal_detection() {
+        // AC: The sync window limits how far back the comparison goes.
+        // Messages below the sync window should NOT be removed even if
+        // absent from the server UID list.
+        use crate::services::imap_client::UidFlagEntry;
+
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 3);
+
+        // Server only returns UIDs within the sync window (uid >= 3).
+        // UIDs 1 and 2 are below the window — should NOT be removed.
+        let result = incremental_sync_uid_diff_with_window(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[3], // server has only uid=3 within window
+            &[UidFlagEntry {
+                uid: 3,
+                flags: String::new(),
+            }],
+            Vec::new(),
+            Some(3), // sync_window_min_uid = 3
+        )
+        .unwrap();
+
+        // uid=1 and uid=2 are below window — not removed.
+        assert_eq!(result.messages_removed, 0);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 3);
+    }
+
+    #[test]
+    fn uid_diff_sync_window_detects_removal_within_window() {
+        // Messages within the sync window that are absent on server ARE removed.
+        use crate::services::imap_client::UidFlagEntry;
+
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Sync window starts at uid=2. Server has uid=2 but not uid=3.
+        let result = incremental_sync_uid_diff_with_window(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[2],
+            &[UidFlagEntry {
+                uid: 2,
+                flags: String::new(),
+            }],
+            Vec::new(),
+            Some(2),
+        )
+        .unwrap();
+
+        // uid=3 is within window (>=2) and absent on server — removed.
+        assert_eq!(result.messages_removed, 1);
+        assert!(find_message_by_uid_in_folder(&conn, "acct-1", 3, fid)
+            .unwrap()
+            .is_none());
+        // uid=1 is below window — retained.
+        assert!(find_message_by_uid_in_folder(&conn, "acct-1", 1, fid)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn uid_diff_sync_window_scopes_flag_comparison() {
+        // Flag changes for messages below the sync window should be ignored.
+        use crate::services::imap_client::UidFlagEntry;
+
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server reports flags for uid=1 (below window) and uid=3 (within window).
+        let server_flags = vec![
+            UidFlagEntry {
+                uid: 1,
+                flags: "\\Seen".to_string(),
+            },
+            UidFlagEntry {
+                uid: 3,
+                flags: "\\Flagged".to_string(),
+            },
+        ];
+
+        let result = incremental_sync_uid_diff_with_window(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3],
+            &server_flags,
+            Vec::new(),
+            Some(2), // window starts at uid=2
+        )
+        .unwrap();
+
+        // Only uid=3 flag change should be applied (within window).
+        assert_eq!(result.flags_updated, 1);
+
+        // uid=1 flags unchanged (below window).
+        let (_, flags1) = find_message_by_uid_in_folder(&conn, "acct-1", 1, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(flags1, 0, "uid=1 flags should not change (below window)");
+
+        // uid=3 flags updated.
+        let (_, flags3) = find_message_by_uid_in_folder(&conn, "acct-1", 3, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(flags3, FLAG_FLAGGED);
+    }
+
+    #[test]
+    fn uid_diff_sync_window_detects_new_messages_within_window() {
+        // New messages within the sync window should be detected and fetched.
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        let new_body = make_raw_email("WindowNew");
+        let new_messages = vec![RawFetchedMessage {
+            uid: 5,
+            flags: String::new(),
+            data: new_body,
+        }];
+
+        let result = incremental_sync_uid_diff_with_window(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3, 5],
+            &[],
+            new_messages,
+            Some(2), // window starts at uid=2
+        )
+        .unwrap();
+
+        // uid=5 is within window and new — should be fetched.
+        assert_eq!(result.bodies_fetched, 1);
+        assert!(find_message_by_uid_in_folder(&conn, "acct-1", 5, fid)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn uid_diff_no_window_compares_all_messages() {
+        // AC-23: Without optional extensions, all messages are compared.
+        use crate::services::imap_client::UidFlagEntry;
+
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // No sync window (None) — full comparison.
+        let server_flags = vec![UidFlagEntry {
+            uid: 1,
+            flags: "\\Seen".to_string(),
+        }];
+
+        let result = incremental_sync_uid_diff_with_window(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3],
+            &server_flags,
+            Vec::new(),
+            None, // no window restriction
+        )
+        .unwrap();
+
+        assert_eq!(result.flags_updated, 1);
+        let (_, flags1) = find_message_by_uid_in_folder(&conn, "acct-1", 1, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(flags1, FLAG_SEEN);
+    }
+
+    #[test]
+    fn uid_diff_works_without_condstore() {
+        // AC-23: The application functions correctly without any optional
+        // IMAP extensions. The UID-diff path does not require CONDSTORE.
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Simulate a full sync cycle with no CONDSTORE:
+        // - flag change on uid=2
+        // - new message uid=4
+        // - removal of uid=3
+        use crate::services::imap_client::UidFlagEntry;
+
+        let server_flags = vec![
+            UidFlagEntry {
+                uid: 1,
+                flags: String::new(),
+            },
+            UidFlagEntry {
+                uid: 2,
+                flags: "\\Seen".to_string(),
+            },
+            UidFlagEntry {
+                uid: 4,
+                flags: String::new(),
+            },
+        ];
+        let new_body = make_raw_email("NoCONDSTORE");
+        let new_messages = vec![RawFetchedMessage {
+            uid: 4,
+            flags: String::new(),
+            data: new_body,
+        }];
+
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None, // no highestmodseq — no CONDSTORE
+            &[1, 2, 4],
+            &server_flags,
+            new_messages,
+        )
+        .unwrap();
+
+        assert_eq!(result.flags_updated, 1, "flag change detected");
+        assert_eq!(result.bodies_fetched, 1, "new message detected");
+        assert_eq!(result.messages_removed, 1, "removal detected");
+        assert!(!result.full_refetch);
+
+        // Verify state.
+        let (_, flags2) = find_message_by_uid_in_folder(&conn, "acct-1", 2, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(flags2, FLAG_SEEN);
+        assert!(find_message_by_uid_in_folder(&conn, "acct-1", 3, fid)
+            .unwrap()
+            .is_none());
+        assert!(find_message_by_uid_in_folder(&conn, "acct-1", 4, fid)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn rapid_resync_detection_logic() {
+        // FR-12: Verify the should_force_full_sync logic directly.
+        use crate::core::full_sync_fallback::{
+            should_force_full_sync, RAPID_RESYNC_THRESHOLD_SECS,
+        };
+
+        // Within threshold — force full sync.
+        assert!(should_force_full_sync(
+            Some(990),
+            1000,
+            RAPID_RESYNC_THRESHOLD_SECS
+        ));
+
+        // Outside threshold — use CONDSTORE if available.
+        assert!(!should_force_full_sync(
+            Some(960),
+            1000,
+            RAPID_RESYNC_THRESHOLD_SECS
+        ));
+
+        // No previous sync — don't force.
+        assert!(!should_force_full_sync(
+            None,
+            1000,
+            RAPID_RESYNC_THRESHOLD_SECS
+        ));
+    }
+
+    #[test]
+    fn last_sync_at_persisted_and_loaded() {
+        // Verify that last_sync_at can be stored and retrieved per folder.
+        use crate::services::message_store::{
+            load_folder_last_sync_at, update_folder_last_sync_at,
+        };
+
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+
+        // Initially null.
+        let ts = load_folder_last_sync_at(&conn, fid).unwrap();
+        assert_eq!(ts, None);
+
+        // Update.
+        update_folder_last_sync_at(&conn, fid, 1700000000).unwrap();
+        let ts = load_folder_last_sync_at(&conn, fid).unwrap();
+        assert_eq!(ts, Some(1700000000));
+
+        // Update again.
+        update_folder_last_sync_at(&conn, fid, 1700000030).unwrap();
+        let ts = load_folder_last_sync_at(&conn, fid).unwrap();
+        assert_eq!(ts, Some(1700000030));
     }
 }

@@ -278,6 +278,36 @@ pub fn find_folder_id(
     }
 }
 
+/// Update the `last_sync_at` timestamp on a folder row.
+pub fn update_folder_last_sync_at(
+    conn: &Connection,
+    folder_id: i64,
+    last_sync_at: i64,
+) -> Result<(), DatabaseError> {
+    conn.execute(
+        "UPDATE folders SET last_sync_at = ?1 WHERE id = ?2",
+        rusqlite::params![last_sync_at, folder_id],
+    )?;
+    Ok(())
+}
+
+/// Load the cached `last_sync_at` timestamp for a folder.
+pub fn load_folder_last_sync_at(
+    conn: &Connection,
+    folder_id: i64,
+) -> Result<Option<i64>, DatabaseError> {
+    let result = conn.query_row(
+        "SELECT last_sync_at FROM folders WHERE id = ?1",
+        rusqlite::params![folder_id],
+        |row| row.get(0),
+    );
+    match result {
+        Ok(ts) => Ok(ts),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
 /// Load the cached uidvalidity and highestmodseq for a folder.
 pub fn load_folder_sync_state(
     conn: &Connection,

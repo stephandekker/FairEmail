@@ -29,6 +29,7 @@ pub mod ehlo;
 pub mod export_accounts;
 pub mod field_validation;
 pub mod folder_setup;
+pub mod full_sync_fallback;
 #[allow(dead_code)]
 pub(crate) mod graph_send;
 pub(crate) mod idle_manager;
