@@ -63,6 +63,7 @@ pub(crate) mod revocation;
 pub mod save_auto_test;
 #[allow(dead_code)]
 pub(crate) mod server_prefill;
+pub mod set_flags;
 pub mod smtp_check;
 pub mod smtp_identity;
 pub mod smtp_test_diagnostics;
@@ -216,6 +217,7 @@ pub(crate) use revocation::{
 pub(crate) use server_prefill::{
     prefill_from_domain, prefill_from_email, prefill_from_provider, ServerSettingsPrefill,
 };
+pub use set_flags::{set_message_flag, FlagAction, SetFlagsError, SetFlagsResult};
 pub use smtp_check::{
     combine_connectivity_results, ConnectivityCheckError, ConnectivityCheckResult, SmtpCheckError,
     SmtpCheckResult, SmtpCheckSuccess, SmtpConnectionParams,

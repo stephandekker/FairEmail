@@ -146,6 +146,39 @@ pub fn set_folder_notifications_enabled(
     Ok(updated > 0)
 }
 
+/// Check whether a folder is marked as read-only.
+/// Returns `false` if the folder is not found.
+pub fn is_folder_read_only(
+    conn: &Connection,
+    account_id: &str,
+    folder_name: &str,
+) -> Result<bool, DatabaseError> {
+    let result = conn.query_row(
+        "SELECT read_only FROM folders WHERE account_id = ?1 AND name = ?2",
+        rusqlite::params![account_id, folder_name],
+        |row| row.get::<_, i32>(0),
+    );
+    match result {
+        Ok(val) => Ok(val != 0),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
+/// Update the read_only flag for a specific folder.
+pub fn set_folder_read_only(
+    conn: &Connection,
+    account_id: &str,
+    folder_name: &str,
+    read_only: bool,
+) -> Result<bool, DatabaseError> {
+    let updated = conn.execute(
+        "UPDATE folders SET read_only = ?1 WHERE account_id = ?2 AND name = ?3",
+        rusqlite::params![read_only as i32, account_id, folder_name],
+    )?;
+    Ok(updated > 0)
+}
+
 fn parse_folder_role(s: &str) -> Option<FolderRole> {
     match s {
         "Drafts" => Some(FolderRole::Drafts),
