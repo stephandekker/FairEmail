@@ -631,6 +631,7 @@ dependencies = [
  "native-tls",
  "notify-rust",
  "rand 0.8.6",
+ "regex",
  "rusqlite",
  "secret-service",
  "serde",

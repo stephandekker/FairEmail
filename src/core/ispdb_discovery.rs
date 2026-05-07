@@ -84,6 +84,9 @@ pub(crate) fn parse_autoconfig_xml(xml: &str, domain: &str) -> Result<Provider, 
         display_order: 0,
         enabled: true,
         supports_shared_mailbox: false,
+        subtitle: None,
+        registration_url: None,
+        graph: None,
     })
 }
 

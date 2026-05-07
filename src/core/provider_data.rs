@@ -53,6 +53,9 @@ fn p(
         display_order: order,
         enabled: true,
         supports_shared_mailbox: false,
+        subtitle: None,
+        registration_url: None,
+        graph: None,
     }
 }
 

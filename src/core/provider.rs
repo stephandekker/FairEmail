@@ -1,3 +1,4 @@
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -141,6 +142,15 @@ pub struct Provider {
     /// `shared@domain\user@domain` for Outlook).
     #[serde(default)]
     pub supports_shared_mailbox: bool,
+    /// Descriptive subtitle (FR-3).
+    #[serde(default)]
+    pub subtitle: Option<String>,
+    /// Registration / sign-up URL (FR-3, FR-35).
+    #[serde(default)]
+    pub registration_url: Option<String>,
+    /// Microsoft Graph profile for REST-based mail operations (FR-3, FR-23).
+    #[serde(default)]
+    pub graph: Option<OAuthConfig>,
 }
 
 /// Confidence score for a provider match.
@@ -184,17 +194,46 @@ pub struct ProviderCandidate {
     pub score: MatchScore,
 }
 
+/// A compiled domain pattern for regex-based matching.
+struct CompiledPattern {
+    regex: Regex,
+    provider_idx: usize,
+    is_exact: bool,
+}
+
 /// The bundled provider database.
 pub struct ProviderDatabase {
     providers: Vec<Provider>,
     /// Index: domain -> list of (provider index, is_wildcard)
     domain_index: HashMap<String, Vec<(usize, bool)>>,
+    /// Compiled regex patterns for domain matching (FR-5, FR-7).
+    compiled_patterns: Vec<CompiledPattern>,
+}
+
+/// Convert a domain pattern string to a regex pattern.
+///
+/// - Literal domains (e.g. `gmail.com`) → anchored escaped regex `^gmail\.com$`
+/// - Glob wildcards (e.g. `*.example.com`) → `^.+\.example\.com$`
+/// - Regex patterns (containing `\`) → anchored as-is `^pattern$`
+fn pattern_to_regex(pattern: &str) -> Option<Regex> {
+    let regex_str = if let Some(suffix) = pattern.strip_prefix("*.") {
+        // Glob wildcard: *.example.com → matches any subdomain
+        format!("^.+\\.{}$", regex::escape(suffix))
+    } else if pattern.contains('\\') || pattern.contains('|') || pattern.contains('(') {
+        // Raw regex pattern (contains regex metacharacters)
+        format!("^{pattern}$")
+    } else {
+        // Literal domain name
+        format!("^{}$", regex::escape(pattern))
+    };
+    Regex::new(&format!("(?i){regex_str}")).ok()
 }
 
 impl ProviderDatabase {
     /// Build the database from a list of providers.
     pub fn new(providers: Vec<Provider>) -> Self {
         let mut domain_index: HashMap<String, Vec<(usize, bool)>> = HashMap::new();
+        let mut compiled_patterns = Vec::new();
 
         for (idx, provider) in providers.iter().enumerate() {
             if !provider.enabled {
@@ -202,6 +241,11 @@ impl ProviderDatabase {
             }
             for pattern in &provider.domain_patterns {
                 let lower = pattern.to_lowercase();
+                let is_exact = !lower.starts_with("*.")
+                    && !pattern.contains('\\')
+                    && !pattern.contains('|')
+                    && !pattern.contains('(');
+
                 if lower.starts_with("*.") {
                     // Wildcard: index by the suffix (without *.)
                     let suffix = lower.strip_prefix("*.").unwrap();
@@ -209,8 +253,17 @@ impl ProviderDatabase {
                         .entry(suffix.to_string())
                         .or_default()
                         .push((idx, true));
-                } else {
+                } else if is_exact {
                     domain_index.entry(lower).or_default().push((idx, false));
+                }
+
+                // Compile regex for all patterns
+                if let Some(regex) = pattern_to_regex(pattern) {
+                    compiled_patterns.push(CompiledPattern {
+                        regex,
+                        provider_idx: idx,
+                        is_exact,
+                    });
                 }
             }
         }
@@ -218,6 +271,7 @@ impl ProviderDatabase {
         Self {
             providers,
             domain_index,
+            compiled_patterns,
         }
     }
 
@@ -238,7 +292,7 @@ impl ProviderDatabase {
         let lower = domain.to_lowercase();
         let mut best: Option<ProviderCandidate> = None;
 
-        // Check for exact domain match
+        // Fast path: check HashMap for exact domain match
         if let Some(entries) = self.domain_index.get(&lower) {
             for &(idx, is_wildcard) in entries {
                 if !is_wildcard {
@@ -275,6 +329,26 @@ impl ProviderDatabase {
                 }
                 if best.is_some() {
                     break;
+                }
+            }
+        }
+
+        // Regex fallback: check compiled patterns not already covered by HashMap
+        if best.is_none() {
+            for cp in &self.compiled_patterns {
+                if cp.regex.is_match(&lower) {
+                    let score = if cp.is_exact {
+                        MatchScore::BUNDLED_EXACT
+                    } else {
+                        MatchScore::BUNDLED_WILDCARD
+                    };
+                    let candidate = ProviderCandidate {
+                        provider: self.providers[cp.provider_idx].clone(),
+                        score,
+                    };
+                    if best.as_ref().is_none_or(|b| score > b.score) {
+                        best = Some(candidate);
+                    }
                 }
             }
         }
@@ -374,6 +448,9 @@ mod tests {
             display_order: 0,
             enabled: true,
             supports_shared_mailbox: false,
+            subtitle: None,
+            registration_url: None,
+            graph: None,
         }
     }
 
@@ -533,6 +610,9 @@ mod tests {
             display_order: 0,
             enabled: true,
             supports_shared_mailbox: false,
+            subtitle: None,
+            registration_url: None,
+            graph: None,
         };
 
         let candidate = ProviderCandidate {
@@ -587,6 +667,9 @@ mod tests {
             display_order: 0,
             enabled: true,
             supports_shared_mailbox: false,
+            subtitle: None,
+            registration_url: None,
+            graph: None,
         };
 
         let candidate = ProviderCandidate {
@@ -652,6 +735,9 @@ mod tests {
             display_order: 0,
             enabled: true,
             supports_shared_mailbox: false,
+            subtitle: None,
+            registration_url: None,
+            graph: None,
         };
 
         let candidate = ProviderCandidate {
@@ -985,5 +1071,68 @@ mod tests {
     #[test]
     fn default_tenant_is_common() {
         assert_eq!(DEFAULT_TENANT, "common");
+    }
+
+    // --- Regex domain matching tests (FR-5, FR-7) ---
+
+    #[test]
+    fn test_regex_multi_tld_pattern() {
+        let mut provider = make_test_provider("yahoo", &[]);
+        // Use regex pattern for multi-TLD matching
+        provider.domain_patterns = vec![r"yahoo\..*".to_string()];
+        let db = ProviderDatabase::new(vec![provider]);
+
+        assert!(db.lookup_by_domain("yahoo.com").is_some());
+        assert!(db.lookup_by_domain("yahoo.co.uk").is_some());
+        assert!(db.lookup_by_domain("yahoo.fr").is_some());
+        assert!(db.lookup_by_domain("yahoo.de").is_some());
+        // Should not match unrelated domains
+        assert!(db.lookup_by_domain("notyahoo.com").is_none());
+    }
+
+    #[test]
+    fn test_regex_alternation_pattern() {
+        let mut provider = make_test_provider("multi", &[]);
+        provider.domain_patterns = vec![r"(alpha|beta)\.example\.com".to_string()];
+        let db = ProviderDatabase::new(vec![provider]);
+
+        assert!(db.lookup_by_domain("alpha.example.com").is_some());
+        assert!(db.lookup_by_domain("beta.example.com").is_some());
+        assert!(db.lookup_by_domain("gamma.example.com").is_none());
+    }
+
+    #[test]
+    fn test_regex_case_insensitive() {
+        let mut provider = make_test_provider("yahoo", &[]);
+        provider.domain_patterns = vec![r"yahoo\..*".to_string()];
+        let db = ProviderDatabase::new(vec![provider]);
+
+        assert!(db.lookup_by_email("Alice@Yahoo.COM").is_some());
+        assert!(db.lookup_by_email("bob@YAHOO.CO.UK").is_some());
+    }
+
+    #[test]
+    fn test_provider_has_optional_fields() {
+        let mut provider = make_test_provider("test", &["test.com"]);
+        provider.subtitle = Some("Test Subtitle".to_string());
+        provider.registration_url = Some("https://test.com/register".to_string());
+        provider.graph = Some(OAuthConfig {
+            auth_url: "https://test.com/auth".to_string(),
+            token_url: "https://test.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
+            scopes: vec!["mail".to_string()],
+            client_id: None,
+            pkce_required: true,
+            extra_params: vec![],
+            userinfo_url: None,
+            privacy_policy_url: None,
+        });
+
+        assert_eq!(provider.subtitle.as_deref(), Some("Test Subtitle"));
+        assert_eq!(
+            provider.registration_url.as_deref(),
+            Some("https://test.com/register")
+        );
+        assert!(provider.graph.is_some());
     }
 }

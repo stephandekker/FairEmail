@@ -2695,6 +2695,9 @@ fn build_smtp_provider(
         display_order: 0,
         enabled: false,
         supports_shared_mailbox: false,
+        subtitle: None,
+        registration_url: None,
+        graph: None,
     }
 }
 

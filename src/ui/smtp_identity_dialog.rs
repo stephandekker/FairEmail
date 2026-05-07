@@ -1168,5 +1168,8 @@ fn build_smtp_provider(host: &str, port: u16, encryption: EncryptionMode) -> Pro
         display_order: 0,
         enabled: false,
         supports_shared_mailbox: false,
+        subtitle: None,
+        registration_url: None,
+        graph: None,
     }
 }

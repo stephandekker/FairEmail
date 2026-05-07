@@ -438,6 +438,9 @@ mod tests {
             display_order: 0,
             enabled: true,
             supports_shared_mailbox: false,
+            subtitle: None,
+            registration_url: None,
+            graph: None,
         }
     }
 
