@@ -56,6 +56,8 @@ pub mod reauth;
 #[allow(dead_code)]
 pub(crate) mod revocation;
 pub mod save_auto_test;
+#[allow(dead_code)]
+pub(crate) mod server_prefill;
 pub mod smtp_check;
 pub mod smtp_identity;
 pub mod smtp_test_diagnostics;
@@ -192,6 +194,10 @@ pub use reauth::{
 pub(crate) use revocation::{
     build_revocation_notification, build_revocation_notification_with_hint,
     revocation_event_from_outcome, RevocationEvent, RevocationNotification,
+};
+#[allow(unused_imports)]
+pub(crate) use server_prefill::{
+    prefill_from_domain, prefill_from_email, prefill_from_provider, ServerSettingsPrefill,
 };
 pub use smtp_check::{
     combine_connectivity_results, ConnectivityCheckError, ConnectivityCheckResult, SmtpCheckError,
