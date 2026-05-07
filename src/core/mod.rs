@@ -11,6 +11,7 @@ pub mod certificate;
 pub mod connection_log;
 pub mod connection_state;
 pub mod connection_test;
+pub(crate) mod connectivity;
 pub mod content_store;
 pub mod copy_message;
 pub mod credential_log;

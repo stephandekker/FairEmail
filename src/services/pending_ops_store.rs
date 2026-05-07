@@ -174,6 +174,22 @@ pub fn remove_pending_copy_for_message(
     Ok(count)
 }
 
+/// List distinct account IDs that have pending or in-flight operations.
+///
+/// Used by the connectivity service to determine which accounts need
+/// their operation queues replayed after network connectivity is restored.
+pub fn list_accounts_with_pending_ops(conn: &Connection) -> Result<Vec<String>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT account_id FROM pending_operations WHERE state IN ('pending', 'in_flight')",
+    )?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    let mut accounts = Vec::new();
+    for row in rows {
+        accounts.push(row?);
+    }
+    Ok(accounts)
+}
+
 /// Count pending operations for an account.
 pub fn count_pending_ops(conn: &Connection, account_id: &str) -> Result<i64, DatabaseError> {
     let count: i64 = conn.query_row(
