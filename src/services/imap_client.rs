@@ -1655,6 +1655,8 @@ pub(crate) struct ImapFetchResult {
 #[derive(Debug)]
 pub(crate) struct IncrementalFetchResult {
     pub changed: Vec<ChangedMessage>,
+    /// All UIDs currently on the server (for removal detection).
+    pub server_uids: Vec<u32>,
     pub select: ImapSelectResult,
     #[allow(dead_code)]
     pub logs: Vec<ConnectionLogRecord>,
@@ -1753,15 +1755,20 @@ pub(crate) fn fetch_changed_since(
     let mut session = connect_and_login(params, &mut logs)?;
 
     let select = session.do_select_condstore(params, folder_name, &mut logs)?;
-    let changed = if select.exists > 0 {
-        session.do_fetch_changed_since(params, modseq, &mut logs)?
+    let (changed, server_uids) = if select.exists > 0 {
+        let changed = session.do_fetch_changed_since(params, modseq, &mut logs)?;
+        // Also fetch all UIDs for removal detection.
+        let flags = session.do_fetch_all_flags(params, &mut logs)?;
+        let uids = flags.into_iter().map(|e| e.uid).collect();
+        (changed, uids)
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
     let _ = session.send_command("A099", "LOGOUT");
 
     Ok(IncrementalFetchResult {
         changed,
+        server_uids,
         select,
         logs,
     })

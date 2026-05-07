@@ -61,6 +61,26 @@ pub fn find_new_uids(server_uids: &[u32], local_uids: &[u32]) -> Vec<u32> {
         .collect()
 }
 
+/// Compare local UIDs against server UIDs to find messages removed on the server.
+///
+/// Returns the set of UIDs present locally but absent on the server.
+/// Only UIDs within the sync window (i.e. at or above `sync_window_min_uid`)
+/// are evaluated for removal — UIDs below the window are retained to avoid
+/// false removals for messages outside the sync range.
+pub fn find_removed_uids(
+    server_uids: &[u32],
+    local_uids: &[u32],
+    sync_window_min_uid: Option<u32>,
+) -> Vec<u32> {
+    let server_set: HashSet<u32> = server_uids.iter().copied().collect();
+    let min_uid = sync_window_min_uid.unwrap_or(0);
+    local_uids
+        .iter()
+        .copied()
+        .filter(|uid| *uid >= min_uid && !server_set.contains(uid))
+        .collect()
+}
+
 /// Determines whether a body should be downloaded for a new message based
 /// on the configured download policy.
 pub fn should_download_body(policy: DownloadPolicy) -> bool {
@@ -364,6 +384,61 @@ mod tests {
         assert_eq!(result.detected[0].flags, FLAG_SEEN | FLAG_FLAGGED);
         let msg = result.detected[0].new_message.as_ref().unwrap();
         assert_eq!(msg.flags, FLAG_SEEN | FLAG_FLAGGED);
+    }
+
+    // --- find_removed_uids tests ---
+
+    #[test]
+    fn find_removed_uids_detects_local_only() {
+        let server = vec![1, 2, 3];
+        let local = vec![1, 2, 3, 4, 5];
+        let removed = find_removed_uids(&server, &local, None);
+        assert_eq!(removed, vec![4, 5]);
+    }
+
+    #[test]
+    fn find_removed_uids_empty_when_in_sync() {
+        let server = vec![1, 2, 3];
+        let local = vec![1, 2, 3];
+        let removed = find_removed_uids(&server, &local, None);
+        assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn find_removed_uids_all_removed_on_empty_server() {
+        let server: Vec<u32> = vec![];
+        let local = vec![1, 2, 3];
+        let removed = find_removed_uids(&server, &local, None);
+        assert_eq!(removed, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn find_removed_uids_empty_local() {
+        let server = vec![1, 2, 3];
+        let local: Vec<u32> = vec![];
+        let removed = find_removed_uids(&server, &local, None);
+        assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn find_removed_uids_respects_sync_window() {
+        // Server has UIDs 5,6,7. Local has 1,2,3,5,6,7.
+        // With sync_window_min_uid=5, UIDs 1,2,3 are below the window
+        // and should NOT be considered removed.
+        let server = vec![5, 6, 7];
+        let local = vec![1, 2, 3, 5, 6, 7];
+        let removed = find_removed_uids(&server, &local, Some(5));
+        assert!(removed.is_empty());
+    }
+
+    #[test]
+    fn find_removed_uids_within_sync_window_detected() {
+        // Server has UIDs 5,7. Local has 1,2,3,5,6,7.
+        // UID 6 is within the sync window (>=5) and missing from server.
+        let server = vec![5, 7];
+        let local = vec![1, 2, 3, 5, 6, 7];
+        let removed = find_removed_uids(&server, &local, Some(5));
+        assert_eq!(removed, vec![6]);
     }
 
     #[test]

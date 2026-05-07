@@ -341,6 +341,55 @@ pub fn delete_messages_for_folder(
     Ok(orphaned_hashes)
 }
 
+/// Delete messages by UIDs in a specific folder. Returns content hashes that
+/// should be deleted from the content store (those with no remaining references).
+pub fn delete_messages_by_uids_in_folder(
+    conn: &Connection,
+    account_id: &str,
+    folder_id: i64,
+    uids: &[u32],
+) -> Result<Vec<String>, DatabaseError> {
+    if uids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut orphaned_hashes = Vec::new();
+    for &uid in uids {
+        // Find the message row for this UID in this folder.
+        let row: Option<(i64, String)> = {
+            let result = conn.query_row(
+                "SELECT m.id, m.content_hash FROM messages m
+                 JOIN message_folders mf ON mf.message_id = m.id
+                 WHERE m.account_id = ?1 AND m.uid = ?2 AND mf.folder_id = ?3",
+                rusqlite::params![account_id, uid, folder_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            );
+            match result {
+                Ok(r) => Some(r),
+                Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                Err(e) => return Err(DatabaseError::Sqlite(e)),
+            }
+        };
+
+        if let Some((msg_id, hash)) = row {
+            conn.execute(
+                "DELETE FROM message_folders WHERE message_id = ?1 AND folder_id = ?2",
+                rusqlite::params![msg_id, folder_id],
+            )?;
+            conn.execute(
+                "DELETE FROM messages WHERE id = ?1",
+                rusqlite::params![msg_id],
+            )?;
+            let remaining = count_by_content_hash(conn, &hash)?;
+            if remaining == 0 {
+                orphaned_hashes.push(hash);
+            }
+        }
+    }
+
+    Ok(orphaned_hashes)
+}
+
 /// Find a message by UID and folder, returning (message_id, current_flags, flags_pending_sync).
 pub fn find_message_by_uid_in_folder_with_pending(
     conn: &Connection,

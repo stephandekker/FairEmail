@@ -7,7 +7,7 @@
 use rusqlite::Connection;
 
 use crate::core::content_store::ContentStore;
-use crate::core::detect_new_messages::find_new_uids;
+use crate::core::detect_new_messages::{find_new_uids, find_removed_uids};
 use crate::core::message::{flags_from_imap, parse_raw_message};
 use crate::core::server_flag_detection::{
     detect_flag_change, make_flag_change_event, FlagChangeAction,
@@ -15,9 +15,9 @@ use crate::core::server_flag_detection::{
 use crate::core::sync_event::SyncEvent;
 use crate::services::imap_client::{fetch_folder_messages, ImapConnectParams};
 use crate::services::message_store::{
-    delete_messages_for_folder, find_folder_id, find_message_by_uid_in_folder_with_pending,
-    insert_message, load_folder_sync_state, load_uids_for_folder, update_folder_sync_state,
-    update_message_flags,
+    delete_messages_by_uids_in_folder, delete_messages_for_folder, find_folder_id,
+    find_message_by_uid_in_folder_with_pending, insert_message, load_folder_sync_state,
+    load_uids_for_folder, update_folder_sync_state, update_message_flags,
 };
 use crate::services::sync_state_store::load_sync_state;
 
@@ -49,6 +49,8 @@ pub struct IncrementalSyncResult {
     pub bodies_fetched: usize,
     /// Number of flag-only updates applied.
     pub flags_updated: usize,
+    /// Number of messages removed (detected as deleted on server).
+    pub messages_removed: usize,
     /// Whether a full re-fetch was triggered (UIDVALIDITY change).
     pub full_refetch: bool,
     /// Sync events to broadcast (flag changes from server).
@@ -144,6 +146,7 @@ pub(crate) fn incremental_sync_folder(
             return Ok(IncrementalSyncResult {
                 bodies_fetched: full.messages_fetched,
                 flags_updated: 0,
+                messages_removed: 0,
                 full_refetch: false,
                 events: Vec::new(),
                 orphaned_hashes: Vec::new(),
@@ -260,6 +263,13 @@ fn sync_condstore(
         }
     }
 
+    // Detect messages removed on the server.
+    let local_uids = load_uids_for_folder(&tx, &params.account_id, folder_id)?;
+    let removed_uids = find_removed_uids(&result.server_uids, &local_uids, None);
+    let messages_removed = removed_uids.len();
+    let orphaned_hashes =
+        delete_messages_by_uids_in_folder(&tx, &params.account_id, folder_id, &removed_uids)?;
+
     // Update folder sync state with new highestmodseq.
     update_folder_sync_state(
         &tx,
@@ -271,6 +281,11 @@ fn sync_condstore(
     tx.commit()
         .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
 
+    // Delete orphaned .eml files from content store.
+    for hash in &orphaned_hashes {
+        let _ = content_store.delete(hash);
+    }
+
     // Emit NewMailReceived event if new messages were fetched.
     if bodies_fetched > 0 {
         events.push(SyncEvent::NewMailReceived {
@@ -280,12 +295,22 @@ fn sync_condstore(
         });
     }
 
+    // Emit MessagesRemoved event if messages were removed.
+    if messages_removed > 0 {
+        events.push(SyncEvent::MessagesRemoved {
+            account_id: params.account_id.clone(),
+            folder_name: folder_name.to_string(),
+            count: messages_removed,
+        });
+    }
+
     Ok(IncrementalSyncResult {
         bodies_fetched,
         flags_updated,
+        messages_removed,
         full_refetch: false,
         events,
-        orphaned_hashes: Vec::new(),
+        orphaned_hashes,
         uidvalidity: result.select.uidvalidity,
         highestmodseq: result.select.highestmodseq,
     })
@@ -316,8 +341,9 @@ fn sync_uid_diff(
         return handle_uidvalidity_change(conn, content_store, params, folder_name, folder_id);
     }
 
-    // Use core detection logic to find new UIDs.
+    // Use core detection logic to find new and removed UIDs.
     let new_uids = find_new_uids(&diff_result.server_uids, &local_uids);
+    let removed_uids = find_removed_uids(&diff_result.server_uids, &local_uids, None);
     let local_uid_set: std::collections::HashSet<u32> = local_uids.into_iter().collect();
 
     // Detect flag changes for existing messages (UIDs in both local and server sets).
@@ -406,6 +432,25 @@ fn sync_uid_diff(
         0
     };
 
+    // Detect and remove messages deleted on the server.
+    let messages_removed = removed_uids.len();
+    let orphaned_hashes = if !removed_uids.is_empty() {
+        let tx = conn.unchecked_transaction().map_err(|e| {
+            FetchError::Database(crate::services::database::DatabaseError::Sqlite(e))
+        })?;
+        let hashes =
+            delete_messages_by_uids_in_folder(&tx, &params.account_id, folder_id, &removed_uids)?;
+        tx.commit().map_err(|e| {
+            FetchError::Database(crate::services::database::DatabaseError::Sqlite(e))
+        })?;
+        for hash in &hashes {
+            let _ = content_store.delete(hash);
+        }
+        hashes
+    } else {
+        Vec::new()
+    };
+
     // Emit NewMailReceived event if new messages were fetched.
     if bodies_fetched > 0 {
         events.push(SyncEvent::NewMailReceived {
@@ -415,12 +460,22 @@ fn sync_uid_diff(
         });
     }
 
+    // Emit MessagesRemoved event if messages were removed.
+    if messages_removed > 0 {
+        events.push(SyncEvent::MessagesRemoved {
+            account_id: params.account_id.clone(),
+            folder_name: folder_name.to_string(),
+            count: messages_removed,
+        });
+    }
+
     Ok(IncrementalSyncResult {
         bodies_fetched,
         flags_updated,
+        messages_removed,
         full_refetch: false,
         events,
-        orphaned_hashes: Vec::new(),
+        orphaned_hashes,
         uidvalidity: diff_result.select.uidvalidity,
         highestmodseq: diff_result.select.highestmodseq,
     })
@@ -429,6 +484,7 @@ fn sync_uid_diff(
 /// Perform incremental sync using only in-process data (for testing).
 /// This variant takes pre-fetched IMAP results instead of connecting to a server.
 #[cfg(test)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn incremental_sync_condstore_with_data(
     conn: &Connection,
     content_store: &dyn ContentStore,
@@ -437,6 +493,7 @@ pub(crate) fn incremental_sync_condstore_with_data(
     select_uidvalidity: u32,
     select_highestmodseq: Option<u64>,
     changed_messages: Vec<crate::services::imap_client::ChangedMessage>,
+    server_uids: &[u32],
 ) -> Result<IncrementalSyncResult, FetchError> {
     let folder_id = find_folder_id(conn, account_id, folder_name)?
         .ok_or_else(|| FetchError::FolderNotFound(folder_name.to_string()))?;
@@ -461,6 +518,7 @@ pub(crate) fn incremental_sync_condstore_with_data(
             return Ok(IncrementalSyncResult {
                 bodies_fetched: 0,
                 flags_updated: 0,
+                messages_removed: 0,
                 full_refetch: true,
                 events: Vec::new(),
                 orphaned_hashes,
@@ -511,10 +569,22 @@ pub(crate) fn incremental_sync_condstore_with_data(
         }
     }
 
+    // Detect messages removed on the server.
+    let local_uids = load_uids_for_folder(&tx, account_id, folder_id)?;
+    let removed_uids = find_removed_uids(server_uids, &local_uids, None);
+    let messages_removed = removed_uids.len();
+    let orphaned_hashes =
+        delete_messages_by_uids_in_folder(&tx, account_id, folder_id, &removed_uids)?;
+
     update_folder_sync_state(&tx, folder_id, select_uidvalidity, select_highestmodseq)?;
 
     tx.commit()
         .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
+
+    // Delete orphaned .eml files from content store.
+    for hash in &orphaned_hashes {
+        let _ = content_store.delete(hash);
+    }
 
     // Emit NewMailReceived event if new messages were fetched.
     if bodies_fetched > 0 {
@@ -525,12 +595,22 @@ pub(crate) fn incremental_sync_condstore_with_data(
         });
     }
 
+    // Emit MessagesRemoved event if messages were removed.
+    if messages_removed > 0 {
+        events.push(SyncEvent::MessagesRemoved {
+            account_id: account_id.to_string(),
+            folder_name: folder_name.to_string(),
+            count: messages_removed,
+        });
+    }
+
     Ok(IncrementalSyncResult {
         bodies_fetched,
         flags_updated,
+        messages_removed,
         full_refetch: false,
         events,
-        orphaned_hashes: Vec::new(),
+        orphaned_hashes,
         uidvalidity: select_uidvalidity,
         highestmodseq: select_highestmodseq,
     })
@@ -546,7 +626,7 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
     folder_name: &str,
     select_uidvalidity: u32,
     select_highestmodseq: Option<u64>,
-    _server_uids: &[u32],
+    server_uids: &[u32],
     server_flags: &[crate::services::imap_client::UidFlagEntry],
     new_messages: Vec<crate::services::imap_client::RawFetchedMessage>,
 ) -> Result<IncrementalSyncResult, FetchError> {
@@ -574,6 +654,7 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
             return Ok(IncrementalSyncResult {
                 bodies_fetched: 0,
                 flags_updated: 0,
+                messages_removed: 0,
                 full_refetch: true,
                 events: Vec::new(),
                 orphaned_hashes,
@@ -583,9 +664,8 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
         }
     }
 
-    let local_uids: HashSet<u32> = load_uids_for_folder(conn, account_id, folder_id)?
-        .into_iter()
-        .collect();
+    let local_uids_vec = load_uids_for_folder(conn, account_id, folder_id)?;
+    let local_uids: HashSet<u32> = local_uids_vec.iter().copied().collect();
 
     let tx = conn
         .unchecked_transaction()
@@ -632,10 +712,21 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
         bodies_fetched += 1;
     }
 
+    // Detect messages removed on the server.
+    let removed_uids = find_removed_uids(server_uids, &local_uids_vec, None);
+    let messages_removed = removed_uids.len();
+    let orphaned_hashes =
+        delete_messages_by_uids_in_folder(&tx, account_id, folder_id, &removed_uids)?;
+
     update_folder_sync_state(&tx, folder_id, select_uidvalidity, select_highestmodseq)?;
 
     tx.commit()
         .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
+
+    // Delete orphaned .eml files from content store.
+    for hash in &orphaned_hashes {
+        let _ = content_store.delete(hash);
+    }
 
     // Emit NewMailReceived event if new messages were fetched.
     if bodies_fetched > 0 {
@@ -646,12 +737,22 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
         });
     }
 
+    // Emit MessagesRemoved event if messages were removed.
+    if messages_removed > 0 {
+        events.push(SyncEvent::MessagesRemoved {
+            account_id: account_id.to_string(),
+            folder_name: folder_name.to_string(),
+            count: messages_removed,
+        });
+    }
+
     Ok(IncrementalSyncResult {
         bodies_fetched,
         flags_updated,
+        messages_removed,
         full_refetch: false,
         events,
-        orphaned_hashes: Vec::new(),
+        orphaned_hashes,
         uidvalidity: select_uidvalidity,
         highestmodseq: select_highestmodseq,
     })
@@ -690,6 +791,7 @@ fn handle_uidvalidity_change(
     Ok(IncrementalSyncResult {
         bodies_fetched: full.messages_fetched,
         flags_updated: 0,
+        messages_removed: 0,
         full_refetch: true,
         events: Vec::new(),
         orphaned_hashes,
@@ -809,6 +911,7 @@ mod tests {
             100,        // same uidvalidity
             Some(50),   // same highestmodseq
             Vec::new(), // no changed messages
+            &[1, 2, 3], // server still has all 3 messages
         )
         .unwrap();
 
@@ -842,6 +945,7 @@ mod tests {
             100,
             Some(60),
             changed,
+            &[1, 2, 3, 4], // server has original 3 + new uid=4
         )
         .unwrap();
 
@@ -874,6 +978,7 @@ mod tests {
             100,
             Some(55),
             changed,
+            &[1, 2, 3],
         )
         .unwrap();
 
@@ -928,6 +1033,7 @@ mod tests {
             200, // different uidvalidity!
             Some(10),
             Vec::new(),
+            &[],
         )
         .unwrap();
 
@@ -1064,6 +1170,7 @@ mod tests {
             100,
             Some(55),
             changed,
+            &[1, 2, 3],
         )
         .unwrap();
 
@@ -1259,6 +1366,7 @@ mod tests {
             100,
             Some(60),
             changed,
+            &[1, 2, 3],
         )
         .unwrap();
 
@@ -1308,6 +1416,7 @@ mod tests {
             100,
             Some(55),
             changed,
+            &[1, 2, 3],
         )
         .unwrap();
 
@@ -1347,6 +1456,7 @@ mod tests {
             100,
             Some(55),
             changed,
+            &[1, 2, 3],
         )
         .unwrap();
 
@@ -1396,6 +1506,7 @@ mod tests {
             100,
             Some(60),
             changed,
+            &[1, 2, 3],
         )
         .unwrap();
 
@@ -1494,6 +1605,7 @@ mod tests {
             100,
             Some(60),
             changed,
+            &[1, 2, 3, 4],
         )
         .unwrap();
 
@@ -1585,6 +1697,7 @@ mod tests {
             100,
             Some(50),
             Vec::new(),
+            &[1, 2, 3],
         )
         .unwrap();
 
@@ -1622,6 +1735,7 @@ mod tests {
             100,
             Some(60),
             changed,
+            &[1, 2, 3, 4],
         )
         .unwrap();
         assert_eq!(result1.bodies_fetched, 1);
@@ -1643,6 +1757,7 @@ mod tests {
             100,
             Some(60),
             changed2,
+            &[1, 2, 3, 4],
         )
         .unwrap();
         // Should NOT create a duplicate — uid=4 already exists.
@@ -1729,6 +1844,7 @@ mod tests {
             100,
             Some(70),
             changed,
+            &[1, 2, 3, 10],
         )
         .unwrap();
 
@@ -1785,6 +1901,7 @@ mod tests {
             200,
             Some(20),
             changed,
+            &[1],
         )
         .unwrap();
 
@@ -1805,5 +1922,407 @@ mod tests {
             }
             _ => panic!("expected NewMailReceived event"),
         }
+    }
+
+    // --- Message removal detection tests (story 11) ---
+
+    #[test]
+    fn condstore_detects_message_removed_on_server() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 3);
+
+        // Server no longer has uid=2 (deleted by another client).
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(55),
+            Vec::new(),
+            &[1, 3], // uid=2 missing
+        )
+        .unwrap();
+
+        assert_eq!(result.messages_removed, 1);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 2);
+
+        // uid=2 should no longer be found.
+        let found = find_message_by_uid_in_folder(&conn, "acct-1", 2, fid).unwrap();
+        assert!(found.is_none());
+
+        // uid=1 and uid=3 should still exist.
+        assert!(find_message_by_uid_in_folder(&conn, "acct-1", 1, fid)
+            .unwrap()
+            .is_some());
+        assert!(find_message_by_uid_in_folder(&conn, "acct-1", 3, fid)
+            .unwrap()
+            .is_some());
+
+        // Should emit MessagesRemoved event.
+        let removal_events: Vec<_> = result
+            .events
+            .iter()
+            .filter(|e| matches!(e, SyncEvent::MessagesRemoved { .. }))
+            .collect();
+        assert_eq!(removal_events.len(), 1);
+        match &removal_events[0] {
+            SyncEvent::MessagesRemoved {
+                account_id,
+                folder_name,
+                count,
+            } => {
+                assert_eq!(account_id, "acct-1");
+                assert_eq!(folder_name, "INBOX");
+                assert_eq!(*count, 1);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn condstore_detects_multiple_removals() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server only has uid=1 (uid=2 and uid=3 removed).
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(55),
+            Vec::new(),
+            &[1],
+        )
+        .unwrap();
+
+        assert_eq!(result.messages_removed, 2);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 1);
+    }
+
+    #[test]
+    fn condstore_no_false_removals_when_all_present() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server has all 3 messages — no removals.
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(50),
+            Vec::new(),
+            &[1, 2, 3],
+        )
+        .unwrap();
+
+        assert_eq!(result.messages_removed, 0);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 3);
+        // No MessagesRemoved event should be emitted.
+        let removal_events: Vec<_> = result
+            .events
+            .iter()
+            .filter(|e| matches!(e, SyncEvent::MessagesRemoved { .. }))
+            .collect();
+        assert!(removal_events.is_empty());
+    }
+
+    #[test]
+    fn condstore_removal_returns_orphaned_hashes() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server no longer has uid=2.
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(55),
+            Vec::new(),
+            &[1, 3],
+        )
+        .unwrap();
+
+        assert_eq!(result.messages_removed, 1);
+        assert!(result.orphaned_hashes.contains(&"hash2".to_string()));
+    }
+
+    #[test]
+    fn condstore_new_and_removed_in_same_sync() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 3);
+
+        // Server: uid=1 removed, uid=4 added.
+        let new_body = make_raw_email("NewWhileRemoved");
+        let changed = vec![ChangedMessage {
+            uid: 4,
+            flags: String::new(),
+            modseq: Some(60),
+            body: Some(new_body),
+        }];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(60),
+            changed,
+            &[2, 3, 4], // uid=1 removed, uid=4 added
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 1);
+        assert_eq!(result.messages_removed, 1);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 3); // 3 - 1 + 1 = 3
+        assert!(find_message_by_uid_in_folder(&conn, "acct-1", 1, fid)
+            .unwrap()
+            .is_none());
+        assert!(find_message_by_uid_in_folder(&conn, "acct-1", 4, fid)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn uid_diff_detects_message_removed_on_server() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 3);
+
+        // Server no longer has uid=3.
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2], // uid=3 missing
+            &[],
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result.messages_removed, 1);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 2);
+        assert!(find_message_by_uid_in_folder(&conn, "acct-1", 3, fid)
+            .unwrap()
+            .is_none());
+
+        // MessagesRemoved event.
+        let removal_events: Vec<_> = result
+            .events
+            .iter()
+            .filter(|e| matches!(e, SyncEvent::MessagesRemoved { .. }))
+            .collect();
+        assert_eq!(removal_events.len(), 1);
+    }
+
+    #[test]
+    fn uid_diff_no_false_removals_when_all_present() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3],
+            &[],
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result.messages_removed, 0);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 3);
+    }
+
+    #[test]
+    fn uid_diff_removal_with_new_message_simultaneously() {
+        use crate::services::imap_client::UidFlagEntry;
+
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server: uid=2 removed, uid=4 added.
+        let server_flags = vec![
+            UidFlagEntry {
+                uid: 1,
+                flags: String::new(),
+            },
+            UidFlagEntry {
+                uid: 3,
+                flags: String::new(),
+            },
+            UidFlagEntry {
+                uid: 4,
+                flags: String::new(),
+            },
+        ];
+        let new_body = make_raw_email("NewAfterRemoval");
+        let new_messages = vec![RawFetchedMessage {
+            uid: 4,
+            flags: String::new(),
+            data: new_body,
+        }];
+
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 3, 4], // uid=2 removed, uid=4 added
+            &server_flags,
+            new_messages,
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 1);
+        assert_eq!(result.messages_removed, 1);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 3);
+        assert!(find_message_by_uid_in_folder(&conn, "acct-1", 2, fid)
+            .unwrap()
+            .is_none());
+        assert!(find_message_by_uid_in_folder(&conn, "acct-1", 4, fid)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn condstore_all_messages_removed_on_server() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server has no messages at all.
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(55),
+            Vec::new(),
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(result.messages_removed, 3);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 0);
+    }
+
+    #[test]
+    fn uid_diff_removal_does_not_affect_other_folders() {
+        let (_dir, conn) = setup_db();
+        let store = MemoryContentStore::new();
+
+        // Create both folders.
+        let folders = vec![
+            ImapFolder {
+                name: "INBOX".to_string(),
+                attributes: "".to_string(),
+                role: None,
+            },
+            ImapFolder {
+                name: "Archive".to_string(),
+                attributes: "".to_string(),
+                role: None,
+            },
+        ];
+        replace_folders(&conn, "acct-1", &folders).unwrap();
+        let inbox_fid = find_folder_id(&conn, "acct-1", "INBOX").unwrap().unwrap();
+        let archive_fid = find_folder_id(&conn, "acct-1", "Archive").unwrap().unwrap();
+
+        // Seed messages in INBOX.
+        seed_initial_messages(&conn, inbox_fid);
+        update_folder_sync_state(&conn, inbox_fid, 100, Some(50)).unwrap();
+
+        // Seed a message in Archive with uid=1.
+        let archive_msg = NewMessage {
+            account_id: "acct-1".to_string(),
+            uid: 1,
+            modseq: Some(10),
+            message_id: Some("<archive1@example.com>".to_string()),
+            in_reply_to: None,
+            references_header: None,
+            from_addresses: Some("a@example.com".to_string()),
+            to_addresses: Some("b@example.com".to_string()),
+            cc_addresses: None,
+            bcc_addresses: None,
+            subject: Some("Archive Msg".to_string()),
+            date_received: Some(1700000000),
+            date_sent: Some(1700000000),
+            flags: 0,
+            size: 100,
+            content_hash: "archive_hash".to_string(),
+            body_text: Some("archive body".to_string()),
+            thread_id: None,
+            server_thread_id: None,
+        };
+        insert_message(&conn, &archive_msg, archive_fid).unwrap();
+        update_folder_sync_state(&conn, archive_fid, 200, Some(10)).unwrap();
+
+        // Remove uid=2 from INBOX on server.
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 3], // uid=2 removed from INBOX
+            &[],
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result.messages_removed, 1);
+
+        // Archive message should be unaffected.
+        assert!(
+            find_message_by_uid_in_folder(&conn, "acct-1", 1, archive_fid)
+                .unwrap()
+                .is_some()
+        );
     }
 }

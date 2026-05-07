@@ -56,4 +56,10 @@ pub enum SyncEvent {
         message_id: i64,
         folder_name: String,
     },
+    /// Messages were removed from the server (detected during sync).
+    MessagesRemoved {
+        account_id: String,
+        folder_name: String,
+        count: usize,
+    },
 }
