@@ -15,6 +15,7 @@ pub mod content_store;
 pub mod credential_log;
 pub mod credential_store;
 pub mod delete_account;
+pub mod delete_message;
 pub(crate) mod detection_failure;
 pub(crate) mod detection_progress;
 #[allow(dead_code)]
@@ -123,6 +124,7 @@ pub use credential_store::{
     identity_credential_uuid, CredentialError, CredentialRole, CredentialStore, SecretValue,
 };
 pub use delete_account::{clear_primary_if_deleted, remove_from_order};
+pub use delete_message::{delete_message, DeleteMessageError, DeleteMessageResult};
 #[allow(unused_imports)]
 pub(crate) use discovery_pipeline::{discover_all, DiscoveryResult};
 pub use dns_discovery::{discover_by_dns, DnsDiscoveryResult, DnsError, DnsResolver, SrvRecord};

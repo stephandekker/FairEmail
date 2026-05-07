@@ -198,6 +198,26 @@ pub fn folder_role_by_name(
     }
 }
 
+/// Look up the folder name that has a given role for an account.
+/// Returns `None` if no folder with that role exists.
+pub fn folder_name_by_role(
+    conn: &Connection,
+    account_id: &str,
+    role: FolderRole,
+) -> Result<Option<String>, DatabaseError> {
+    let role_str = format!("{role}");
+    let result = conn.query_row(
+        "SELECT name FROM folders WHERE account_id = ?1 AND role = ?2",
+        rusqlite::params![account_id, role_str],
+        |row| row.get(0),
+    );
+    match result {
+        Ok(name) => Ok(Some(name)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
 fn parse_folder_role(s: &str) -> Option<FolderRole> {
     match s {
         "Drafts" => Some(FolderRole::Drafts),
