@@ -75,10 +75,10 @@ pub(crate) use message_fetch::{
     fetch_and_store_folder, incremental_sync_folder, IncrementalSyncResult,
 };
 pub use message_store::{
-    count_messages, delete_message, delete_messages_for_folder, find_folder_id,
-    find_message_by_uid_in_folder, insert_message, load_folder_sync_state, load_message,
-    load_uids_for_folder, mark_flags_confirmed, update_folder_sync_state, update_message_flags,
-    update_message_flags_pending,
+    count_messages, count_messages_in_folder, delete_message, delete_messages_for_folder,
+    find_folder_id, find_message_by_uid_in_folder, insert_message, load_folder_sync_state,
+    load_message, load_uids_for_folder, mark_flags_confirmed, update_folder_sync_state,
+    update_message_flags, update_message_flags_pending,
 };
 pub use notification_channel::{
     FreedesktopNotificationChannelManager, MockNotificationChannelManager,

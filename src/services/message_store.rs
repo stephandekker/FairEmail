@@ -230,6 +230,22 @@ pub fn count_messages(conn: &Connection, account_id: &str) -> Result<i64, Databa
     Ok(count)
 }
 
+/// Count messages in a specific folder for a given account.
+pub fn count_messages_in_folder(
+    conn: &Connection,
+    account_id: &str,
+    folder_id: i64,
+) -> Result<u32, DatabaseError> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM messages m
+         JOIN message_folders mf ON mf.message_id = m.id
+         WHERE m.account_id = ?1 AND mf.folder_id = ?2",
+        rusqlite::params![account_id, folder_id],
+        |row| row.get(0),
+    )?;
+    Ok(count as u32)
+}
+
 /// Update the `uidvalidity` and `highestmodseq` on a folder row.
 pub fn update_folder_sync_state(
     conn: &Connection,
@@ -567,6 +583,20 @@ mod tests {
         let msg = make_message("hash1");
         insert_message(&conn, &msg, fid).unwrap();
         assert_eq!(count_messages(&conn, "acct-1").unwrap(), 1);
+    }
+
+    #[test]
+    fn count_messages_in_folder_returns_correct_count() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        assert_eq!(count_messages_in_folder(&conn, "acct-1", fid).unwrap(), 0);
+        let msg = make_message("hash1");
+        insert_message(&conn, &msg, fid).unwrap();
+        assert_eq!(count_messages_in_folder(&conn, "acct-1", fid).unwrap(), 1);
+        let mut msg2 = make_message("hash2");
+        msg2.uid = 2;
+        insert_message(&conn, &msg2, fid).unwrap();
+        assert_eq!(count_messages_in_folder(&conn, "acct-1", fid).unwrap(), 2);
     }
 
     #[test]

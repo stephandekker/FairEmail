@@ -277,7 +277,7 @@ mod dev_fetch {
     use crate::core::credential_store::{CredentialRole, CredentialStore};
     use crate::services::imap_client::ImapConnectParams;
     use crate::services::{
-        count_messages, database::open_and_migrate, fetch_and_store_folder, FsContentStore,
+        count_messages, database::open_and_migrate, incremental_sync_folder, FsContentStore,
         LibsecretCredentialStore,
     };
 
@@ -358,13 +358,16 @@ mod dev_fetch {
         let content_root = data_dir.join("messages");
         let content_store = FsContentStore::new(content_root);
 
-        eprintln!("Fetching folder '{folder_name}' for account {account_id}...");
+        eprintln!("Syncing folder '{folder_name}' for account {account_id}...");
 
-        match fetch_and_store_folder(&conn, &content_store, &params, folder_name) {
+        match incremental_sync_folder(&conn, &content_store, &params, folder_name) {
             Ok(result) => {
                 let total = count_messages(&conn, account_id).unwrap_or(0);
-                eprintln!("Fetch complete:");
-                eprintln!("  Messages fetched: {}", result.messages_fetched);
+                eprintln!("Sync complete:");
+                eprintln!("  Bodies fetched: {}", result.bodies_fetched);
+                eprintln!("  Flags updated: {}", result.flags_updated);
+                eprintln!("  Messages removed: {}", result.messages_removed);
+                eprintln!("  Full re-fetch: {}", result.full_refetch);
                 eprintln!("  UIDVALIDITY: {}", result.uidvalidity);
                 eprintln!(
                     "  HIGHESTMODSEQ: {}",
@@ -376,7 +379,7 @@ mod dev_fetch {
                 eprintln!("  Total messages in DB for account: {total}");
             }
             Err(e) => {
-                eprintln!("Fetch failed: {e}");
+                eprintln!("Sync failed: {e}");
                 std::process::exit(1);
             }
         }

@@ -125,7 +125,6 @@ pub(crate) fn fetch_and_store_folder(
 ///
 /// On first sync (no cached uidvalidity), delegates to full fetch.
 /// On UIDVALIDITY change, invalidates cached data and does a full re-fetch.
-#[allow(dead_code)]
 pub(crate) fn incremental_sync_folder(
     conn: &Connection,
     content_store: &dyn ContentStore,
@@ -189,7 +188,6 @@ pub(crate) fn incremental_sync_folder(
 }
 
 /// CONDSTORE incremental sync path.
-#[allow(dead_code)]
 fn sync_condstore(
     conn: &Connection,
     content_store: &dyn ContentStore,
@@ -200,13 +198,30 @@ fn sync_condstore(
     cached_modseq: u64,
 ) -> Result<IncrementalSyncResult, FetchError> {
     use crate::services::imap_client::fetch_changed_since;
+    use crate::services::message_store::count_messages_in_folder;
 
-    let result = fetch_changed_since(params, folder_name, cached_modseq)
+    let local_count = count_messages_in_folder(conn, &params.account_id, folder_id)?;
+
+    let result = fetch_changed_since(params, folder_name, cached_modseq, Some(local_count))
         .map_err(|e| FetchError::Imap(format!("{e:?}")))?;
 
     // Check UIDVALIDITY.
     if result.select.uidvalidity != cached_uidvalidity {
         return handle_uidvalidity_change(conn, content_store, params, folder_name, folder_id);
+    }
+
+    // Short-circuit: server confirmed nothing changed.
+    if result.unchanged {
+        return Ok(IncrementalSyncResult {
+            bodies_fetched: 0,
+            flags_updated: 0,
+            messages_removed: 0,
+            full_refetch: false,
+            events: Vec::new(),
+            orphaned_hashes: Vec::new(),
+            uidvalidity: result.select.uidvalidity,
+            highestmodseq: result.select.highestmodseq,
+        });
     }
 
     let tx = conn
@@ -317,7 +332,6 @@ fn sync_condstore(
 }
 
 /// UID-set diff fallback sync path (no CONDSTORE).
-#[allow(dead_code)]
 fn sync_uid_diff(
     conn: &Connection,
     content_store: &dyn ContentStore,
@@ -759,7 +773,6 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
 }
 
 /// Handle UIDVALIDITY change: invalidate folder, delete stale rows, re-fetch.
-#[allow(dead_code)]
 fn handle_uidvalidity_change(
     conn: &Connection,
     content_store: &dyn ContentStore,
@@ -2324,5 +2337,185 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
+    }
+
+    // --- MODSEQ short-circuit tests (story 16) ---
+
+    #[test]
+    fn condstore_unchanged_modseq_and_count_yields_zero_work() {
+        // AC-19: When server highestmodseq matches cached AND message count matches,
+        // a sync cycle with no changes should complete with zero work.
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Verify local count matches what seed created.
+        let local_count =
+            crate::services::message_store::count_messages_in_folder(&conn, "acct-1", fid).unwrap();
+        assert_eq!(local_count, 3);
+
+        // Sync with identical modseq and all UIDs present — no work needed.
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,        // same uidvalidity
+            Some(50),   // same highestmodseq as seeded
+            Vec::new(), // no changed messages
+            &[1, 2, 3], // server has all 3 messages
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 0);
+        assert_eq!(result.flags_updated, 0);
+        assert_eq!(result.messages_removed, 0);
+        assert!(!result.full_refetch);
+        assert!(result.events.is_empty());
+        assert!(result.orphaned_hashes.is_empty());
+        assert_eq!(result.uidvalidity, 100);
+        assert_eq!(result.highestmodseq, Some(50));
+    }
+
+    #[test]
+    fn condstore_first_sync_no_cached_modseq_does_full_fetch() {
+        // AC5: When MODSEQ is supported but folder has never been synced,
+        // the initial sync is a full fetch.
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        // No seeding — folder has no cached uidvalidity or highestmodseq.
+        let (cached_uv, cached_hm) = load_folder_sync_state(&conn, fid).unwrap();
+        assert!(cached_uv.is_none());
+        assert!(cached_hm.is_none());
+
+        // Simulate what would happen: condstore path needs a cached modseq.
+        // Without it, incremental_sync_folder falls through to full fetch.
+        // We test this indirectly: with no cached state, passing data to condstore
+        // still works (processes everything as new).
+        let body1 = make_raw_email("FirstSync1");
+        let body2 = make_raw_email("FirstSync2");
+        let changed = vec![
+            ChangedMessage {
+                uid: 1,
+                flags: String::new(),
+                modseq: Some(10),
+                body: Some(body1),
+            },
+            ChangedMessage {
+                uid: 2,
+                flags: "\\Seen".to_string(),
+                modseq: Some(20),
+                body: Some(body2),
+            },
+        ];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(20),
+            changed,
+            &[1, 2],
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 2);
+        assert_eq!(result.flags_updated, 0);
+        assert!(!result.full_refetch);
+
+        // Verify highestmodseq was stored.
+        let (cached_uv, cached_hm) = load_folder_sync_state(&conn, fid).unwrap();
+        assert_eq!(cached_uv, Some(100));
+        assert_eq!(cached_hm, Some(20));
+    }
+
+    #[test]
+    fn condstore_stores_highest_modseq_after_sync() {
+        // AC1: After each successful sync, the highest known modseq is stored.
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Verify initial state.
+        let (_, cached_hm) = load_folder_sync_state(&conn, fid).unwrap();
+        assert_eq!(cached_hm, Some(50));
+
+        // Sync with higher modseq.
+        let changed = vec![ChangedMessage {
+            uid: 2,
+            flags: "\\Seen".to_string(),
+            modseq: Some(75),
+            body: None,
+        }];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(75), // new highestmodseq from server
+            changed,
+            &[1, 2, 3],
+        )
+        .unwrap();
+
+        assert_eq!(result.highestmodseq, Some(75));
+
+        // Verify it was persisted.
+        let (_, cached_hm) = load_folder_sync_state(&conn, fid).unwrap();
+        assert_eq!(cached_hm, Some(75));
+    }
+
+    #[test]
+    fn condstore_only_changed_messages_processed() {
+        // AC3: Only changed messages are fetched and processed — unchanged are skipped.
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // Server reports only uid=1 changed (flag update). uid=2 and uid=3 unchanged.
+        let changed = vec![ChangedMessage {
+            uid: 1,
+            flags: "\\Seen".to_string(),
+            modseq: Some(55),
+            body: None,
+        }];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(55),
+            changed,
+            &[1, 2, 3],
+        )
+        .unwrap();
+
+        // Only 1 flag update, 0 bodies — uid=2 and uid=3 were not touched.
+        assert_eq!(result.flags_updated, 1);
+        assert_eq!(result.bodies_fetched, 0);
+
+        // Verify uid=2 and uid=3 flags are unchanged (still 0).
+        let (_, flags2) = find_message_by_uid_in_folder(&conn, "acct-1", 2, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(flags2, 0);
+        let (_, flags3) = find_message_by_uid_in_folder(&conn, "acct-1", 3, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(flags3, 0);
     }
 }
