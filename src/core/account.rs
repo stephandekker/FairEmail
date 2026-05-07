@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::core::provider::MaxTlsVersion;
+
 fn default_true() -> bool {
     true
 }
@@ -256,6 +258,14 @@ pub struct SecuritySettings {
     /// Authentication realm override (FR-4).
     #[serde(default)]
     pub auth_realm: Option<String>,
+    /// Maximum TLS version allowed for connections to this account's servers (FR-28).
+    /// `None` means no restriction (use highest available).
+    #[serde(default)]
+    pub max_tls_version: Option<MaxTlsVersion>,
+    /// Disable IP-address-based connections for this account (FR-29).
+    /// When true, connections must use hostnames, not raw IP addresses.
+    #[serde(default)]
+    pub disable_ip_connections: bool,
 }
 
 impl SecuritySettings {
@@ -3029,6 +3039,8 @@ mod tests {
             client_certificate: Some("/path/to/cert".into()),
             auth_realm: Some("realm.example.com".into()),
             allow_insecure_auth: false,
+            max_tls_version: None,
+            disable_ip_connections: false,
         });
         let acct = Account::new(p).unwrap();
         let sec = acct.security_settings().unwrap();
@@ -3053,6 +3065,8 @@ mod tests {
             client_certificate: None,
             auth_realm: None,
             allow_insecure_auth: false,
+            max_tls_version: None,
+            disable_ip_connections: false,
         });
         acct.update(up).unwrap();
         let sec = acct.security_settings().unwrap();
@@ -3098,6 +3112,8 @@ mod tests {
             client_certificate: Some("/etc/ssl/client.pem".into()),
             auth_realm: Some("mail.example.com".into()),
             allow_insecure_auth: false,
+            max_tls_version: None,
+            disable_ip_connections: false,
         });
         let acct = Account::new(p).unwrap();
         let json = serde_json::to_string(&acct).unwrap();

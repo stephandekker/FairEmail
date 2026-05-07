@@ -419,6 +419,8 @@ mod tests {
                 client_certificate: None,
                 auth_realm: Some("example.com".into()),
                 allow_insecure_auth: false,
+                max_tls_version: None,
+                disable_ip_connections: false,
             }),
             fetch_settings: Some(FetchSettings {
                 partial_fetch: true,

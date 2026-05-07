@@ -1162,6 +1162,8 @@ fn build_smtp_provider(host: &str, port: u16, encryption: EncryptionMode) -> Pro
         partial_fetch: false,
         max_tls_version: MaxTlsVersion::Tls1_3,
         app_password_required: false,
+        disable_ip_connections: false,
+        requires_manual_enablement: false,
         documentation_url: None,
         localized_docs: vec![],
         oauth: None,

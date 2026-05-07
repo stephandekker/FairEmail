@@ -432,6 +432,8 @@ mod tests {
             partial_fetch: true,
             max_tls_version: MaxTlsVersion::Tls1_3,
             app_password_required,
+            disable_ip_connections: false,
+            requires_manual_enablement: false,
             documentation_url: doc_url.map(|s| s.to_string()),
             localized_docs: vec![],
             oauth: None,

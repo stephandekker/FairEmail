@@ -191,8 +191,16 @@ pub struct Provider {
     pub partial_fetch: bool,
     /// Maximum TLS version (FR-15j)
     pub max_tls_version: MaxTlsVersion,
-    /// Whether an app-specific password is required (FR-15k)
+    /// Whether an app-specific password is required (FR-15k, FR-31)
     pub app_password_required: bool,
+    /// Disable IP-address-based connections for this provider (FR-29).
+    /// When true, connections must use hostnames, not raw IP addresses.
+    #[serde(default)]
+    pub disable_ip_connections: bool,
+    /// Provider requires the user to manually enable IMAP/SMTP access (FR-30).
+    /// This is a data flag; user-facing guidance is handled in story 10.
+    #[serde(default)]
+    pub requires_manual_enablement: bool,
     /// Provider documentation link (FR-15l)
     pub documentation_url: Option<String>,
     /// Localized documentation snippets (FR-15m)
@@ -557,6 +565,8 @@ mod tests {
             partial_fetch: true,
             max_tls_version: MaxTlsVersion::Tls1_3,
             app_password_required: false,
+            disable_ip_connections: false,
+            requires_manual_enablement: false,
             documentation_url: None,
             localized_docs: vec![],
             oauth: None,
@@ -721,6 +731,8 @@ mod tests {
             partial_fetch: false,
             max_tls_version: MaxTlsVersion::Tls1_3,
             app_password_required: false,
+            disable_ip_connections: false,
+            requires_manual_enablement: false,
             documentation_url: None,
             localized_docs: vec![],
             oauth: None,
@@ -780,6 +792,8 @@ mod tests {
             partial_fetch: false,
             max_tls_version: MaxTlsVersion::Tls1_3,
             app_password_required: false,
+            disable_ip_connections: false,
+            requires_manual_enablement: false,
             documentation_url: None,
             localized_docs: vec![],
             oauth: None,
@@ -850,6 +864,8 @@ mod tests {
             partial_fetch: true,
             max_tls_version: MaxTlsVersion::Tls1_3,
             app_password_required: false,
+            disable_ip_connections: false,
+            requires_manual_enablement: false,
             documentation_url: None,
             localized_docs: vec![],
             oauth: None,

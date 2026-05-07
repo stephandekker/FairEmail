@@ -92,6 +92,8 @@ mod tests {
             partial_fetch: true,
             max_tls_version: MaxTlsVersion::Tls1_3,
             app_password_required: false,
+            disable_ip_connections: false,
+            requires_manual_enablement: false,
             documentation_url: Some("https://help.testprovider.com/smtp-setup".to_string()),
             localized_docs: vec![],
             oauth: None,

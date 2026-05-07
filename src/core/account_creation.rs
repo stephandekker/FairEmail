@@ -152,12 +152,22 @@ pub fn create_account_and_identity(
         utf8_support: false,
     });
 
-    // Store certificate fingerprint if accepted.
-    let security_settings = if params.accepted_certificate_fingerprint.is_some()
-        || params.provider.max_tls_version == MaxTlsVersion::Tls1_2
-    {
+    // Apply provider security overrides (FR-28, FR-29) and certificate fingerprint.
+    let max_tls_override = if params.provider.max_tls_version == MaxTlsVersion::Tls1_3 {
+        None // Tls1_3 is the default — no restriction needed.
+    } else {
+        Some(params.provider.max_tls_version)
+    };
+
+    let needs_security_settings = params.accepted_certificate_fingerprint.is_some()
+        || max_tls_override.is_some()
+        || params.provider.disable_ip_connections;
+
+    let security_settings = if needs_security_settings {
         Some(SecuritySettings {
             certificate_fingerprint: params.accepted_certificate_fingerprint,
+            max_tls_version: max_tls_override,
+            disable_ip_connections: params.provider.disable_ip_connections,
             ..Default::default()
         })
     } else {
@@ -252,6 +262,8 @@ mod tests {
             partial_fetch: true,
             max_tls_version: MaxTlsVersion::Tls1_3,
             app_password_required: false,
+            disable_ip_connections: false,
+            requires_manual_enablement: false,
             documentation_url: None,
             localized_docs: vec![],
             oauth: None,
@@ -528,6 +540,131 @@ mod tests {
         assert!(!designated);
         assert!(accounts[0].is_primary());
         assert!(!accounts[1].is_primary());
+    }
+
+    #[test]
+    fn applies_disable_ip_connections_override() {
+        let mut provider = make_provider();
+        provider.disable_ip_connections = true;
+
+        let result = create_account_and_identity(AccountCreationParams {
+            provider,
+            email: "user@gmail.com".to_string(),
+            display_name: "Test User".to_string(),
+            credential: "secret".to_string(),
+            auth_method: AuthMethod::Plain,
+            imap_result: make_imap_success(),
+            smtp_result: make_smtp_success(),
+            accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
+            shared_mailbox: None,
+        })
+        .unwrap();
+
+        let sec = result.account.security_settings().unwrap();
+        assert!(sec.disable_ip_connections);
+    }
+
+    #[test]
+    fn applies_max_tls_version_override() {
+        let mut provider = make_provider();
+        provider.max_tls_version = MaxTlsVersion::Tls1_2;
+
+        let result = create_account_and_identity(AccountCreationParams {
+            provider,
+            email: "user@gmail.com".to_string(),
+            display_name: "Test User".to_string(),
+            credential: "secret".to_string(),
+            auth_method: AuthMethod::Plain,
+            imap_result: make_imap_success(),
+            smtp_result: make_smtp_success(),
+            accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
+            shared_mailbox: None,
+        })
+        .unwrap();
+
+        let sec = result.account.security_settings().unwrap();
+        assert_eq!(sec.max_tls_version, Some(MaxTlsVersion::Tls1_2));
+    }
+
+    #[test]
+    fn tls_1_3_does_not_set_max_tls_override() {
+        // TLS 1.3 is the default — no override needed.
+        let result = create_account_and_identity(AccountCreationParams {
+            provider: make_provider(), // max_tls_version = Tls1_3
+            email: "user@gmail.com".to_string(),
+            display_name: "Test User".to_string(),
+            credential: "secret".to_string(),
+            auth_method: AuthMethod::Plain,
+            imap_result: make_imap_success(),
+            smtp_result: make_smtp_success(),
+            accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
+            shared_mailbox: None,
+        })
+        .unwrap();
+
+        // No security settings needed when no overrides are active.
+        assert!(result
+            .account
+            .security_settings()
+            .and_then(|s| s.max_tls_version)
+            .is_none());
+    }
+
+    #[test]
+    fn all_overrides_applied_together() {
+        let mut provider = make_provider();
+        provider.keep_alive_interval = 30;
+        provider.noop_keep_alive = true;
+        provider.partial_fetch = false;
+        provider.max_tls_version = MaxTlsVersion::Tls1_2;
+        provider.disable_ip_connections = true;
+        provider.requires_manual_enablement = true;
+        provider.app_password_required = true;
+
+        let result = create_account_and_identity(AccountCreationParams {
+            provider,
+            email: "user@gmail.com".to_string(),
+            display_name: "Test User".to_string(),
+            credential: "secret".to_string(),
+            auth_method: AuthMethod::Plain,
+            imap_result: make_imap_success(),
+            smtp_result: make_smtp_success(),
+            accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
+            shared_mailbox: None,
+        })
+        .unwrap();
+
+        let acct = &result.account;
+        assert_eq!(acct.polling_interval_minutes(), Some(30));
+        assert!(acct.keep_alive_settings().unwrap().use_noop_instead_of_idle);
+        assert!(!acct.fetch_settings().unwrap().partial_fetch);
+        let sec = acct.security_settings().unwrap();
+        assert_eq!(sec.max_tls_version, Some(MaxTlsVersion::Tls1_2));
+        assert!(sec.disable_ip_connections);
+    }
+
+    #[test]
+    fn no_overrides_means_no_security_settings() {
+        // Default provider with no overrides should not create security_settings.
+        let result = create_account_and_identity(AccountCreationParams {
+            provider: make_provider(),
+            email: "user@gmail.com".to_string(),
+            display_name: "Test User".to_string(),
+            credential: "secret".to_string(),
+            auth_method: AuthMethod::Plain,
+            imap_result: make_imap_success(),
+            smtp_result: make_smtp_success(),
+            accepted_certificate_fingerprint: None,
+            oauth_tenant: None,
+            shared_mailbox: None,
+        })
+        .unwrap();
+
+        assert!(result.account.security_settings().is_none());
     }
 
     #[test]

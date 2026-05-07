@@ -47,6 +47,8 @@ fn p(
         partial_fetch,
         max_tls_version: max_tls,
         app_password_required: app_password,
+        disable_ip_connections: false,
+        requires_manual_enablement: false,
         documentation_url: doc_url.map(|s| s.to_string()),
         localized_docs: vec![],
         oauth,

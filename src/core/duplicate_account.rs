@@ -69,6 +69,8 @@ mod tests {
                 client_certificate: Some("/etc/pki/client.pem".into()),
                 auth_realm: Some("example.com".into()),
                 allow_insecure_auth: false,
+                max_tls_version: None,
+                disable_ip_connections: false,
             }),
             fetch_settings: None,
             keep_alive_settings: None,
