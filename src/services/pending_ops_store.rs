@@ -314,6 +314,50 @@ pub fn dismiss_op(conn: &Connection, op_id: i64) -> Result<(), DatabaseError> {
     Ok(())
 }
 
+/// Cancel all pending/in-flight message operations targeting a specific folder.
+///
+/// Used during UID validity reset: when the server invalidates all UIDs for a
+/// folder, any pending operations that reference those UIDs are no longer valid
+/// and must be cancelled gracefully (AC-20).
+///
+/// Affected operation kinds and the JSON payload fields checked:
+/// - `store_flags`    → `$.folder_name`
+/// - `delete_message` → `$.folder_name`
+/// - `move_message`   → `$.source_folder`
+/// - `copy_message`   → `$.source_folder`
+///
+/// Operations are marked as `Failed` with a descriptive error so they remain
+/// visible in the queue UI rather than silently disappearing.
+///
+/// Returns the number of operations cancelled.
+pub fn cancel_pending_ops_for_folder(
+    conn: &Connection,
+    account_id: &str,
+    folder_name: &str,
+) -> Result<usize, DatabaseError> {
+    let error_msg = format!(
+        "Cancelled: UID validity changed for folder '{}', UIDs are no longer valid",
+        folder_name
+    );
+    let count = conn.execute(
+        "UPDATE pending_operations
+         SET state = ?1, last_error = ?2
+         WHERE account_id = ?3
+           AND state IN ('pending', 'in_flight')
+           AND (
+               (kind IN ('store_flags', 'delete_message') AND json_extract(payload, '$.folder_name') = ?4)
+            OR (kind IN ('move_message', 'copy_message') AND json_extract(payload, '$.source_folder') = ?4)
+           )",
+        rusqlite::params![
+            OperationState::Failed.as_str(),
+            error_msg,
+            account_id,
+            folder_name,
+        ],
+    )?;
+    Ok(count)
+}
+
 /// Count pending operations for an account.
 pub fn count_pending_ops(conn: &Connection, account_id: &str) -> Result<i64, DatabaseError> {
     let count: i64 = conn.query_row(
@@ -669,5 +713,90 @@ mod tests {
         let ops = load_pending_ops(&conn, "acct-1").unwrap();
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].kind, OperationKind::MoveMessage);
+    }
+
+    #[test]
+    fn cancel_pending_ops_for_folder_cancels_store_flags() {
+        let (_dir, conn) = setup_db();
+        let payload = r#"{"message_id":1,"uid":100,"folder_name":"INBOX","new_flags":1}"#;
+        insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, payload).unwrap();
+
+        let cancelled = cancel_pending_ops_for_folder(&conn, "acct-1", "INBOX").unwrap();
+        assert_eq!(cancelled, 1);
+
+        // Should now be failed, not pending.
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert!(ops.is_empty());
+
+        let all = load_all_ops(&conn).unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].state, OperationState::Failed);
+        assert!(all[0].last_error.as_ref().unwrap().contains("UID validity"));
+    }
+
+    #[test]
+    fn cancel_pending_ops_for_folder_cancels_move_and_copy() {
+        let (_dir, conn) = setup_db();
+        let move_payload =
+            r#"{"message_id":1,"uid":100,"source_folder":"INBOX","destination_folder":"Archive"}"#;
+        let copy_payload =
+            r#"{"message_id":2,"uid":200,"source_folder":"INBOX","destination_folder":"Sent"}"#;
+        insert_pending_op(&conn, "acct-1", &OperationKind::MoveMessage, move_payload).unwrap();
+        insert_pending_op(&conn, "acct-1", &OperationKind::CopyMessage, copy_payload).unwrap();
+
+        let cancelled = cancel_pending_ops_for_folder(&conn, "acct-1", "INBOX").unwrap();
+        assert_eq!(cancelled, 2);
+    }
+
+    #[test]
+    fn cancel_pending_ops_for_folder_cancels_delete_message() {
+        let (_dir, conn) = setup_db();
+        let payload = r#"{"message_id":1,"uid":100,"folder_name":"Trash"}"#;
+        insert_pending_op(&conn, "acct-1", &OperationKind::DeleteMessage, payload).unwrap();
+
+        let cancelled = cancel_pending_ops_for_folder(&conn, "acct-1", "Trash").unwrap();
+        assert_eq!(cancelled, 1);
+    }
+
+    #[test]
+    fn cancel_pending_ops_for_folder_ignores_other_folders() {
+        let (_dir, conn) = setup_db();
+        let inbox_payload = r#"{"message_id":1,"uid":100,"folder_name":"INBOX","new_flags":1}"#;
+        let sent_payload = r#"{"message_id":2,"uid":200,"folder_name":"Sent","new_flags":2}"#;
+        insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, inbox_payload).unwrap();
+        insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, sent_payload).unwrap();
+
+        let cancelled = cancel_pending_ops_for_folder(&conn, "acct-1", "INBOX").unwrap();
+        assert_eq!(cancelled, 1);
+
+        // Sent folder op remains pending.
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 1);
+        assert!(ops[0].payload.contains("Sent"));
+    }
+
+    #[test]
+    fn cancel_pending_ops_for_folder_ignores_already_failed() {
+        let (_dir, conn) = setup_db();
+        let payload = r#"{"message_id":1,"uid":100,"folder_name":"INBOX","new_flags":1}"#;
+        let id = insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, payload).unwrap();
+        mark_failed(&conn, id, "previous error").unwrap();
+
+        let cancelled = cancel_pending_ops_for_folder(&conn, "acct-1", "INBOX").unwrap();
+        assert_eq!(cancelled, 0);
+    }
+
+    #[test]
+    fn cancel_pending_ops_for_folder_ignores_send_ops() {
+        let (_dir, conn) = setup_db();
+        let send_payload = r#"{"identity_id":1,"content_hash":"abc123"}"#;
+        insert_pending_op(&conn, "acct-1", &OperationKind::Send, send_payload).unwrap();
+
+        let cancelled = cancel_pending_ops_for_folder(&conn, "acct-1", "INBOX").unwrap();
+        assert_eq!(cancelled, 0);
+
+        // Send op remains pending.
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 1);
     }
 }

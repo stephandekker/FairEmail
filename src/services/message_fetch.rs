@@ -21,6 +21,7 @@ use crate::services::message_store::{
     load_folder_sync_state, load_uids_for_folder, update_folder_last_sync_at,
     update_folder_sync_state, update_message_flags,
 };
+use crate::services::pending_ops_store::cancel_pending_ops_for_folder;
 use crate::services::sync_state_store::load_sync_state;
 
 /// Errors from the message fetch pipeline.
@@ -858,7 +859,8 @@ pub(crate) fn incremental_sync_uid_diff_with_window(
     })
 }
 
-/// Handle UIDVALIDITY change: invalidate folder, delete stale rows, re-fetch.
+/// Handle UIDVALIDITY change: cancel stale pending ops, invalidate folder,
+/// delete stale rows, re-fetch.
 fn handle_uidvalidity_change(
     conn: &Connection,
     content_store: &dyn ContentStore,
@@ -869,6 +871,10 @@ fn handle_uidvalidity_change(
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
+
+    // Cancel pending operations targeting this folder — their UIDs are now
+    // invalid and executing them would cause mismatches (AC-20).
+    let _ = cancel_pending_ops_for_folder(&tx, &params.account_id, folder_name)?;
 
     // Delete stale messages for this folder; collect orphaned hashes.
     let orphaned_hashes = delete_messages_for_folder(&tx, &params.account_id, folder_id)?;
