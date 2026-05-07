@@ -56,7 +56,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, db_path: std::path::PathBuf)
 
     // Initial population.
     let ops = load_ops_from_db(&db_path);
-    populate_group(&group, &ops);
+    populate_group(&group, &ops, &db_path);
 
     // Real-time refresh: poll every second while the dialog is open.
     let group_ref = Rc::new(group);
@@ -76,7 +76,7 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, db_path: std::path::PathBuf)
             return glib::ControlFlow::Break;
         }
         let ops = load_ops_from_db(&db_timer);
-        populate_group(&group_timer, &ops);
+        populate_group(&group_timer, &ops, &db_timer);
         glib::ControlFlow::Continue
     });
 
@@ -93,7 +93,11 @@ fn load_ops_from_db(db_path: &std::path::Path) -> Vec<PendingOperation> {
 }
 
 /// Rebuild the preferences group contents from the current operation list.
-fn populate_group(group: &adw::PreferencesGroup, ops: &[PendingOperation]) {
+fn populate_group(
+    group: &adw::PreferencesGroup,
+    ops: &[PendingOperation],
+    db_path: &std::path::Path,
+) {
     // Remove existing rows.
     while let Some(child) = group.first_child() {
         // PreferencesGroup has internal children (header labels); only remove
@@ -150,6 +154,46 @@ fn populate_group(group: &adw::PreferencesGroup, ops: &[PendingOperation]) {
             .css_classes([css_class])
             .build();
         row.add_prefix(&icon);
+
+        // For failed operations, add Retry and Dismiss buttons (AC-18).
+        if op.state == crate::core::pending_operation::OperationState::Failed {
+            let button_box = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(6)
+                .valign(gtk::Align::Center)
+                .build();
+
+            let retry_btn = gtk::Button::builder()
+                .icon_name("view-refresh-symbolic")
+                .tooltip_text(gettextrs::gettext("Retry"))
+                .css_classes(["flat"])
+                .build();
+            let dismiss_btn = gtk::Button::builder()
+                .icon_name("user-trash-symbolic")
+                .tooltip_text(gettextrs::gettext("Dismiss"))
+                .css_classes(["flat"])
+                .build();
+
+            let op_id = op.id;
+            let db_path_retry = db_path.to_path_buf();
+            retry_btn.connect_clicked(move |_| {
+                if let Ok(conn) = rusqlite::Connection::open(&db_path_retry) {
+                    let _ = crate::services::pending_ops_store::retry_failed_op(&conn, op_id);
+                }
+            });
+
+            let op_id = op.id;
+            let db_path_dismiss = db_path.to_path_buf();
+            dismiss_btn.connect_clicked(move |_| {
+                if let Ok(conn) = rusqlite::Connection::open(&db_path_dismiss) {
+                    let _ = crate::services::pending_ops_store::dismiss_op(&conn, op_id);
+                }
+            });
+
+            button_box.append(&retry_btn);
+            button_box.append(&dismiss_btn);
+            row.add_suffix(&button_box);
+        }
 
         group.add(&row);
     }

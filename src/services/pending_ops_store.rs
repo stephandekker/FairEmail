@@ -31,19 +31,27 @@ pub fn insert_pending_op(
     Ok(conn.last_insert_rowid())
 }
 
-/// Load all pending/in-flight operations for an account, ordered by id (insertion order).
+/// Load all pending/in-flight operations for an account that are ready to execute,
+/// ordered by id (insertion order). Operations with a future `next_retry_at` are
+/// skipped so that backoff delays do not block other operations (NFR-7).
 pub fn load_pending_ops(
     conn: &Connection,
     account_id: &str,
 ) -> Result<Vec<PendingOperation>, DatabaseError> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
     let mut stmt = conn.prepare(
-        "SELECT id, account_id, kind, payload, state, retry_count, last_error, created_at
+        "SELECT id, account_id, kind, payload, state, retry_count, last_error, created_at, next_retry_at
          FROM pending_operations
          WHERE account_id = ?1 AND state IN ('pending', 'in_flight')
+           AND (next_retry_at IS NULL OR next_retry_at <= ?2)
          ORDER BY id ASC",
     )?;
 
-    let rows = stmt.query_map(rusqlite::params![account_id], |row| {
+    let rows = stmt.query_map(rusqlite::params![account_id, now], |row| {
         let kind_str: String = row.get(2)?;
         let state_str: String = row.get(4)?;
         Ok(PendingOperation {
@@ -55,6 +63,7 @@ pub fn load_pending_ops(
             retry_count: row.get(5)?,
             last_error: row.get(6)?,
             created_at: row.get(7)?,
+            next_retry_at: row.get(8)?,
         })
     })?;
 
@@ -92,13 +101,30 @@ pub fn mark_failed(conn: &Connection, op_id: i64, error: &str) -> Result<(), Dat
     Ok(())
 }
 
-/// Re-queue an operation back to pending with incremented retry count and error.
-pub fn requeue_op(conn: &Connection, op_id: i64, error: &str) -> Result<i32, DatabaseError> {
+/// Re-queue an operation back to pending with incremented retry count, error,
+/// and a `next_retry_at` timestamp based on exponential backoff.
+pub fn requeue_op(
+    conn: &Connection,
+    op_id: i64,
+    error: &str,
+    backoff_secs: u64,
+) -> Result<i32, DatabaseError> {
+    let next_retry_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+        + backoff_secs as i64;
+
     conn.execute(
         "UPDATE pending_operations
-         SET state = ?1, retry_count = retry_count + 1, last_error = ?2
-         WHERE id = ?3",
-        rusqlite::params![OperationState::Pending.as_str(), error, op_id],
+         SET state = ?1, retry_count = retry_count + 1, last_error = ?2, next_retry_at = ?3
+         WHERE id = ?4",
+        rusqlite::params![
+            OperationState::Pending.as_str(),
+            error,
+            next_retry_at,
+            op_id
+        ],
     )?;
 
     let retry_count: i32 = conn.query_row(
@@ -199,7 +225,7 @@ pub fn load_all_ops_for_account(
     account_id: &str,
 ) -> Result<Vec<PendingOperation>, DatabaseError> {
     let mut stmt = conn.prepare(
-        "SELECT id, account_id, kind, payload, state, retry_count, last_error, created_at
+        "SELECT id, account_id, kind, payload, state, retry_count, last_error, created_at, next_retry_at
          FROM pending_operations
          WHERE account_id = ?1
          ORDER BY id ASC",
@@ -217,6 +243,7 @@ pub fn load_all_ops_for_account(
             retry_count: row.get(5)?,
             last_error: row.get(6)?,
             created_at: row.get(7)?,
+            next_retry_at: row.get(8)?,
         })
     })?;
 
@@ -232,7 +259,7 @@ pub fn load_all_ops_for_account(
 /// Used by the queue view UI (AC-16) when showing the global operation queue.
 pub fn load_all_ops(conn: &Connection) -> Result<Vec<PendingOperation>, DatabaseError> {
     let mut stmt = conn.prepare(
-        "SELECT id, account_id, kind, payload, state, retry_count, last_error, created_at
+        "SELECT id, account_id, kind, payload, state, retry_count, last_error, created_at, next_retry_at
          FROM pending_operations
          ORDER BY id ASC",
     )?;
@@ -249,6 +276,7 @@ pub fn load_all_ops(conn: &Connection) -> Result<Vec<PendingOperation>, Database
             retry_count: row.get(5)?,
             last_error: row.get(6)?,
             created_at: row.get(7)?,
+            next_retry_at: row.get(8)?,
         })
     })?;
 
@@ -257,6 +285,33 @@ pub fn load_all_ops(conn: &Connection) -> Result<Vec<PendingOperation>, Database
         ops.push(row?);
     }
     Ok(ops)
+}
+
+/// Retry a failed operation by resetting it to pending state (AC-18 manual retry).
+///
+/// Resets the state to `Pending`, clears the error, resets retry_count to 0,
+/// and clears `next_retry_at` so it is immediately eligible for processing.
+pub fn retry_failed_op(conn: &Connection, op_id: i64) -> Result<(), DatabaseError> {
+    conn.execute(
+        "UPDATE pending_operations
+         SET state = ?1, retry_count = 0, last_error = NULL, next_retry_at = NULL
+         WHERE id = ?2 AND state = ?3",
+        rusqlite::params![
+            OperationState::Pending.as_str(),
+            op_id,
+            OperationState::Failed.as_str()
+        ],
+    )?;
+    Ok(())
+}
+
+/// Dismiss (cancel) a failed operation by removing it from the queue (AC-18).
+pub fn dismiss_op(conn: &Connection, op_id: i64) -> Result<(), DatabaseError> {
+    conn.execute(
+        "DELETE FROM pending_operations WHERE id = ?1 AND state = ?2",
+        rusqlite::params![op_id, OperationState::Failed.as_str()],
+    )?;
+    Ok(())
 }
 
 /// Count pending operations for an account.
@@ -344,7 +399,7 @@ mod tests {
         let id = insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, "{}").unwrap();
         mark_in_flight(&conn, id).unwrap();
 
-        let count = requeue_op(&conn, id, "network error").unwrap();
+        let count = requeue_op(&conn, id, "network error", 0).unwrap();
         assert_eq!(count, 1);
 
         let ops = load_pending_ops(&conn, "acct-1").unwrap();
@@ -519,5 +574,100 @@ mod tests {
         assert_eq!(ops2.len(), 1);
         assert_eq!(ops1[0].kind, OperationKind::StoreFlags);
         assert_eq!(ops2[0].kind, OperationKind::MoveMessage);
+    }
+
+    #[test]
+    fn requeue_with_backoff_sets_next_retry_at() {
+        let (_dir, conn) = setup_db();
+        let id = insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, "{}").unwrap();
+        mark_in_flight(&conn, id).unwrap();
+
+        // Requeue with 30 seconds backoff.
+        let count = requeue_op(&conn, id, "timeout", 30).unwrap();
+        assert_eq!(count, 1);
+
+        // The op should NOT appear in load_pending_ops because next_retry_at is in the future.
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert!(
+            ops.is_empty(),
+            "op with future next_retry_at should be skipped"
+        );
+
+        // But it should still appear in load_all_ops (for UI display).
+        let all_ops = load_all_ops(&conn).unwrap();
+        assert_eq!(all_ops.len(), 1);
+        assert!(all_ops[0].next_retry_at.is_some());
+    }
+
+    #[test]
+    fn retry_failed_op_resets_to_pending() {
+        let (_dir, conn) = setup_db();
+        let id = insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, "{}").unwrap();
+        mark_failed(&conn, id, "auth error").unwrap();
+
+        // Verify it's failed.
+        let ops = load_all_ops(&conn).unwrap();
+        assert_eq!(ops[0].state, OperationState::Failed);
+
+        // Retry it.
+        retry_failed_op(&conn, id).unwrap();
+
+        // Should now be pending with reset state.
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].state, OperationState::Pending);
+        assert_eq!(ops[0].retry_count, 0);
+        assert!(ops[0].last_error.is_none());
+        assert!(ops[0].next_retry_at.is_none());
+    }
+
+    #[test]
+    fn retry_failed_op_only_affects_failed_state() {
+        let (_dir, conn) = setup_db();
+        let id = insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, "{}").unwrap();
+        // Op is in Pending state — retry_failed_op should not change it.
+        retry_failed_op(&conn, id).unwrap();
+
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops[0].state, OperationState::Pending);
+        assert_eq!(ops[0].retry_count, 0); // unchanged
+    }
+
+    #[test]
+    fn dismiss_op_removes_failed_operation() {
+        let (_dir, conn) = setup_db();
+        let id = insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, "{}").unwrap();
+        mark_failed(&conn, id, "permanent error").unwrap();
+
+        dismiss_op(&conn, id).unwrap();
+
+        let ops = load_all_ops(&conn).unwrap();
+        assert!(ops.is_empty());
+    }
+
+    #[test]
+    fn dismiss_op_only_affects_failed_state() {
+        let (_dir, conn) = setup_db();
+        let id = insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, "{}").unwrap();
+        // Op is Pending — dismiss should not remove it.
+        dismiss_op(&conn, id).unwrap();
+
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 1);
+    }
+
+    #[test]
+    fn failed_ops_do_not_block_pending_ops() {
+        let (_dir, conn) = setup_db();
+        let id1 = insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, "{}").unwrap();
+        let _id2 = insert_pending_op(&conn, "acct-1", &OperationKind::MoveMessage, "{}").unwrap();
+
+        // Fail the first operation.
+        mark_failed(&conn, id1, "permanent error").unwrap();
+
+        // load_pending_ops should only return the second (pending) operation.
+        let ops = load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].kind, OperationKind::MoveMessage);
     }
 }

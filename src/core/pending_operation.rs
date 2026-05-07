@@ -148,6 +148,10 @@ pub struct FolderDeletePayload {
     pub folder_name: String,
 }
 
+/// Maximum number of automatic retry attempts for transient errors before
+/// the operation is marked as permanently failed.
+pub const MAX_RETRY_ATTEMPTS: i32 = 5;
+
 /// A row from the `pending_operations` table.
 #[derive(Debug, Clone)]
 pub struct PendingOperation {
@@ -159,6 +163,9 @@ pub struct PendingOperation {
     pub retry_count: i32,
     pub last_error: Option<String>,
     pub created_at: i64,
+    /// Unix timestamp after which this operation is eligible for retry.
+    /// `None` means the operation is ready immediately.
+    pub next_retry_at: Option<i64>,
 }
 
 #[cfg(test)]

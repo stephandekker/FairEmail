@@ -157,6 +157,7 @@ mod tests {
             retry_count: 0,
             last_error: None,
             created_at: 1000,
+            next_retry_at: None,
         }
     }
 

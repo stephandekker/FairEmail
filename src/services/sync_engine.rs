@@ -27,7 +27,7 @@ use crate::core::message::FLAG_SEEN;
 use crate::core::pending_operation::{
     CopyMessagePayload, DeleteMessagePayload, FolderCreatePayload, FolderDeletePayload,
     FolderRenamePayload, MoveMessagePayload, OperationKind, OperationState, SendPayload,
-    StoreFlagsPayload,
+    StoreFlagsPayload, MAX_RETRY_ATTEMPTS,
 };
 use crate::core::sync_event::SyncEvent;
 use crate::services::database::{open_and_migrate, DatabaseError};
@@ -2244,15 +2244,13 @@ async fn process_account_ops_full(
                         ) {
                             let sync_err = SyncError::Imap(err_msg.clone());
                             if is_transient_error(&sync_err) {
-                                match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
-                                    Ok(retry_count) => {
-                                        let delay = backoff_duration(retry_count - 1);
-                                        tokio::time::sleep(delay).await;
-                                    }
-                                    Err(e) => {
-                                        eprintln!("sync engine: requeue failed: {e}");
-                                    }
-                                }
+                                handle_transient_retry(
+                                    &conn,
+                                    op,
+                                    account_id,
+                                    &err_msg,
+                                    event_sender,
+                                );
                             } else {
                                 let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
                                 let _ = event_sender.send(SyncEvent::OperationFailed {
@@ -2265,7 +2263,9 @@ async fn process_account_ops_full(
                     }
                     Err(e) => {
                         let err_msg = format!("task join error: {e}");
-                        let _ = pending_ops_store::requeue_op(&conn, op.id, &err_msg);
+                        let delay = backoff_duration(op.retry_count);
+                        let _ =
+                            pending_ops_store::requeue_op(&conn, op.id, &err_msg, delay.as_secs());
                     }
                 }
             }
@@ -2350,15 +2350,13 @@ async fn process_account_ops_full(
                         ) {
                             let sync_err = SyncError::Imap(err_msg.clone());
                             if is_transient_error(&sync_err) {
-                                match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
-                                    Ok(retry_count) => {
-                                        let delay = backoff_duration(retry_count - 1);
-                                        tokio::time::sleep(delay).await;
-                                    }
-                                    Err(e) => {
-                                        eprintln!("sync engine: requeue failed: {e}");
-                                    }
-                                }
+                                handle_transient_retry(
+                                    &conn,
+                                    op,
+                                    account_id,
+                                    &err_msg,
+                                    event_sender,
+                                );
                             } else {
                                 let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
                                 let _ = event_sender.send(SyncEvent::OperationFailed {
@@ -2371,7 +2369,9 @@ async fn process_account_ops_full(
                     }
                     Err(e) => {
                         let err_msg = format!("task join error: {e}");
-                        let _ = pending_ops_store::requeue_op(&conn, op.id, &err_msg);
+                        let delay = backoff_duration(op.retry_count);
+                        let _ =
+                            pending_ops_store::requeue_op(&conn, op.id, &err_msg, delay.as_secs());
                     }
                 }
             }
@@ -2432,15 +2432,13 @@ async fn process_account_ops_full(
                         ) {
                             let sync_err = SyncError::Imap(err_msg.clone());
                             if is_transient_error(&sync_err) {
-                                match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
-                                    Ok(retry_count) => {
-                                        let delay = backoff_duration(retry_count - 1);
-                                        tokio::time::sleep(delay).await;
-                                    }
-                                    Err(e) => {
-                                        eprintln!("sync engine: requeue failed: {e}");
-                                    }
-                                }
+                                handle_transient_retry(
+                                    &conn,
+                                    op,
+                                    account_id,
+                                    &err_msg,
+                                    event_sender,
+                                );
                             } else {
                                 let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
                                 let _ = event_sender.send(SyncEvent::OperationFailed {
@@ -2453,7 +2451,9 @@ async fn process_account_ops_full(
                     }
                     Err(e) => {
                         let err_msg = format!("task join error: {e}");
-                        let _ = pending_ops_store::requeue_op(&conn, op.id, &err_msg);
+                        let delay = backoff_duration(op.retry_count);
+                        let _ =
+                            pending_ops_store::requeue_op(&conn, op.id, &err_msg, delay.as_secs());
                     }
                 }
             }
@@ -2505,15 +2505,13 @@ async fn process_account_ops_full(
                         ) {
                             let sync_err = SyncError::Imap(err_msg.clone());
                             if is_transient_error(&sync_err) {
-                                match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
-                                    Ok(retry_count) => {
-                                        let delay = backoff_duration(retry_count - 1);
-                                        tokio::time::sleep(delay).await;
-                                    }
-                                    Err(e) => {
-                                        eprintln!("sync engine: requeue failed: {e}");
-                                    }
-                                }
+                                handle_transient_retry(
+                                    &conn,
+                                    op,
+                                    account_id,
+                                    &err_msg,
+                                    event_sender,
+                                );
                             } else {
                                 let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
                                 let _ = event_sender.send(SyncEvent::OperationFailed {
@@ -2526,7 +2524,9 @@ async fn process_account_ops_full(
                     }
                     Err(e) => {
                         let err_msg = format!("task join error: {e}");
-                        let _ = pending_ops_store::requeue_op(&conn, op.id, &err_msg);
+                        let delay = backoff_duration(op.retry_count);
+                        let _ =
+                            pending_ops_store::requeue_op(&conn, op.id, &err_msg, delay.as_secs());
                     }
                 }
             }
@@ -2597,7 +2597,9 @@ async fn process_account_ops_full(
                         }
                         Err(e) => {
                             let err = format!("login-before-send: task error: {e}");
-                            let _ = pending_ops_store::requeue_op(&conn, op.id, &err);
+                            let delay = backoff_duration(op.retry_count);
+                            let _ =
+                                pending_ops_store::requeue_op(&conn, op.id, &err, delay.as_secs());
                             i += 1;
                             continue;
                         }
@@ -2679,15 +2681,7 @@ async fn process_account_ops_full(
                     Ok(Err(err_msg)) => {
                         let sync_err = SyncError::Smtp(err_msg.clone());
                         if is_transient_error(&sync_err) {
-                            match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
-                                Ok(retry_count) => {
-                                    let delay = backoff_duration(retry_count - 1);
-                                    tokio::time::sleep(delay).await;
-                                }
-                                Err(e) => {
-                                    eprintln!("sync engine: requeue failed: {e}");
-                                }
-                            }
+                            handle_transient_retry(&conn, op, account_id, &err_msg, event_sender);
                         } else {
                             let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
                             let _ = event_sender.send(SyncEvent::OperationFailed {
@@ -2699,7 +2693,9 @@ async fn process_account_ops_full(
                     }
                     Err(e) => {
                         let err_msg = format!("task join error: {e}");
-                        let _ = pending_ops_store::requeue_op(&conn, op.id, &err_msg);
+                        let delay = backoff_duration(op.retry_count);
+                        let _ =
+                            pending_ops_store::requeue_op(&conn, op.id, &err_msg, delay.as_secs());
                     }
                 }
             }
@@ -2728,11 +2724,7 @@ async fn process_account_ops_full(
                 })
                 .await;
 
-                if let Some(delay) =
-                    handle_folder_op_result(&conn, op, account_id, event_sender, result)
-                {
-                    tokio::time::sleep(delay).await;
-                }
+                handle_folder_op_result(&conn, op, account_id, event_sender, result);
             }
             OperationKind::FolderRename => {
                 let payload: FolderRenamePayload = match serde_json::from_str(&op.payload) {
@@ -2770,11 +2762,7 @@ async fn process_account_ops_full(
                     );
                 }
 
-                if let Some(delay) =
-                    handle_folder_op_result(&conn, op, account_id, event_sender, result)
-                {
-                    tokio::time::sleep(delay).await;
-                }
+                handle_folder_op_result(&conn, op, account_id, event_sender, result);
             }
             OperationKind::FolderDelete => {
                 let payload: FolderDeletePayload = match serde_json::from_str(&op.payload) {
@@ -2821,11 +2809,7 @@ async fn process_account_ops_full(
                     let _ = crate::services::folder_store::delete_folder(&conn, folder_id);
                 }
 
-                if let Some(delay) =
-                    handle_folder_op_result(&conn, op, account_id, event_sender, result)
-                {
-                    tokio::time::sleep(delay).await;
-                }
+                handle_folder_op_result(&conn, op, account_id, event_sender, result);
             }
         }
 
@@ -2835,36 +2819,26 @@ async fn process_account_ops_full(
 
 /// Handle the result of a folder IMAP operation (create/rename/delete).
 /// On success: completes the op and emits FolderListChanged.
-/// On transient error: requeues with backoff, returns the delay duration.
+/// On transient error: requeues with backoff (respects max retries).
 /// On permanent error: marks failed and emits OperationFailed.
-///
-/// Returns `Some(delay)` when the caller should sleep before continuing
-/// (transient-error backoff). Returns `None` otherwise.
 fn handle_folder_op_result(
     conn: &rusqlite::Connection,
     op: &crate::core::pending_operation::PendingOperation,
     account_id: &str,
     event_sender: &broadcast::Sender<SyncEvent>,
     result: Result<Result<(), String>, tokio::task::JoinError>,
-) -> Option<std::time::Duration> {
+) {
     match result {
         Ok(Ok(())) => {
             let _ = pending_ops_store::complete_op(conn, op.id);
             let _ = event_sender.send(SyncEvent::FolderListChanged {
                 account_id: account_id.to_string(),
             });
-            None
         }
         Ok(Err(err_msg)) => {
             let sync_err = SyncError::Imap(err_msg.clone());
             if is_transient_error(&sync_err) {
-                match pending_ops_store::requeue_op(conn, op.id, &err_msg) {
-                    Ok(retry_count) => Some(backoff_duration(retry_count - 1)),
-                    Err(e) => {
-                        eprintln!("sync engine: requeue failed: {e}");
-                        None
-                    }
-                }
+                handle_transient_retry(conn, op, account_id, &err_msg, event_sender);
             } else {
                 let _ = pending_ops_store::mark_failed(conn, op.id, &err_msg);
                 let _ = event_sender.send(SyncEvent::OperationFailed {
@@ -2872,13 +2846,49 @@ fn handle_folder_op_result(
                     operation_id: op.id,
                     error: err_msg,
                 });
-                None
             }
         }
         Err(e) => {
             let err_msg = format!("task join error: {e}");
-            let _ = pending_ops_store::requeue_op(conn, op.id, &err_msg);
-            None
+            let delay = backoff_duration(op.retry_count);
+            let _ = pending_ops_store::requeue_op(conn, op.id, &err_msg, delay.as_secs());
+        }
+    }
+}
+
+/// Handle a transient error: requeue with backoff if under the retry limit,
+/// or mark as permanently failed if max retries are exhausted (AC-17).
+///
+/// Returns `true` if the operation was requeued (transient, still retrying).
+/// Returns `false` if the operation was marked as permanently failed.
+fn handle_transient_retry(
+    conn: &rusqlite::Connection,
+    op: &crate::core::pending_operation::PendingOperation,
+    account_id: &str,
+    err_msg: &str,
+    event_sender: &broadcast::Sender<SyncEvent>,
+) -> bool {
+    // Check if we've exhausted retries (AC-17).
+    if op.retry_count + 1 >= MAX_RETRY_ATTEMPTS {
+        let final_msg = format!(
+            "Operation failed after {} retries: {}",
+            MAX_RETRY_ATTEMPTS, err_msg
+        );
+        let _ = pending_ops_store::mark_failed(conn, op.id, &final_msg);
+        let _ = event_sender.send(SyncEvent::OperationFailed {
+            account_id: account_id.to_string(),
+            operation_id: op.id,
+            error: final_msg,
+        });
+        return false;
+    }
+
+    let delay = backoff_duration(op.retry_count);
+    match pending_ops_store::requeue_op(conn, op.id, err_msg, delay.as_secs()) {
+        Ok(_) => true,
+        Err(e) => {
+            eprintln!("sync engine: requeue failed: {e}");
+            false
         }
     }
 }
@@ -3402,13 +3412,15 @@ mod tests {
         )
         .await;
 
-        // Operation should be requeued with retry_count > 0
+        // Operation should be requeued with retry_count > 0 and next_retry_at set.
+        // Use load_all_ops because next_retry_at is in the future.
         let conn = open_and_migrate(&db_path).unwrap();
-        let ops = pending_ops_store::load_pending_ops(&conn, "acct-1").unwrap();
+        let ops = pending_ops_store::load_all_ops_for_account(&conn, "acct-1").unwrap();
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].state, OperationState::Pending);
         assert!(ops[0].retry_count > 0);
         assert!(ops[0].last_error.as_ref().unwrap().contains("timed out"));
+        assert!(ops[0].next_retry_at.is_some());
     }
 
     #[tokio::test]
@@ -3830,13 +3842,14 @@ mod tests {
         )
         .await;
 
-        // Op should be requeued
+        // Op should be requeued with next_retry_at set.
         let conn = open_and_migrate(&db_path).unwrap();
-        let ops = pending_ops_store::load_pending_ops(&conn, "acct-1").unwrap();
+        let ops = pending_ops_store::load_all_ops_for_account(&conn, "acct-1").unwrap();
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].state, OperationState::Pending);
         assert!(ops[0].retry_count > 0);
         assert!(ops[0].last_error.as_ref().unwrap().contains("timed out"));
+        assert!(ops[0].next_retry_at.is_some());
     }
 
     #[tokio::test]
@@ -4307,13 +4320,14 @@ mod tests {
         )
         .await;
 
-        // Op should be requeued.
+        // Op should be requeued with next_retry_at set.
         let conn = open_and_migrate(&db_path).unwrap();
-        let ops = pending_ops_store::load_pending_ops(&conn, "acct-1").unwrap();
+        let ops = pending_ops_store::load_all_ops_for_account(&conn, "acct-1").unwrap();
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].state, OperationState::Pending);
         assert!(ops[0].retry_count > 0);
         assert!(ops[0].last_error.as_ref().unwrap().contains("timed out"));
+        assert!(ops[0].next_retry_at.is_some());
     }
 
     #[test]
@@ -4586,6 +4600,177 @@ mod tests {
         assert!(
             matches!(evt2, SyncEvent::MessageFlagsChanged { message_id: 2, .. }),
             "second event should be MessageFlagsChanged for msg 2, got: {evt2:?}"
+        );
+    }
+
+    #[test]
+    fn transient_error_classification() {
+        // Transient errors
+        assert!(is_transient_error(&SyncError::Imap(
+            "connection timeout".to_string()
+        )));
+        assert!(is_transient_error(&SyncError::Imap(
+            "server unavailable".to_string()
+        )));
+        assert!(is_transient_error(&SyncError::Smtp(
+            "connection reset".to_string()
+        )));
+
+        // Permanent errors
+        assert!(!is_transient_error(&SyncError::Imap(
+            "authentication failed".to_string()
+        )));
+        assert!(!is_transient_error(&SyncError::Imap(
+            "no such mailbox".to_string()
+        )));
+        assert!(!is_transient_error(&SyncError::Imap(
+            "quota exceeded".to_string()
+        )));
+        assert!(!is_transient_error(&SyncError::Imap(
+            "permission denied".to_string()
+        )));
+        assert!(!is_transient_error(&SyncError::Credential(
+            "bad creds".to_string()
+        )));
+        assert!(!is_transient_error(&SyncError::PayloadParse(
+            "bad json".to_string()
+        )));
+        assert!(!is_transient_error(&SyncError::ContentStore(
+            "not found".to_string()
+        )));
+    }
+
+    #[test]
+    fn handle_transient_retry_marks_failed_after_max_retries() {
+        let (_dir, db_path) = setup_db();
+        let conn = open_and_migrate(&db_path).unwrap();
+        let (event_tx, mut event_rx) = broadcast::channel(16);
+
+        let id =
+            pending_ops_store::insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, "{}")
+                .unwrap();
+
+        // Simulate an operation that has already been retried MAX_RETRY_ATTEMPTS - 1 times.
+        let op = crate::core::pending_operation::PendingOperation {
+            id,
+            account_id: "acct-1".to_string(),
+            kind: OperationKind::StoreFlags,
+            payload: "{}".to_string(),
+            state: OperationState::InFlight,
+            retry_count: MAX_RETRY_ATTEMPTS - 1,
+            last_error: None,
+            created_at: 0,
+            next_retry_at: None,
+        };
+
+        // This should mark it as permanently failed (AC-17).
+        let requeued = handle_transient_retry(&conn, &op, "acct-1", "network timeout", &event_tx);
+        assert!(!requeued, "should NOT requeue after max retries");
+
+        // Verify it's marked as failed in DB.
+        let all_ops = pending_ops_store::load_all_ops(&conn).unwrap();
+        assert_eq!(all_ops[0].state, OperationState::Failed);
+        assert!(all_ops[0]
+            .last_error
+            .as_ref()
+            .unwrap()
+            .contains("failed after"));
+
+        // Verify OperationFailed event was emitted.
+        let evt = event_rx.try_recv().unwrap();
+        assert!(matches!(evt, SyncEvent::OperationFailed { .. }));
+    }
+
+    #[test]
+    fn handle_transient_retry_requeues_under_max() {
+        let (_dir, db_path) = setup_db();
+        let conn = open_and_migrate(&db_path).unwrap();
+        let (event_tx, _event_rx) = broadcast::channel(16);
+
+        let id =
+            pending_ops_store::insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, "{}")
+                .unwrap();
+        pending_ops_store::mark_in_flight(&conn, id).unwrap();
+
+        let op = crate::core::pending_operation::PendingOperation {
+            id,
+            account_id: "acct-1".to_string(),
+            kind: OperationKind::StoreFlags,
+            payload: "{}".to_string(),
+            state: OperationState::InFlight,
+            retry_count: 0,
+            last_error: None,
+            created_at: 0,
+            next_retry_at: None,
+        };
+
+        let requeued = handle_transient_retry(&conn, &op, "acct-1", "network timeout", &event_tx);
+        assert!(requeued, "should requeue when under max retries");
+
+        // Verify the op is requeued with next_retry_at set.
+        let all_ops = pending_ops_store::load_all_ops(&conn).unwrap();
+        assert_eq!(all_ops[0].state, OperationState::Pending);
+        assert_eq!(all_ops[0].retry_count, 1);
+        assert!(all_ops[0].next_retry_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn transient_error_retries_then_permanently_fails() {
+        let (_dir, db_path) = setup_db();
+        let conn = open_and_migrate(&db_path).unwrap();
+
+        // Create an op and set its retry_count to MAX_RETRY_ATTEMPTS - 1.
+        let payload = r#"{"message_id":1,"uid":100,"folder_name":"INBOX","new_flags":1}"#;
+        let id = pending_ops_store::insert_pending_op(
+            &conn,
+            "acct-1",
+            &OperationKind::StoreFlags,
+            payload,
+        )
+        .unwrap();
+        // Manually set retry_count to just under the limit.
+        conn.execute(
+            "UPDATE pending_operations SET retry_count = ?1 WHERE id = ?2",
+            rusqlite::params![MAX_RETRY_ATTEMPTS - 1, id],
+        )
+        .unwrap();
+        drop(conn);
+
+        let (event_tx, mut event_rx) = broadcast::channel(16);
+
+        // Use a flag store that always returns a transient error.
+        let flag_store = Arc::new(MockImapFlagStore {
+            should_fail: Some("connection timeout".to_string()),
+        });
+        let folder_ops = Arc::new(MockImapFolderOps { should_fail: None });
+        let params = make_test_params();
+        let params_fn = move |_: &str| -> Option<ImapConnectParams> { Some(params.clone()) };
+
+        process_account_ops(
+            &db_path, "acct-1", &event_tx, flag_store, &params_fn, folder_ops, None,
+        )
+        .await;
+
+        // Verify the op is permanently failed (AC-17).
+        let conn = open_and_migrate(&db_path).unwrap();
+        let all_ops = pending_ops_store::load_all_ops(&conn).unwrap();
+        assert_eq!(all_ops.len(), 1);
+        assert_eq!(all_ops[0].state, OperationState::Failed);
+        assert!(
+            all_ops[0]
+                .last_error
+                .as_ref()
+                .unwrap()
+                .contains("failed after"),
+            "error should mention max retries: {:?}",
+            all_ops[0].last_error
+        );
+
+        // Verify OperationFailed event.
+        let evt = event_rx.try_recv().unwrap();
+        assert!(
+            matches!(evt, SyncEvent::OperationFailed { .. }),
+            "expected OperationFailed, got: {evt:?}"
         );
     }
 }

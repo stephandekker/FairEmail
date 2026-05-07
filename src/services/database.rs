@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 15;
+const CURRENT_VERSION: u32 = 16;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -83,10 +83,21 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 15 {
         migrate_v15(conn)?;
     }
+    if version < 16 {
+        migrate_v16(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v16: Add `next_retry_at` column to `pending_operations` table.
+/// Stores a Unix timestamp indicating when a requeued operation becomes eligible
+/// for retry, enabling exponential backoff without blocking other operations.
+fn migrate_v16(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch("ALTER TABLE pending_operations ADD COLUMN next_retry_at INTEGER;")?;
     Ok(())
 }
 
