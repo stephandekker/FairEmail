@@ -19,6 +19,8 @@ pub enum ConnectionLogEventType {
     IdleExit,
     /// Reconnecting after a disconnect.
     Reconnect,
+    /// Authentication mechanism negotiation details.
+    AuthNegotiation,
 }
 
 impl ConnectionLogEventType {
@@ -33,6 +35,7 @@ impl ConnectionLogEventType {
             Self::IdleEnter => "idle_enter",
             Self::IdleExit => "idle_exit",
             Self::Reconnect => "reconnect",
+            Self::AuthNegotiation => "auth_negotiation",
         }
     }
 
@@ -47,6 +50,7 @@ impl ConnectionLogEventType {
             "idle_enter" => Some(Self::IdleEnter),
             "idle_exit" => Some(Self::IdleExit),
             "reconnect" => Some(Self::Reconnect),
+            "auth_negotiation" => Some(Self::AuthNegotiation),
             _ => None,
         }
     }
@@ -64,6 +68,7 @@ impl std::fmt::Display for ConnectionLogEventType {
             Self::IdleEnter => write!(f, "IDLE Enter"),
             Self::IdleExit => write!(f, "IDLE Exit"),
             Self::Reconnect => write!(f, "Reconnect"),
+            Self::AuthNegotiation => write!(f, "Auth Negotiation"),
         }
     }
 }
@@ -110,6 +115,7 @@ mod tests {
             ConnectionLogEventType::IdleEnter,
             ConnectionLogEventType::IdleExit,
             ConnectionLogEventType::Reconnect,
+            ConnectionLogEventType::AuthNegotiation,
         ];
         for t in types {
             let s = t.as_str();

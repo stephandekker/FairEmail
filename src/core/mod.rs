@@ -12,6 +12,7 @@ pub mod connection_log;
 pub mod connection_state;
 pub mod connection_test;
 pub mod content_store;
+pub mod credential_log;
 pub mod credential_store;
 pub mod delete_account;
 pub(crate) mod detection_failure;
@@ -104,6 +105,9 @@ pub use connection_test::{
     ConnectionTestError, ConnectionTestRequest, ConnectionTestResult, ServerTestOutcome,
 };
 pub use content_store::{ContentStore, ContentStoreError};
+pub use credential_log::{
+    log_auth_result, log_mechanism_negotiation, sanitize_log_message, AuthDiagnosticEvent,
+};
 pub use credential_store::{
     identity_credential_uuid, CredentialError, CredentialRole, CredentialStore, SecretValue,
 };
