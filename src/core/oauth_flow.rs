@@ -496,7 +496,7 @@ pub(crate) fn percent_decode(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::provider::OAuthConfig;
+    use crate::core::provider::{OAuthConfig, OAuthProfileStatus};
 
     fn test_oauth_config() -> OAuthConfig {
         OAuthConfig {
@@ -512,6 +512,8 @@ mod tests {
             ],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         }
     }
 

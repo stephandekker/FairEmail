@@ -143,6 +143,7 @@ fn decode_jwt_segment(segment: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::provider::OAuthProfileStatus;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
     /// Build a minimal JWT with the given payload claims.
@@ -164,6 +165,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         }
     }
 
@@ -178,6 +181,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: Some("https://oauth.mail.ru/userinfo".to_string()),
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         }
     }
 

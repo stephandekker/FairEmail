@@ -110,7 +110,8 @@ mod tests {
     use super::*;
     use crate::core::imap_check::build_imap_success;
     use crate::core::provider::{
-        LocalizedDoc, MaxTlsVersion, OAuthConfig, ProviderEncryption, ServerConfig, UsernameType,
+        LocalizedDoc, MaxTlsVersion, OAuthConfig, OAuthProfileStatus, ProviderEncryption,
+        ServerConfig, UsernameType,
     };
 
     fn make_provider(id: &str, display_name: &str) -> Provider {
@@ -147,6 +148,8 @@ mod tests {
                 extra_params: vec![],
                 userinfo_url: None,
                 privacy_policy_url: None,
+                client_secret: None,
+                status: OAuthProfileStatus::Enabled,
             }),
             display_order: 1,
             enabled: true,

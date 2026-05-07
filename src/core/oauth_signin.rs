@@ -72,7 +72,20 @@ pub enum AuthChoice {
 /// but the build lacks client credentials, `oauth_available` is false and
 /// `oauth_unavailable_reason` explains why (FR-29, AC-6, N-7).
 pub fn determine_auth_options(provider: &Provider) -> AuthOptions {
-    let oauth_available = provider.oauth.is_some()
+    determine_auth_options_with_debug(provider, cfg!(debug_assertions))
+}
+
+/// Determine authentication options, with explicit debug-mode flag (FR-24).
+///
+/// When `debug_mode` is false, OAuth profiles marked `DebugOnly` are treated
+/// as disabled and will not trigger an OAuth sign-in offer.
+pub fn determine_auth_options_with_debug(provider: &Provider, debug_mode: bool) -> AuthOptions {
+    let oauth_profile_active = provider
+        .oauth
+        .as_ref()
+        .is_some_and(|o| o.status.is_active(debug_mode));
+
+    let oauth_available = oauth_profile_active
         && provider.enabled
         && OAUTH_PROVIDER_IDS.contains(&provider.id.as_str());
 
@@ -177,7 +190,8 @@ pub fn resolve_auth_from_choice(choice: &AuthChoice) -> (AuthMethod, String) {
 mod tests {
     use super::*;
     use crate::core::provider::{
-        MaxTlsVersion, OAuthConfig, Provider, ProviderEncryption, ServerConfig, UsernameType,
+        MaxTlsVersion, OAuthConfig, OAuthProfileStatus, Provider, ProviderEncryption, ServerConfig,
+        UsernameType,
     };
 
     fn make_oauth_provider(id: &str) -> Provider {
@@ -214,6 +228,8 @@ mod tests {
                 extra_params: vec![],
                 userinfo_url: None,
                 privacy_policy_url: None,
+                client_secret: None,
+                status: OAuthProfileStatus::Enabled,
             }),
             display_order: 1,
             enabled: true,
@@ -351,6 +367,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         });
         let options = determine_auth_options(&provider);
         assert!(!options.oauth_available);
@@ -608,6 +626,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         };
         assert!(super::has_oauth_credentials(&config));
     }
@@ -628,6 +648,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         };
         // When no runtime file, should be false. With file, true is correct.
         let result = super::has_oauth_credentials(&config);
@@ -654,6 +676,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         };
         let result = super::has_oauth_credentials(&config);
         let file_exists = super::oauth_credentials_file_exists();
@@ -676,6 +700,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         };
         let result = super::has_oauth_credentials(&config);
         let file_exists = super::oauth_credentials_file_exists();
@@ -738,6 +764,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         });
         let options = determine_auth_options(&provider);
         assert!(!options.oauth_available);
@@ -803,5 +831,88 @@ mod tests {
         // No OAuth at all
         let provider3 = make_no_oauth_provider();
         assert!(determine_auth_options(&provider3).password_available);
+    }
+
+    // --- OAuth profile status tests (FR-24, AC-4, AC-5) ---
+
+    #[test]
+    fn disabled_oauth_profile_not_offered() {
+        let mut provider = make_oauth_provider("gmail");
+        provider.oauth.as_mut().unwrap().status = OAuthProfileStatus::Disabled;
+        let options = super::determine_auth_options_with_debug(&provider, false);
+        assert!(!options.oauth_available);
+        assert!(options.oauth_config.is_none());
+        // Password fallback still available.
+        assert!(options.password_available);
+    }
+
+    #[test]
+    fn enabled_oauth_profile_offered() {
+        let provider = make_oauth_provider("gmail");
+        assert_eq!(
+            provider.oauth.as_ref().unwrap().status,
+            OAuthProfileStatus::Enabled
+        );
+        let options = super::determine_auth_options_with_debug(&provider, false);
+        assert!(options.oauth_available);
+    }
+
+    #[test]
+    fn debug_only_oauth_profile_hidden_in_release() {
+        let mut provider = make_oauth_provider("gmail");
+        provider.oauth.as_mut().unwrap().status = OAuthProfileStatus::DebugOnly;
+        let options = super::determine_auth_options_with_debug(&provider, false);
+        assert!(!options.oauth_available);
+        assert!(options.oauth_config.is_none());
+        assert!(options.password_available);
+    }
+
+    #[test]
+    fn debug_only_oauth_profile_shown_in_debug() {
+        let mut provider = make_oauth_provider("gmail");
+        provider.oauth.as_mut().unwrap().status = OAuthProfileStatus::DebugOnly;
+        let options = super::determine_auth_options_with_debug(&provider, true);
+        assert!(options.oauth_available);
+        assert!(options.oauth_config.is_some());
+    }
+
+    #[test]
+    fn graph_profile_status_independent_of_oauth() {
+        let mut provider = make_oauth_provider("gmail");
+        // Disable the OAuth profile but add an enabled Graph profile.
+        provider.oauth.as_mut().unwrap().status = OAuthProfileStatus::Disabled;
+        provider.graph = Some(OAuthConfig {
+            auth_url: "https://graph.example.com/auth".to_string(),
+            token_url: "https://graph.example.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
+            scopes: vec!["mail".to_string()],
+            client_id: Some("graph-client".to_string()),
+            client_secret: None,
+            pkce_required: true,
+            extra_params: vec![],
+            userinfo_url: None,
+            privacy_policy_url: None,
+            status: OAuthProfileStatus::Enabled,
+        });
+        // OAuth is disabled, Graph is enabled — they are independent.
+        let options = super::determine_auth_options_with_debug(&provider, false);
+        assert!(!options.oauth_available);
+        assert!(provider.graph.as_ref().unwrap().status.is_active(false));
+    }
+
+    #[test]
+    fn oauth_profile_has_client_secret_field() {
+        let provider = make_oauth_provider("gmail");
+        let oauth = provider.oauth.as_ref().unwrap();
+        // client_secret defaults to None (public client, PKCE-based).
+        assert!(oauth.client_secret.is_none());
+    }
+
+    #[test]
+    fn oauth_profile_with_client_secret() {
+        let mut provider = make_oauth_provider("gmail");
+        provider.oauth.as_mut().unwrap().client_secret = Some("secret123".to_string());
+        let oauth = provider.oauth.as_ref().unwrap();
+        assert_eq!(oauth.client_secret.as_deref(), Some("secret123"));
     }
 }

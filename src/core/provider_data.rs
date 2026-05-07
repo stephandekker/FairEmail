@@ -1,6 +1,6 @@
 use super::provider::{
-    LocalizedDoc, MaxTlsVersion, OAuthConfig, Provider, ProviderEncryption, ServerConfig,
-    UsernameType,
+    LocalizedDoc, MaxTlsVersion, OAuthConfig, OAuthProfileStatus, Provider, ProviderEncryption,
+    ServerConfig, UsernameType,
 };
 
 /// Helper to create a provider entry with common defaults.
@@ -138,6 +138,8 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                     ],
                     userinfo_url: None,
                     privacy_policy_url: Some("https://policies.google.com/privacy".to_string()),
+                    client_secret: None,
+                    status: OAuthProfileStatus::Enabled,
                 }),
                 1,
             );
@@ -176,6 +178,8 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                     ],
                     userinfo_url: None,
                     privacy_policy_url: Some("https://privacy.microsoft.com/en-us/privacystatement".to_string()),
+                    client_secret: None,
+                    status: OAuthProfileStatus::Enabled,
                 }),
                 2,
             );
@@ -229,6 +233,8 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 privacy_policy_url: Some(
                     "https://legal.yahoo.com/us/en/yahoo/privacy/index.html".to_string(),
                 ),
+                client_secret: None,
+                status: OAuthProfileStatus::Enabled,
             }),
             3,
         ),
@@ -285,6 +291,8 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 privacy_policy_url: Some(
                     "https://legal.yahoo.com/us/en/yahoo/privacy/index.html".to_string(),
                 ),
+                client_secret: None,
+                status: OAuthProfileStatus::Enabled,
             }),
             5,
         ),
@@ -317,6 +325,8 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 extra_params: vec![],
                 userinfo_url: Some("https://oauth.mail.ru/userinfo".to_string()),
                 privacy_policy_url: Some("https://help.mail.ru/legal/terms/privacy".to_string()),
+                client_secret: None,
+                status: OAuthProfileStatus::Enabled,
             }),
             6,
         ),
@@ -357,6 +367,8 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 extra_params: vec![("force_confirm".to_string(), "true".to_string())],
                 userinfo_url: None,
                 privacy_policy_url: Some("https://yandex.com/legal/confidential/".to_string()),
+                client_secret: None,
+                status: OAuthProfileStatus::Enabled,
             }),
             7,
         ),
@@ -509,6 +521,8 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                     privacy_policy_url: Some(
                         "https://privacy.microsoft.com/en-us/privacystatement".to_string(),
                     ),
+                    client_secret: None,
+                    status: OAuthProfileStatus::Enabled,
                 }),
                 13,
             );
@@ -662,6 +676,8 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 extra_params: vec![],
                 userinfo_url: None,
                 privacy_policy_url: None,
+                client_secret: None,
+                status: OAuthProfileStatus::Enabled,
             }),
             19,
         ),
@@ -1289,6 +1305,8 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 extra_params: vec![],
                 userinfo_url: None,
                 privacy_policy_url: Some("https://www.fastmail.com/about/privacy/".to_string()),
+                client_secret: None,
+                status: OAuthProfileStatus::Enabled,
             }),
             67,
         ),

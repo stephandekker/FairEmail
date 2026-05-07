@@ -687,7 +687,7 @@ mod tests {
         app_password_required: bool,
         doc_url: Option<&str>,
     ) -> Provider {
-        use crate::core::provider::OAuthConfig;
+        use crate::core::provider::{OAuthConfig, OAuthProfileStatus};
         let mut provider = make_provider(id, app_password_required, doc_url);
         provider.oauth = Some(OAuthConfig {
             auth_url: "https://auth.example.com/authorize".to_string(),
@@ -699,6 +699,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         });
         provider
     }

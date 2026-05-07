@@ -102,7 +102,7 @@ pub(crate) fn privacy_policy_url(config: &OAuthConfig) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::provider::OAuthConfig;
+    use crate::core::provider::{OAuthConfig, OAuthProfileStatus};
 
     fn test_config() -> OAuthConfig {
         OAuthConfig {
@@ -118,6 +118,8 @@ mod tests {
             ],
             userinfo_url: None,
             privacy_policy_url: Some("https://policies.google.com/privacy".to_string()),
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         }
     }
 

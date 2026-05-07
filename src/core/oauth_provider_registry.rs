@@ -51,6 +51,7 @@ impl OAuthProviderRegistry {
             .and_then(|p| {
                 p.oauth
                     .as_ref()
+                    .filter(|o| o.status.is_active(cfg!(debug_assertions)))
                     .map(|oauth| OAuthProviderEntry { provider: p, oauth })
             })
     }
@@ -60,7 +61,12 @@ impl OAuthProviderRegistry {
         self.db
             .providers()
             .iter()
-            .filter(|p| p.enabled && p.oauth.is_some())
+            .filter(|p| {
+                p.enabled
+                    && p.oauth
+                        .as_ref()
+                        .is_some_and(|o| o.status.is_active(cfg!(debug_assertions)))
+            })
             .map(|p| OAuthProviderEntry {
                 provider: p,
                 oauth: p.oauth.as_ref().unwrap(),

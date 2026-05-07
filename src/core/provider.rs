@@ -60,7 +60,19 @@ pub enum MaxTlsVersion {
     Tls1_3,
 }
 
-/// OAuth configuration for a provider (FR-15n).
+/// Independent enable/disable/debug-only status for an OAuth or Graph profile (FR-24).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OAuthProfileStatus {
+    /// Profile is active and available to all users.
+    #[default]
+    Enabled,
+    /// Profile is disabled — the application will not offer this authentication method.
+    Disabled,
+    /// Profile is only available in debug/development mode.
+    DebugOnly,
+}
+
+/// OAuth configuration for a provider (FR-15n, FR-20).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OAuthConfig {
     pub auth_url: String,
@@ -68,6 +80,10 @@ pub struct OAuthConfig {
     pub redirect_uri: String,
     pub scopes: Vec<String>,
     pub client_id: Option<String>,
+    /// Optional client secret. Per NFR-7, bundled secrets are not truly secret —
+    /// security must not rely on client-secret confidentiality. Use PKCE instead.
+    #[serde(default)]
+    pub client_secret: Option<String>,
     /// Whether this provider requires PKCE (Proof Key for Code Exchange, RFC 7636).
     /// When `true`, the authorization request includes `code_challenge` and
     /// `code_challenge_method=S256`, and the token exchange includes `code_verifier`.
@@ -86,10 +102,27 @@ pub struct OAuthConfig {
     /// authorization flow (US-8). `None` when the provider has not published one.
     #[serde(default)]
     pub privacy_policy_url: Option<String>,
+    /// Independent enable/disable/debug-only status for this profile (FR-24).
+    /// When `Disabled`, this profile does not trigger the OAuth sign-in offer.
+    /// When `DebugOnly`, it is only available in debug/development builds.
+    #[serde(default)]
+    pub status: OAuthProfileStatus,
 }
 
 fn default_pkce_required() -> bool {
     true
+}
+
+impl OAuthProfileStatus {
+    /// Whether this profile is considered active (available to users).
+    /// In non-debug builds, `DebugOnly` profiles are treated as disabled.
+    pub fn is_active(&self, debug_mode: bool) -> bool {
+        match self {
+            Self::Enabled => true,
+            Self::Disabled => false,
+            Self::DebugOnly => debug_mode,
+        }
+    }
 }
 
 /// Default tenant value used when a provider requires a tenant but the user
@@ -880,6 +913,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         }
     }
 
@@ -894,6 +929,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         }
     }
 
@@ -1143,6 +1180,8 @@ mod tests {
             extra_params: vec![("custom_key".to_string(), "custom_value".to_string())],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         };
         // The extra_params field on OAuthConfig is what the flow reads —
         // no provider-specific if/else branches exist in the flow module.
@@ -1216,6 +1255,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         });
 
         assert_eq!(provider.subtitle.as_deref(), Some("Test Subtitle"));
@@ -1406,5 +1447,54 @@ mod tests {
         )]);
         let mx = vec![(10, "google.com".to_string())];
         assert!(db.lookup_by_mx_records(&mx).is_none());
+    }
+
+    // --- OAuthProfileStatus tests (FR-24) ---
+
+    #[test]
+    fn profile_status_enabled_is_active() {
+        assert!(OAuthProfileStatus::Enabled.is_active(false));
+        assert!(OAuthProfileStatus::Enabled.is_active(true));
+    }
+
+    #[test]
+    fn profile_status_disabled_is_never_active() {
+        assert!(!OAuthProfileStatus::Disabled.is_active(false));
+        assert!(!OAuthProfileStatus::Disabled.is_active(true));
+    }
+
+    #[test]
+    fn profile_status_debug_only_active_in_debug() {
+        assert!(!OAuthProfileStatus::DebugOnly.is_active(false));
+        assert!(OAuthProfileStatus::DebugOnly.is_active(true));
+    }
+
+    #[test]
+    fn profile_status_default_is_enabled() {
+        assert_eq!(OAuthProfileStatus::default(), OAuthProfileStatus::Enabled);
+    }
+
+    #[test]
+    fn oauth_config_has_client_secret_field() {
+        let config = OAuthConfig {
+            auth_url: "https://example.com/auth".to_string(),
+            token_url: "https://example.com/token".to_string(),
+            redirect_uri: "http://127.0.0.1/callback".to_string(),
+            scopes: vec!["mail".to_string()],
+            client_id: None,
+            client_secret: Some("my-secret".to_string()),
+            pkce_required: true,
+            extra_params: vec![],
+            userinfo_url: None,
+            privacy_policy_url: None,
+            status: OAuthProfileStatus::Enabled,
+        };
+        assert_eq!(config.client_secret.as_deref(), Some("my-secret"));
+    }
+
+    #[test]
+    fn oauth_config_status_defaults_to_enabled() {
+        let config = make_tenant_oauth_config();
+        assert_eq!(config.status, OAuthProfileStatus::Enabled);
     }
 }

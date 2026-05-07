@@ -159,7 +159,8 @@ pub const APP_CONFIG_DIR: &str = "fairmail";
 mod tests {
     use super::*;
     use crate::core::provider::{
-        MatchScore, MaxTlsVersion, ProviderEncryption, ServerConfig, UsernameType,
+        MatchScore, MaxTlsVersion, OAuthProfileStatus, ProviderEncryption, ServerConfig,
+        UsernameType,
     };
 
     fn make_provider(id: &str, domains: &[&str]) -> Provider {
@@ -413,6 +414,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         });
         let result = validate_provider_configs(&[p]);
         assert!(result.is_err());
@@ -434,6 +437,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         });
         let result = validate_provider_configs(&[p]);
         assert!(result.is_err());
@@ -455,6 +460,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: None,
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         });
         let result = validate_provider_configs(&[p]);
         assert!(result.is_err());
@@ -476,6 +483,8 @@ mod tests {
             extra_params: vec![],
             userinfo_url: Some("https://auth.corp.example.com/userinfo".to_string()),
             privacy_policy_url: None,
+            client_secret: None,
+            status: OAuthProfileStatus::Enabled,
         });
         assert!(validate_provider_configs(&[p]).is_ok());
     }
