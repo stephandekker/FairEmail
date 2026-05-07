@@ -178,8 +178,9 @@ pub use primary::{
     auto_designate_on_add, revoke_if_sync_disabled, set_primary, PrimaryDesignationError,
 };
 pub use provider::{
-    merge_network_with_bundled, LocalizedDoc, MatchScore, MaxTlsVersion, OAuthConfig, Provider,
-    ProviderCandidate, ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
+    derive_username, merge_network_with_bundled, LocalizedDoc, MatchScore, MaxTlsVersion,
+    OAuthConfig, Provider, ProviderCandidate, ProviderDatabase, ProviderEncryption, ServerConfig,
+    UsernameType,
 };
 pub use provider_dropdown::{
     build_dropdown_entries, index_for_provider_id, prefill_for_provider, provider_guidance,

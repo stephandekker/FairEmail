@@ -11,12 +11,46 @@ pub enum ProviderEncryption {
 }
 
 /// How the username is derived from the email address.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UsernameType {
     /// Full email address (e.g. user@example.com)
     EmailAddress,
     /// Local part only (e.g. user)
     LocalPart,
+    /// Custom template pattern (e.g. "{local}+mail@{domain}")
+    /// Supported placeholders: `{local}`, `{domain}`, `{email}`
+    CustomTemplate(String),
+}
+
+/// Derive the login username from an email address according to the provider's
+/// username format (FR-18, FR-19).
+///
+/// - `EmailAddress` → returns the full email as-is.
+/// - `LocalPart`    → returns only the part before `@`.
+/// - `CustomTemplate` → substitutes `{local}`, `{domain}`, and `{email}`
+///   placeholders in the template string.
+///
+/// If the email contains no `@`, the full string is treated as the local part
+/// and the domain is empty.
+pub fn derive_username(email: &str, username_type: &UsernameType) -> String {
+    match username_type {
+        UsernameType::EmailAddress => email.to_string(),
+        UsernameType::LocalPart => email
+            .rfind('@')
+            .map(|pos| &email[..pos])
+            .unwrap_or(email)
+            .to_string(),
+        UsernameType::CustomTemplate(template) => {
+            let (local, domain) = match email.rfind('@') {
+                Some(pos) => (&email[..pos], &email[pos + 1..]),
+                None => (email, ""),
+            };
+            template
+                .replace("{local}", local)
+                .replace("{domain}", domain)
+                .replace("{email}", email)
+        }
+    }
 }
 
 /// Maximum TLS version a provider supports.
@@ -1134,5 +1168,63 @@ mod tests {
             Some("https://test.com/register")
         );
         assert!(provider.graph.is_some());
+    }
+
+    // --- derive_username tests (FR-18, FR-19) ---
+
+    #[test]
+    fn derive_username_email_address_returns_full_email() {
+        assert_eq!(
+            derive_username("alice@example.com", &UsernameType::EmailAddress),
+            "alice@example.com"
+        );
+    }
+
+    #[test]
+    fn derive_username_local_part_returns_local_only() {
+        assert_eq!(
+            derive_username("alice@example.com", &UsernameType::LocalPart),
+            "alice"
+        );
+    }
+
+    #[test]
+    fn derive_username_local_part_no_at_sign() {
+        assert_eq!(derive_username("alice", &UsernameType::LocalPart), "alice");
+    }
+
+    #[test]
+    fn derive_username_custom_template_local_and_domain() {
+        let tpl = UsernameType::CustomTemplate("{local}+mail@{domain}".to_string());
+        assert_eq!(
+            derive_username("alice@example.com", &tpl),
+            "alice+mail@example.com"
+        );
+    }
+
+    #[test]
+    fn derive_username_custom_template_email_placeholder() {
+        let tpl = UsernameType::CustomTemplate("prefix-{email}".to_string());
+        assert_eq!(
+            derive_username("alice@example.com", &tpl),
+            "prefix-alice@example.com"
+        );
+    }
+
+    #[test]
+    fn derive_username_custom_template_no_at_sign() {
+        let tpl = UsernameType::CustomTemplate("{local}@internal".to_string());
+        assert_eq!(derive_username("alice", &tpl), "alice@internal");
+    }
+
+    #[test]
+    fn derive_username_default_is_email_address() {
+        // When no username_type is specified, EmailAddress is the default.
+        let provider = make_test_provider("test", &["test.com"]);
+        assert_eq!(provider.username_type, UsernameType::EmailAddress);
+        assert_eq!(
+            derive_username("alice@test.com", &provider.username_type),
+            "alice@test.com"
+        );
     }
 }

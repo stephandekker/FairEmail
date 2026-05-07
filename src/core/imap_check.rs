@@ -57,7 +57,7 @@ pub fn resolve_username_candidates(email: &str, provider: &Provider) -> Vec<User
         .to_string();
     let full_email = email.to_string();
 
-    match provider.username_type {
+    match &provider.username_type {
         UsernameType::EmailAddress => {
             vec![
                 UsernameCandidate::EmailAddress(full_email),
@@ -69,6 +69,14 @@ pub fn resolve_username_candidates(email: &str, provider: &Provider) -> Vec<User
                 UsernameCandidate::LocalPart(local_part),
                 UsernameCandidate::EmailAddress(full_email),
             ]
+        }
+        UsernameType::CustomTemplate(template) => {
+            let domain = email.rfind('@').map(|pos| &email[pos + 1..]).unwrap_or("");
+            let derived = template
+                .replace("{local}", &local_part)
+                .replace("{domain}", domain)
+                .replace("{email}", email);
+            vec![UsernameCandidate::EmailAddress(derived)]
         }
     }
 }
