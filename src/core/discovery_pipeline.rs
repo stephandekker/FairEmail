@@ -271,6 +271,7 @@ mod tests {
             supports_shared_mailbox: false,
             subtitle: None,
             registration_url: None,
+            app_password_url: None,
             graph: None,
             debug_only: false,
             variant_of: None,

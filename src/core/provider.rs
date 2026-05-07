@@ -223,6 +223,10 @@ pub struct Provider {
     /// Registration / sign-up URL (FR-3, FR-35).
     #[serde(default)]
     pub registration_url: Option<String>,
+    /// URL for the provider's app-specific password management page (US-11, AC-10).
+    /// When present and `app_password_required` is true, guidance links here.
+    #[serde(default)]
+    pub app_password_url: Option<String>,
     /// Microsoft Graph profile for REST-based mail operations (FR-3, FR-23).
     #[serde(default)]
     pub graph: Option<OAuthConfig>,
@@ -575,6 +579,7 @@ mod tests {
             supports_shared_mailbox: false,
             subtitle: None,
             registration_url: None,
+            app_password_url: None,
             graph: None,
             debug_only: false,
             variant_of: None,
@@ -741,6 +746,7 @@ mod tests {
             supports_shared_mailbox: false,
             subtitle: None,
             registration_url: None,
+            app_password_url: None,
             graph: None,
             debug_only: false,
             variant_of: None,
@@ -802,6 +808,7 @@ mod tests {
             supports_shared_mailbox: false,
             subtitle: None,
             registration_url: None,
+            app_password_url: None,
             graph: None,
             debug_only: false,
             variant_of: None,
@@ -874,6 +881,7 @@ mod tests {
             supports_shared_mailbox: false,
             subtitle: None,
             registration_url: None,
+            app_password_url: None,
             graph: None,
             debug_only: false,
             variant_of: None,

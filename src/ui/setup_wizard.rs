@@ -20,7 +20,7 @@ use crate::core::privacy;
 use crate::core::proprietary_provider::check_proprietary_provider;
 use crate::core::provider::ProviderDatabase;
 use crate::core::provider_dropdown::{
-    build_provider_list, full_prefill_for_provider, is_debug_mode,
+    build_provider_list, full_prefill_for_provider, is_debug_mode, provider_guidance_detail,
 };
 use crate::core::user_provider_file::build_merged_database;
 use crate::core::wizard_validation::{
@@ -222,6 +222,86 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
 
     provider_list_group.add(&provider_scroll);
     vbox.append(&provider_list_group);
+
+    // -- Provider guidance section (US-11, US-12, US-14, US-15, US-19, story 10) --
+    // Hidden by default; shown when a provider with guidance is selected.
+    let guidance_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(4)
+        .margin_top(4)
+        .visible(false)
+        .build();
+    guidance_box.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Provider setup guidance",
+    ))]);
+
+    // App-password notification (AC-10).
+    let guidance_app_password_label = gtk::Label::builder()
+        .css_classes(["warning", "caption"])
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .margin_end(12)
+        .wrap(true)
+        .visible(false)
+        .build();
+    guidance_box.append(&guidance_app_password_label);
+
+    // App-password link (AC-10).
+    let guidance_app_password_link = gtk::LinkButton::builder()
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .visible(false)
+        .build();
+    guidance_app_password_link.update_property(&[gtk::accessible::Property::Label(
+        &gettextrs::gettext("Manage app-specific passwords"),
+    )]);
+    guidance_box.append(&guidance_app_password_link);
+
+    // IMAP enablement notification (AC-11).
+    let guidance_enablement_label = gtk::Label::builder()
+        .css_classes(["warning", "caption"])
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .margin_end(12)
+        .wrap(true)
+        .visible(false)
+        .build();
+    guidance_box.append(&guidance_enablement_label);
+
+    // Inline setup documentation (FR-34, US-15).
+    let guidance_setup_text = gtk::Label::builder()
+        .css_classes(["body"])
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .margin_end(12)
+        .wrap(true)
+        .visible(false)
+        .build();
+    guidance_box.append(&guidance_setup_text);
+
+    // Documentation URL link (FR-33, US-14).
+    let guidance_doc_link = gtk::LinkButton::builder()
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .visible(false)
+        .build();
+    guidance_doc_link.update_property(&[gtk::accessible::Property::Label(&gettextrs::gettext(
+        "Provider setup documentation",
+    ))]);
+    guidance_box.append(&guidance_doc_link);
+
+    // Registration / sign-up URL (FR-35, US-19).
+    let guidance_registration_link = gtk::LinkButton::builder()
+        .halign(gtk::Align::Start)
+        .margin_start(12)
+        .visible(false)
+        .build();
+    guidance_registration_link.update_property(&[gtk::accessible::Property::Label(
+        &gettextrs::gettext("Create a new account with this provider"),
+    )]);
+    guidance_box.append(&guidance_registration_link);
+
+    vbox.append(&guidance_box);
 
     // -- Password (FR-3, FR-4) --
     let password_group = adw::PreferencesGroup::builder()
@@ -662,6 +742,20 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         dialog,
         #[weak]
         toast_overlay,
+        #[weak]
+        guidance_box,
+        #[weak]
+        guidance_app_password_label,
+        #[weak]
+        guidance_app_password_link,
+        #[weak]
+        guidance_enablement_label,
+        #[weak]
+        guidance_setup_text,
+        #[weak]
+        guidance_doc_link,
+        #[weak]
+        guidance_registration_link,
         #[strong]
         selected_provider_id,
         #[strong]
@@ -699,14 +793,21 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                 let toast = adw::Toast::builder().title(msg).timeout(2).build();
                 toast_overlay.add_toast(toast);
 
-                // Store prefill info — the selected provider will be used
-                // when the user proceeds with Check or OAuth sign-in.
-                // The email change handler already detects providers by domain;
-                // selecting from the list ensures the provider is locked in even
-                // if the domain pattern doesn't match (manual browse use-case).
-                let _ = prefill; // Prefill data is available; actual account
-                                 // creation uses the full Provider from the database.
+                let _ = prefill;
             }
+
+            // Display provider guidance (US-11, US-12, US-14, US-15, US-19, story 10).
+            update_guidance_widgets(
+                &db,
+                &provider_id,
+                &guidance_box,
+                &guidance_app_password_label,
+                &guidance_app_password_link,
+                &guidance_enablement_label,
+                &guidance_setup_text,
+                &guidance_doc_link,
+                &guidance_registration_link,
+            );
         }
     ));
 
@@ -736,6 +837,20 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         password_warning,
         #[weak]
         check_btn,
+        #[weak]
+        guidance_box,
+        #[weak]
+        guidance_app_password_label,
+        #[weak]
+        guidance_app_password_link,
+        #[weak]
+        guidance_enablement_label,
+        #[weak]
+        guidance_setup_text,
+        #[weak]
+        guidance_doc_link,
+        #[weak]
+        guidance_registration_link,
         move |row| {
             let email = row.text().to_string();
             let email = email.trim();
@@ -743,6 +858,8 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             // Reset OAuth error on email change.
             oauth_error_box.set_visible(false);
             oauth_unavailable_box.set_visible(false);
+            // Hide guidance until we know the provider.
+            guidance_box.set_visible(false);
 
             // Extract domain and attempt provider detection.
             if let Some(at_pos) = email.rfind('@') {
@@ -750,6 +867,18 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                 if !domain.is_empty() && domain.contains('.') {
                     let db = load_merged_provider_database();
                     if let Some(candidate) = db.lookup_by_domain(domain) {
+                        // Show provider guidance (story 10).
+                        update_guidance_widgets(
+                            &db,
+                            &candidate.provider.id,
+                            &guidance_box,
+                            &guidance_app_password_label,
+                            &guidance_app_password_link,
+                            &guidance_enablement_label,
+                            &guidance_setup_text,
+                            &guidance_doc_link,
+                            &guidance_registration_link,
+                        );
                         let options = determine_auth_options(&candidate.provider);
                         if options.oauth_available && options.oauth_credentials_present {
                             // Show OAuth as recommended (AC-1, AC-2).
@@ -1875,6 +2004,78 @@ fn run_oauth_thread(
         refresh_token: validated.refresh_token,
         expires_in: validated.expires_in,
     });
+}
+
+/// Populate provider guidance widgets from structured guidance data (story 10).
+///
+/// Shows or hides each sub-widget depending on what guidance is available
+/// for the selected provider.
+#[allow(clippy::too_many_arguments)]
+fn update_guidance_widgets(
+    db: &ProviderDatabase,
+    provider_id: &str,
+    guidance_box: &gtk::Box,
+    app_password_label: &gtk::Label,
+    app_password_link: &gtk::LinkButton,
+    enablement_label: &gtk::Label,
+    setup_text: &gtk::Label,
+    doc_link: &gtk::LinkButton,
+    registration_link: &gtk::LinkButton,
+) {
+    if let Some(guidance) = provider_guidance_detail(db, provider_id) {
+        if guidance.app_password_required {
+            app_password_label.set_label(&gettextrs::gettext(
+                "This provider requires an app-specific password.",
+            ));
+            app_password_label.set_visible(true);
+            if let Some(ref url) = guidance.app_password_url {
+                app_password_link.set_uri(url);
+                app_password_link.set_label(&gettextrs::gettext("Manage app passwords"));
+                app_password_link.set_visible(true);
+            } else {
+                app_password_link.set_visible(false);
+            }
+        } else {
+            app_password_label.set_visible(false);
+            app_password_link.set_visible(false);
+        }
+
+        if guidance.requires_manual_enablement {
+            enablement_label.set_label(&gettextrs::gettext(
+                "This provider requires you to manually enable IMAP/SMTP access in your account settings.",
+            ));
+            enablement_label.set_visible(true);
+        } else {
+            enablement_label.set_visible(false);
+        }
+
+        if let Some(ref text) = guidance.setup_text {
+            setup_text.set_label(text);
+            setup_text.set_visible(true);
+        } else {
+            setup_text.set_visible(false);
+        }
+
+        if let Some(ref url) = guidance.documentation_url {
+            doc_link.set_uri(url);
+            doc_link.set_label(&gettextrs::gettext("Setup guide"));
+            doc_link.set_visible(true);
+        } else {
+            doc_link.set_visible(false);
+        }
+
+        if let Some(ref url) = guidance.registration_url {
+            registration_link.set_uri(url);
+            registration_link.set_label(&gettextrs::gettext("Create a new account"));
+            registration_link.set_visible(true);
+        } else {
+            registration_link.set_visible(false);
+        }
+
+        guidance_box.set_visible(true);
+    } else {
+        guidance_box.set_visible(false);
+    }
 }
 
 /// Load the provider database merged with any user-supplied custom providers.

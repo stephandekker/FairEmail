@@ -1,4 +1,6 @@
-use super::provider::{Provider, ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType};
+use super::provider::{
+    LocalizedDoc, Provider, ProviderDatabase, ProviderEncryption, ServerConfig, UsernameType,
+};
 
 /// A single entry in the provider dropdown.
 #[derive(Debug, Clone)]
@@ -63,9 +65,133 @@ pub fn prefill_for_provider(db: &ProviderDatabase, provider_id: &str) -> Option<
         })
 }
 
-/// Get provider-specific guidance text (e.g. "Use an app-specific password").
-/// Returns `None` if no special guidance applies.
-pub fn provider_guidance(db: &ProviderDatabase, provider_id: &str) -> Option<String> {
+/// Structured provider guidance data for rich UI display (US-11, US-12, US-14, US-15, US-19).
+#[derive(Debug, Clone, Default)]
+pub struct ProviderGuidance {
+    /// External documentation link (FR-33, US-14).
+    pub documentation_url: Option<String>,
+    /// Locale-resolved inline setup text (FR-34, US-15, NFR-4).
+    pub setup_text: Option<String>,
+    /// Registration / sign-up URL (FR-35, US-19).
+    pub registration_url: Option<String>,
+    /// Whether the provider requires an app-specific password (US-11, AC-10).
+    pub app_password_required: bool,
+    /// Link to the provider's app-password management page (AC-10).
+    pub app_password_url: Option<String>,
+    /// Whether the provider requires manual IMAP/SMTP enablement (US-12, AC-11).
+    pub requires_manual_enablement: bool,
+}
+
+impl ProviderGuidance {
+    /// Returns `true` when there is any guidance to display.
+    pub fn has_content(&self) -> bool {
+        self.documentation_url.is_some()
+            || self.setup_text.is_some()
+            || self.registration_url.is_some()
+            || self.app_password_required
+            || self.requires_manual_enablement
+    }
+
+    /// Render a plain-text summary (for simple label widgets).
+    pub fn summary_text(&self) -> Option<String> {
+        let mut parts: Vec<String> = Vec::new();
+
+        if self.app_password_required {
+            let mut msg = "This provider requires an app-specific password.".to_string();
+            if let Some(ref url) = self.app_password_url {
+                msg.push_str(&format!(" Manage app passwords: {url}"));
+            }
+            parts.push(msg);
+        }
+
+        if self.requires_manual_enablement {
+            parts.push(
+                "This provider requires you to manually enable IMAP/SMTP access in your account settings before connecting."
+                    .to_string(),
+            );
+        }
+
+        if let Some(ref text) = self.setup_text {
+            parts.push(text.clone());
+        }
+
+        if let Some(ref url) = self.documentation_url {
+            parts.push(format!("Setup guide: {url}"));
+        }
+
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(" "))
+        }
+    }
+}
+
+/// Resolve the best localized documentation snippet for the user's locale (NFR-4).
+///
+/// Matching strategy:
+/// 1. Exact locale match (e.g. "de_DE" matches "de_DE").
+/// 2. Language-prefix match (e.g. "de_DE" matches "de").
+/// 3. Fallback to "en" if available.
+/// 4. Fallback to the first entry.
+pub fn resolve_localized_doc<'a>(
+    docs: &'a [LocalizedDoc],
+    user_locale: &str,
+) -> Option<&'a LocalizedDoc> {
+    if docs.is_empty() {
+        return None;
+    }
+
+    let user_lower = user_locale.to_lowercase();
+    let user_lang = user_lower.split('_').next().unwrap_or(&user_lower);
+
+    // Exact locale match.
+    if let Some(doc) = docs.iter().find(|d| d.locale.to_lowercase() == user_lower) {
+        return Some(doc);
+    }
+
+    // Language-prefix match.
+    if let Some(doc) = docs
+        .iter()
+        .find(|d| d.locale.to_lowercase().split('_').next().unwrap_or("") == user_lang)
+    {
+        return Some(doc);
+    }
+
+    // Fallback to English.
+    if let Some(doc) = docs
+        .iter()
+        .find(|d| d.locale.to_lowercase().starts_with("en"))
+    {
+        return Some(doc);
+    }
+
+    // Last resort: first available entry.
+    docs.first()
+}
+
+/// Detect the user's current locale from environment variables.
+///
+/// Checks `LC_MESSAGES`, `LC_ALL`, and `LANG` in order, returning the first
+/// non-empty value. Falls back to `"en"` if none is set.
+pub fn detect_user_locale() -> String {
+    std::env::var("LC_MESSAGES")
+        .or_else(|_| std::env::var("LC_ALL"))
+        .or_else(|_| std::env::var("LANG"))
+        .unwrap_or_else(|_| "en".to_string())
+        .split('.')
+        .next()
+        .unwrap_or("en")
+        .to_string()
+}
+
+/// Get structured provider guidance for rich UI display (story 10).
+///
+/// Returns `None` for the "Custom"/"Other" entry (empty ID) or unknown providers.
+pub fn provider_guidance_detail(
+    db: &ProviderDatabase,
+    provider_id: &str,
+) -> Option<ProviderGuidance> {
     if provider_id.is_empty() {
         return None;
     }
@@ -74,26 +200,30 @@ pub fn provider_guidance(db: &ProviderDatabase, provider_id: &str) -> Option<Str
         .iter()
         .find(|p| p.id == provider_id && p.enabled)?;
 
-    let mut parts: Vec<String> = Vec::new();
+    let locale = detect_user_locale();
+    let setup_text =
+        resolve_localized_doc(&provider.localized_docs, &locale).map(|doc| doc.text.clone());
 
-    if provider.app_password_required {
-        parts.push("This provider requires an app-specific password.".to_string());
-    }
+    let guidance = ProviderGuidance {
+        documentation_url: provider.documentation_url.clone(),
+        setup_text,
+        registration_url: provider.registration_url.clone(),
+        app_password_required: provider.app_password_required,
+        app_password_url: provider.app_password_url.clone(),
+        requires_manual_enablement: provider.requires_manual_enablement,
+    };
 
-    // Include localized doc snippets (use first available).
-    if let Some(doc) = provider.localized_docs.first() {
-        parts.push(doc.text.clone());
-    }
-
-    if let Some(ref url) = provider.documentation_url {
-        parts.push(format!("Setup guide: {url}"));
-    }
-
-    if parts.is_empty() {
-        None
+    if guidance.has_content() {
+        Some(guidance)
     } else {
-        Some(parts.join(" "))
+        None
     }
+}
+
+/// Get provider-specific guidance text (e.g. "Use an app-specific password").
+/// Returns `None` if no special guidance applies.
+pub fn provider_guidance(db: &ProviderDatabase, provider_id: &str) -> Option<String> {
+    provider_guidance_detail(db, provider_id).and_then(|g| g.summary_text())
 }
 
 /// Find the dropdown index for a given provider ID.
@@ -294,6 +424,7 @@ mod tests {
             supports_shared_mailbox: false,
             subtitle: None,
             registration_url: None,
+            app_password_url: None,
             graph: None,
             debug_only: false,
             variant_of: None,
@@ -588,5 +719,241 @@ mod tests {
         assert_eq!(entries[0].label, "Alpha Mail");
         assert_eq!(entries[1].label, "BRAVO Mail");
         assert_eq!(entries[2].label, "charlie mail");
+    }
+
+    // --- Locale-aware doc resolution tests (story 10, NFR-4) ---
+
+    #[test]
+    fn test_resolve_localized_doc_exact_match() {
+        let docs = vec![
+            LocalizedDoc {
+                locale: "en".to_string(),
+                text: "English text".to_string(),
+            },
+            LocalizedDoc {
+                locale: "de".to_string(),
+                text: "German text".to_string(),
+            },
+        ];
+        let result = resolve_localized_doc(&docs, "de");
+        assert_eq!(result.unwrap().text, "German text");
+    }
+
+    #[test]
+    fn test_resolve_localized_doc_language_prefix_match() {
+        let docs = vec![
+            LocalizedDoc {
+                locale: "en".to_string(),
+                text: "English text".to_string(),
+            },
+            LocalizedDoc {
+                locale: "de".to_string(),
+                text: "German text".to_string(),
+            },
+        ];
+        // "de_DE" should match "de" via language prefix.
+        let result = resolve_localized_doc(&docs, "de_DE");
+        assert_eq!(result.unwrap().text, "German text");
+    }
+
+    #[test]
+    fn test_resolve_localized_doc_falls_back_to_english() {
+        let docs = vec![
+            LocalizedDoc {
+                locale: "en".to_string(),
+                text: "English text".to_string(),
+            },
+            LocalizedDoc {
+                locale: "de".to_string(),
+                text: "German text".to_string(),
+            },
+        ];
+        // "fr" is not available, should fall back to "en".
+        let result = resolve_localized_doc(&docs, "fr");
+        assert_eq!(result.unwrap().text, "English text");
+    }
+
+    #[test]
+    fn test_resolve_localized_doc_falls_back_to_first() {
+        let docs = vec![LocalizedDoc {
+            locale: "ja".to_string(),
+            text: "Japanese text".to_string(),
+        }];
+        // No "en" and no matching locale, falls back to first entry.
+        let result = resolve_localized_doc(&docs, "fr");
+        assert_eq!(result.unwrap().text, "Japanese text");
+    }
+
+    #[test]
+    fn test_resolve_localized_doc_empty() {
+        assert!(resolve_localized_doc(&[], "en").is_none());
+    }
+
+    #[test]
+    fn test_resolve_localized_doc_case_insensitive() {
+        let docs = vec![LocalizedDoc {
+            locale: "EN".to_string(),
+            text: "English text".to_string(),
+        }];
+        let result = resolve_localized_doc(&docs, "en");
+        assert_eq!(result.unwrap().text, "English text");
+    }
+
+    // --- ProviderGuidance tests (story 10) ---
+
+    #[test]
+    fn test_guidance_detail_returns_none_for_empty_id() {
+        let db = ProviderDatabase::new(vec![make_provider("gmail", "Gmail", 1)]);
+        assert!(provider_guidance_detail(&db, "").is_none());
+    }
+
+    #[test]
+    fn test_guidance_detail_returns_none_when_no_guidance() {
+        let db = ProviderDatabase::new(vec![make_provider("plain", "Plain Provider", 1)]);
+        assert!(provider_guidance_detail(&db, "plain").is_none());
+    }
+
+    #[test]
+    fn test_guidance_detail_includes_app_password() {
+        let mut p = make_provider("gmail", "Gmail", 1);
+        p.app_password_required = true;
+        p.app_password_url = Some("https://example.com/app-passwords".to_string());
+        let db = ProviderDatabase::new(vec![p]);
+        let guidance = provider_guidance_detail(&db, "gmail").unwrap();
+        assert!(guidance.app_password_required);
+        assert_eq!(
+            guidance.app_password_url.as_deref(),
+            Some("https://example.com/app-passwords")
+        );
+    }
+
+    #[test]
+    fn test_guidance_detail_includes_manual_enablement() {
+        let mut p = make_provider("gmail", "Gmail", 1);
+        p.requires_manual_enablement = true;
+        let db = ProviderDatabase::new(vec![p]);
+        let guidance = provider_guidance_detail(&db, "gmail").unwrap();
+        assert!(guidance.requires_manual_enablement);
+    }
+
+    #[test]
+    fn test_guidance_detail_includes_registration_url() {
+        let mut p = make_provider("gmail", "Gmail", 1);
+        p.registration_url = Some("https://example.com/signup".to_string());
+        let db = ProviderDatabase::new(vec![p]);
+        let guidance = provider_guidance_detail(&db, "gmail").unwrap();
+        assert_eq!(
+            guidance.registration_url.as_deref(),
+            Some("https://example.com/signup")
+        );
+    }
+
+    #[test]
+    fn test_guidance_detail_includes_doc_url() {
+        let mut p = make_provider("gmail", "Gmail", 1);
+        p.documentation_url = Some("https://example.com/docs".to_string());
+        let db = ProviderDatabase::new(vec![p]);
+        let guidance = provider_guidance_detail(&db, "gmail").unwrap();
+        assert_eq!(
+            guidance.documentation_url.as_deref(),
+            Some("https://example.com/docs")
+        );
+    }
+
+    #[test]
+    fn test_guidance_detail_includes_setup_text() {
+        let mut p = make_provider("gmail", "Gmail", 1);
+        p.localized_docs = vec![LocalizedDoc {
+            locale: "en".to_string(),
+            text: "Enable IMAP first.".to_string(),
+        }];
+        let db = ProviderDatabase::new(vec![p]);
+        let guidance = provider_guidance_detail(&db, "gmail").unwrap();
+        assert_eq!(guidance.setup_text.as_deref(), Some("Enable IMAP first."));
+    }
+
+    #[test]
+    fn test_guidance_summary_text_app_password_with_url() {
+        let guidance = ProviderGuidance {
+            app_password_required: true,
+            app_password_url: Some("https://example.com/app-passwords".to_string()),
+            ..Default::default()
+        };
+        let text = guidance.summary_text().unwrap();
+        assert!(text.contains("app-specific password"));
+        assert!(text.contains("https://example.com/app-passwords"));
+    }
+
+    #[test]
+    fn test_guidance_summary_text_enablement() {
+        let guidance = ProviderGuidance {
+            requires_manual_enablement: true,
+            ..Default::default()
+        };
+        let text = guidance.summary_text().unwrap();
+        assert!(text.contains("manually enable IMAP/SMTP"));
+    }
+
+    #[test]
+    fn test_guidance_has_content_false_when_empty() {
+        let guidance = ProviderGuidance::default();
+        assert!(!guidance.has_content());
+    }
+
+    #[test]
+    fn test_guidance_has_content_true_with_doc_url() {
+        let guidance = ProviderGuidance {
+            documentation_url: Some("https://example.com".to_string()),
+            ..Default::default()
+        };
+        assert!(guidance.has_content());
+    }
+
+    // --- Bundled provider guidance tests (story 10) ---
+
+    #[test]
+    fn test_bundled_gmail_has_app_password_url() {
+        let db = ProviderDatabase::bundled();
+        let guidance = provider_guidance_detail(&db, "gmail").unwrap();
+        assert!(guidance.app_password_required);
+        assert!(guidance.app_password_url.is_some());
+        assert!(guidance.requires_manual_enablement);
+    }
+
+    #[test]
+    fn test_bundled_gmail_has_registration_url() {
+        let db = ProviderDatabase::bundled();
+        let guidance = provider_guidance_detail(&db, "gmail").unwrap();
+        assert!(guidance.registration_url.is_some());
+    }
+
+    #[test]
+    fn test_bundled_yahoo_has_app_password_url() {
+        let db = ProviderDatabase::bundled();
+        let guidance = provider_guidance_detail(&db, "yahoo").unwrap();
+        assert!(guidance.app_password_required);
+        assert!(guidance.app_password_url.is_some());
+    }
+
+    #[test]
+    fn test_bundled_outlook_has_registration_url() {
+        let db = ProviderDatabase::bundled();
+        let guidance = provider_guidance_detail(&db, "outlook").unwrap();
+        assert!(guidance.registration_url.is_some());
+    }
+
+    #[test]
+    fn test_bundled_gmail_guidance_text_includes_setup_doc() {
+        let db = ProviderDatabase::bundled();
+        let text = provider_guidance(&db, "gmail").unwrap();
+        assert!(text.contains("Enable IMAP"));
+    }
+
+    #[test]
+    fn test_bundled_mailru_requires_enablement() {
+        let db = ProviderDatabase::bundled();
+        let guidance = provider_guidance_detail(&db, "mailru").unwrap();
+        assert!(guidance.requires_manual_enablement);
+        assert!(guidance.app_password_url.is_some());
     }
 }

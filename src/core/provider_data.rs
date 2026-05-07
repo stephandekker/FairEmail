@@ -57,6 +57,7 @@ fn p(
         supports_shared_mailbox: false,
         subtitle: None,
         registration_url: None,
+        app_password_url: None,
         graph: None,
         debug_only: false,
         variant_of: None,
@@ -150,6 +151,9 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 text: "Enable IMAP in Gmail settings. Use an App Password if 2FA is enabled."
                     .to_string(),
             });
+            prov.app_password_url = Some("https://myaccount.google.com/apppasswords".to_string());
+            prov.requires_manual_enablement = true;
+            prov.registration_url = Some("https://accounts.google.com/signup".to_string());
             prov
         },
         // 2. Microsoft Outlook / Hotmail / Live
@@ -210,78 +214,98 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
                 client_secret: None,
                 status: OAuthProfileStatus::Enabled,
             });
+            prov.registration_url = Some("https://signup.live.com/".to_string());
             prov
         },
         // 3. Yahoo
-        p(
-            "yahoo",
-            "Yahoo Mail",
-            &[
-                "yahoo.com",
-                "yahoo.co.uk",
-                "yahoo.co.jp",
-                "yahoo.fr",
-                "yahoo.de",
-                "yahoo.it",
-                "yahoo.es",
-                "yahoo.com.br",
-                "yahoo.com.au",
-                "ymail.com",
-                "rocketmail.com",
-            ],
-            &["*.yahoodns.net"],
-            "imap.mail.yahoo.com",
-            993,
-            ssl,
-            "smtp.mail.yahoo.com",
-            465,
-            ssl,
-            e(),
-            15,
-            false,
-            true,
-            tls13,
-            true,
-            Some("https://help.yahoo.com/kb/imap-server-settings-sln4075.html"),
-            Some(OAuthConfig {
-                auth_url: "https://api.login.yahoo.com/oauth2/request_auth".to_string(),
-                token_url: "https://api.login.yahoo.com/oauth2/get_token".to_string(),
-                redirect_uri: "http://127.0.0.1/callback".to_string(),
-                scopes: vec!["mail-w".to_string()],
-                client_id: None,
-                pkce_required: true,
-                extra_params: vec![],
-                userinfo_url: None,
-                privacy_policy_url: Some(
-                    "https://legal.yahoo.com/us/en/yahoo/privacy/index.html".to_string(),
-                ),
-                client_secret: None,
-                status: OAuthProfileStatus::Enabled,
-            }),
-            3,
-        ),
+        {
+            let mut prov = p(
+                "yahoo",
+                "Yahoo Mail",
+                &[
+                    "yahoo.com",
+                    "yahoo.co.uk",
+                    "yahoo.co.jp",
+                    "yahoo.fr",
+                    "yahoo.de",
+                    "yahoo.it",
+                    "yahoo.es",
+                    "yahoo.com.br",
+                    "yahoo.com.au",
+                    "ymail.com",
+                    "rocketmail.com",
+                ],
+                &["*.yahoodns.net"],
+                "imap.mail.yahoo.com",
+                993,
+                ssl,
+                "smtp.mail.yahoo.com",
+                465,
+                ssl,
+                e(),
+                15,
+                false,
+                true,
+                tls13,
+                true,
+                Some("https://help.yahoo.com/kb/imap-server-settings-sln4075.html"),
+                Some(OAuthConfig {
+                    auth_url: "https://api.login.yahoo.com/oauth2/request_auth".to_string(),
+                    token_url: "https://api.login.yahoo.com/oauth2/get_token".to_string(),
+                    redirect_uri: "http://127.0.0.1/callback".to_string(),
+                    scopes: vec!["mail-w".to_string()],
+                    client_id: None,
+                    pkce_required: true,
+                    extra_params: vec![],
+                    userinfo_url: None,
+                    privacy_policy_url: Some(
+                        "https://legal.yahoo.com/us/en/yahoo/privacy/index.html".to_string(),
+                    ),
+                    client_secret: None,
+                    status: OAuthProfileStatus::Enabled,
+                }),
+                3,
+            );
+            prov.app_password_url =
+                Some("https://login.yahoo.com/myaccount/security/app-password".to_string());
+            prov.localized_docs.push(LocalizedDoc {
+                locale: "en".to_string(),
+                text: "Use an App Password for third-party mail apps. Generate one in your Yahoo account security settings.".to_string(),
+            });
+            prov.registration_url = Some("https://login.yahoo.com/account/create".to_string());
+            prov
+        },
         // 4. Apple iCloud
-        p(
-            "icloud",
-            "iCloud Mail (Apple)",
-            &["icloud.com", "me.com", "mac.com"],
-            &["*.icloud.com"],
-            "imap.mail.me.com",
-            993,
-            ssl,
-            "smtp.mail.me.com",
-            587,
-            starttls,
-            e(),
-            15,
-            false,
-            true,
-            tls13,
-            true,
-            Some("https://support.apple.com/en-us/102525"),
-            None,
-            4,
-        ),
+        {
+            let mut prov = p(
+                "icloud",
+                "iCloud Mail (Apple)",
+                &["icloud.com", "me.com", "mac.com"],
+                &["*.icloud.com"],
+                "imap.mail.me.com",
+                993,
+                ssl,
+                "smtp.mail.me.com",
+                587,
+                starttls,
+                e(),
+                15,
+                false,
+                true,
+                tls13,
+                true,
+                Some("https://support.apple.com/en-us/102525"),
+                None,
+                4,
+            );
+            prov.app_password_url =
+                Some("https://appleid.apple.com/account/manage/section/security".to_string());
+            prov.localized_docs.push(LocalizedDoc {
+                locale: "en".to_string(),
+                text: "Generate an app-specific password at appleid.apple.com to use iCloud Mail with third-party apps.".to_string(),
+            });
+            prov
+        },
         // 5. AOL
         p(
             "aol",
@@ -319,39 +343,52 @@ pub(crate) fn bundled_providers() -> Vec<Provider> {
             5,
         ),
         // 6. Mail.ru
-        p(
-            "mailru",
-            "Mail.ru",
-            &["mail.ru", "inbox.ru", "list.ru", "bk.ru", "internet.ru"],
-            &["*.mail.ru"],
-            "imap.mail.ru",
-            993,
-            ssl,
-            "smtp.mail.ru",
-            465,
-            ssl,
-            e(),
-            15,
-            false,
-            true,
-            tls13,
-            true,
-            None,
-            Some(OAuthConfig {
-                auth_url: "https://oauth.mail.ru/login".to_string(),
-                token_url: "https://oauth.mail.ru/token".to_string(),
-                redirect_uri: "http://127.0.0.1/callback".to_string(),
-                scopes: vec!["mail.imap".to_string()],
-                client_id: None,
-                pkce_required: true,
-                extra_params: vec![],
-                userinfo_url: Some("https://oauth.mail.ru/userinfo".to_string()),
-                privacy_policy_url: Some("https://help.mail.ru/legal/terms/privacy".to_string()),
-                client_secret: None,
-                status: OAuthProfileStatus::Enabled,
-            }),
-            6,
-        ),
+        {
+            let mut prov = p(
+                "mailru",
+                "Mail.ru",
+                &["mail.ru", "inbox.ru", "list.ru", "bk.ru", "internet.ru"],
+                &["*.mail.ru"],
+                "imap.mail.ru",
+                993,
+                ssl,
+                "smtp.mail.ru",
+                465,
+                ssl,
+                e(),
+                15,
+                false,
+                true,
+                tls13,
+                true,
+                None,
+                Some(OAuthConfig {
+                    auth_url: "https://oauth.mail.ru/login".to_string(),
+                    token_url: "https://oauth.mail.ru/token".to_string(),
+                    redirect_uri: "http://127.0.0.1/callback".to_string(),
+                    scopes: vec!["mail.imap".to_string()],
+                    client_id: None,
+                    pkce_required: true,
+                    extra_params: vec![],
+                    userinfo_url: Some("https://oauth.mail.ru/userinfo".to_string()),
+                    privacy_policy_url: Some(
+                        "https://help.mail.ru/legal/terms/privacy".to_string(),
+                    ),
+                    client_secret: None,
+                    status: OAuthProfileStatus::Enabled,
+                }),
+                6,
+            );
+            prov.app_password_url =
+                Some("https://account.mail.ru/user/2-step-auth/passwords/".to_string());
+            prov.localized_docs.push(LocalizedDoc {
+                locale: "en".to_string(),
+                text: "Enable IMAP access in Mail.ru settings and generate an app password."
+                    .to_string(),
+            });
+            prov.requires_manual_enablement = true;
+            prov
+        },
         // 7. Yandex
         p(
             "yandex",

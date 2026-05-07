@@ -194,9 +194,10 @@ pub use provider::{
     UsernameType,
 };
 pub use provider_dropdown::{
-    build_dropdown_entries, build_provider_list, full_prefill_for_provider, index_for_provider_id,
-    is_debug_mode, prefill_for_provider, provider_guidance, FullProviderPrefill,
-    ProviderDropdownEntry, ProviderListEntry, ProviderPrefill,
+    build_dropdown_entries, build_provider_list, detect_user_locale, full_prefill_for_provider,
+    index_for_provider_id, is_debug_mode, prefill_for_provider, provider_guidance,
+    provider_guidance_detail, resolve_localized_doc, FullProviderPrefill, ProviderDropdownEntry,
+    ProviderGuidance, ProviderListEntry, ProviderPrefill,
 };
 pub use provider_quirks::{lookup_quirks, ProviderQuirks, SmtpOAuthStrategy};
 pub use reauth::{
