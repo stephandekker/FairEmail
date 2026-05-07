@@ -21,11 +21,12 @@ type AccountParamsFn = dyn Fn(&str) -> Option<ImapConnectParams> + Send + Sync;
 pub(crate) type TokenRefreshFn = dyn Fn(&str) -> Option<String> + Send + Sync;
 
 use crate::core::account::AuthMethod;
+use crate::core::account::FolderRole;
 use crate::core::content_store::ContentStore;
 use crate::core::message::FLAG_SEEN;
 use crate::core::pending_operation::{
-    FolderCreatePayload, FolderDeletePayload, FolderRenamePayload, OperationKind, OperationState,
-    SendPayload, StoreFlagsPayload,
+    FolderCreatePayload, FolderDeletePayload, FolderRenamePayload, MoveMessagePayload,
+    OperationKind, OperationState, SendPayload, StoreFlagsPayload,
 };
 use crate::core::sync_event::SyncEvent;
 use crate::services::database::{open_and_migrate, DatabaseError};
@@ -254,6 +255,72 @@ impl ImapFlagStore for MockImapFlagStore {
         match &self.should_fail {
             Some(err) => Err(err.clone()),
             None => Ok(()),
+        }
+    }
+}
+
+/// What junk-keyword action to take after a move.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum JunkAction {
+    /// No junk keyword changes needed.
+    None,
+    /// Moving TO Junk — set $Junk, remove $NotJunk.
+    MarkAsJunk,
+    /// Moving FROM Junk — set $NotJunk, remove $Junk.
+    MarkAsNotJunk,
+}
+
+/// Trait abstracting IMAP move operations for testability.
+pub(crate) trait ImapMover: Send + Sync {
+    /// Move a message from source to destination folder on the server.
+    /// Returns the new UID in the destination folder on success (if available).
+    ///
+    /// Handles capability detection (atomic MOVE vs COPY+DELETE fallback)
+    /// and junk-keyword management internally.
+    fn move_message(
+        &self,
+        params: &ImapConnectParams,
+        source_folder: &str,
+        destination_folder: &str,
+        uid: u32,
+        junk_action: JunkAction,
+    ) -> Result<Option<u32>, String>;
+}
+
+/// Real IMAP mover that connects to the server.
+pub(crate) struct RealImapMover;
+
+impl ImapMover for RealImapMover {
+    fn move_message(
+        &self,
+        params: &ImapConnectParams,
+        source_folder: &str,
+        destination_folder: &str,
+        uid: u32,
+        junk_action: JunkAction,
+    ) -> Result<Option<u32>, String> {
+        imap_move_message(params, source_folder, destination_folder, uid, junk_action)
+    }
+}
+
+/// Mock IMAP mover for testing.
+pub(crate) struct MockImapMover {
+    pub should_fail: Option<String>,
+    pub new_uid: Option<u32>,
+}
+
+impl ImapMover for MockImapMover {
+    fn move_message(
+        &self,
+        _params: &ImapConnectParams,
+        _source_folder: &str,
+        _destination_folder: &str,
+        _uid: u32,
+        _junk_action: JunkAction,
+    ) -> Result<Option<u32>, String> {
+        match &self.should_fail {
+            Some(err) => Err(err.clone()),
+            None => Ok(self.new_uid),
         }
     }
 }
@@ -857,6 +924,407 @@ fn imap_quote(s: &str) -> String {
     format!("\"{escaped}\"")
 }
 
+/// Perform an IMAP MOVE (or COPY+DELETE fallback) on the server.
+///
+/// 1. Connects and logs in.
+/// 2. Checks CAPABILITY for MOVE support.
+/// 3. SELECTs the source folder.
+/// 4. If MOVE supported: sends `UID MOVE`, parses COPYUID response.
+/// 5. If not: sends `UID COPY`, parses COPYUID, then `UID STORE +FLAGS (\Deleted)`, `EXPUNGE`.
+/// 6. Optionally sets junk keywords ($Junk / $NotJunk) on the new UID in the destination.
+/// 7. Returns the new UID from the COPYUID response (if available).
+fn imap_move_message(
+    params: &ImapConnectParams,
+    source_folder: &str,
+    destination_folder: &str,
+    uid: u32,
+    junk_action: JunkAction,
+) -> Result<Option<u32>, String> {
+    use crate::core::account::EncryptionMode;
+    use native_tls::TlsConnector;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let addr_str = format!("{}:{}", params.host, params.port);
+    let addr: std::net::SocketAddr = addr_str
+        .parse()
+        .or_else(|_| {
+            use std::net::ToSocketAddrs;
+            addr_str
+                .to_socket_addrs()
+                .map_err(|e| e.to_string())?
+                .next()
+                .ok_or_else(|| "DNS resolution failed".to_string())
+        })
+        .map_err(|e| format!("DNS resolution failed: {e}"))?;
+
+    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(30))
+        .map_err(|e| format!("connection failed: {e}"))?;
+    tcp.set_read_timeout(Some(Duration::from_secs(60))).ok();
+    tcp.set_write_timeout(Some(Duration::from_secs(60))).ok();
+
+    /// Parse a COPYUID response code to extract the destination UID.
+    /// Format: `[COPYUID <uidvalidity> <source-uid> <dest-uid>]`
+    fn parse_copyuid(response: &str) -> Option<u32> {
+        // Look for [COPYUID ...] in the response
+        if let Some(start) = response.find("[COPYUID ") {
+            let after = &response[start + 9..];
+            // Skip uidvalidity
+            let parts: Vec<&str> = after.split_whitespace().collect();
+            if parts.len() >= 3 {
+                // Third part is the dest UID, possibly followed by ']'
+                let uid_str = parts[2].trim_end_matches(']');
+                return uid_str.parse().ok();
+            }
+        }
+        None
+    }
+
+    macro_rules! run_move_session {
+        ($reader:expr, $writer:expr) => {{
+            // Read greeting
+            let mut line = String::new();
+            $reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read greeting: {e}"))?;
+            if !line.to_uppercase().starts_with("* OK")
+                && !line.to_uppercase().starts_with("* PREAUTH")
+            {
+                return Err(format!("unexpected greeting: {}", line.trim()));
+            }
+
+            // Login
+            let username = imap_quote(&params.username);
+            let password = imap_quote(&params.password);
+            let cmd = format!("A001 LOGIN {username} {password}\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write login: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush login: {e}"))?;
+
+            let mut resp = String::new();
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read login response: {e}"))?;
+                resp.push_str(&l);
+                if l.starts_with("A001") {
+                    break;
+                }
+            }
+            if !resp.contains("A001 OK") {
+                return Err("authentication failed".to_string());
+            }
+
+            // Check CAPABILITY for MOVE support
+            $writer
+                .write_all(b"A002 CAPABILITY\r\n")
+                .map_err(|e| format!("write capability: {e}"))?;
+            $writer
+                .flush()
+                .map_err(|e| format!("flush capability: {e}"))?;
+
+            let mut cap_resp = String::new();
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read capability: {e}"))?;
+                cap_resp.push_str(&l);
+                if l.starts_with("A002") {
+                    break;
+                }
+            }
+            let has_move = cap_resp.to_uppercase().contains("MOVE");
+
+            // SELECT source folder
+            let quoted_src = imap_quote(source_folder);
+            let cmd = format!("A003 SELECT {quoted_src}\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write select: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush select: {e}"))?;
+
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read select: {e}"))?;
+                if l.starts_with("A003") {
+                    if !l.contains("OK") {
+                        return Err(format!("SELECT failed: {}", l.trim()));
+                    }
+                    break;
+                }
+            }
+
+            let quoted_dst = imap_quote(destination_folder);
+            #[allow(unused_assignments)]
+            let mut new_uid: Option<u32> = None;
+
+            if has_move {
+                // Atomic MOVE (RFC 6851)
+                let cmd = format!("A004 UID MOVE {uid} {quoted_dst}\r\n");
+                $writer
+                    .write_all(cmd.as_bytes())
+                    .map_err(|e| format!("write MOVE: {e}"))?;
+                $writer.flush().map_err(|e| format!("flush MOVE: {e}"))?;
+
+                let mut move_resp = String::new();
+                loop {
+                    let mut l = String::new();
+                    $reader
+                        .read_line(&mut l)
+                        .map_err(|e| format!("read MOVE response: {e}"))?;
+                    move_resp.push_str(&l);
+                    if l.starts_with("A004") {
+                        if !l.contains("OK") {
+                            return Err(format!("MOVE failed: {}", l.trim()));
+                        }
+                        break;
+                    }
+                }
+                new_uid = parse_copyuid(&move_resp);
+            } else {
+                // Fallback: COPY then DELETE
+                let cmd = format!("A004 UID COPY {uid} {quoted_dst}\r\n");
+                $writer
+                    .write_all(cmd.as_bytes())
+                    .map_err(|e| format!("write COPY: {e}"))?;
+                $writer.flush().map_err(|e| format!("flush COPY: {e}"))?;
+
+                let mut copy_resp = String::new();
+                loop {
+                    let mut l = String::new();
+                    $reader
+                        .read_line(&mut l)
+                        .map_err(|e| format!("read COPY response: {e}"))?;
+                    copy_resp.push_str(&l);
+                    if l.starts_with("A004") {
+                        if !l.contains("OK") {
+                            return Err(format!("COPY failed: {}", l.trim()));
+                        }
+                        break;
+                    }
+                }
+                new_uid = parse_copyuid(&copy_resp);
+
+                // Mark source as deleted
+                let cmd = format!("A005 UID STORE {uid} +FLAGS (\\Deleted)\r\n");
+                $writer
+                    .write_all(cmd.as_bytes())
+                    .map_err(|e| format!("write STORE deleted: {e}"))?;
+                $writer
+                    .flush()
+                    .map_err(|e| format!("flush STORE deleted: {e}"))?;
+
+                loop {
+                    let mut l = String::new();
+                    $reader
+                        .read_line(&mut l)
+                        .map_err(|e| format!("read STORE response: {e}"))?;
+                    if l.starts_with("A005") {
+                        if !l.contains("OK") {
+                            return Err(format!("STORE \\Deleted failed: {}", l.trim()));
+                        }
+                        break;
+                    }
+                }
+
+                // Expunge
+                let cmd = format!("A006 UID EXPUNGE {uid}\r\n");
+                $writer
+                    .write_all(cmd.as_bytes())
+                    .map_err(|e| format!("write EXPUNGE: {e}"))?;
+                $writer.flush().map_err(|e| format!("flush EXPUNGE: {e}"))?;
+
+                loop {
+                    let mut l = String::new();
+                    $reader
+                        .read_line(&mut l)
+                        .map_err(|e| format!("read EXPUNGE response: {e}"))?;
+                    if l.starts_with("A006") {
+                        // UID EXPUNGE may not be supported; fall back to regular EXPUNGE
+                        if l.contains("OK") {
+                            break;
+                        }
+                        // Try regular EXPUNGE as fallback
+                        let cmd = "A007 EXPUNGE\r\n";
+                        $writer
+                            .write_all(cmd.as_bytes())
+                            .map_err(|e| format!("write EXPUNGE fallback: {e}"))?;
+                        $writer
+                            .flush()
+                            .map_err(|e| format!("flush EXPUNGE fallback: {e}"))?;
+                        loop {
+                            let mut l2 = String::new();
+                            $reader
+                                .read_line(&mut l2)
+                                .map_err(|e| format!("read EXPUNGE fallback: {e}"))?;
+                            if l2.starts_with("A007") {
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Junk keyword handling on the destination
+            if junk_action != JunkAction::None {
+                if let Some(dest_uid) = new_uid {
+                    // SELECT destination folder
+                    let cmd = format!("A008 SELECT {quoted_dst}\r\n");
+                    $writer
+                        .write_all(cmd.as_bytes())
+                        .map_err(|e| format!("write select dest: {e}"))?;
+                    $writer
+                        .flush()
+                        .map_err(|e| format!("flush select dest: {e}"))?;
+
+                    #[allow(unused_assignments)]
+                    let mut select_ok = false;
+                    loop {
+                        let mut l = String::new();
+                        $reader
+                            .read_line(&mut l)
+                            .map_err(|e| format!("read select dest: {e}"))?;
+                        if l.starts_with("A008") {
+                            select_ok = l.contains("OK");
+                            break;
+                        }
+                    }
+
+                    if select_ok {
+                        let (add_kw, remove_kw) = match junk_action {
+                            JunkAction::MarkAsJunk => ("$Junk", "$NotJunk"),
+                            JunkAction::MarkAsNotJunk => ("$NotJunk", "$Junk"),
+                            JunkAction::None => unreachable!(),
+                        };
+
+                        // Add keyword
+                        let cmd = format!("A009 UID STORE {dest_uid} +FLAGS ({add_kw})\r\n");
+                        $writer
+                            .write_all(cmd.as_bytes())
+                            .map_err(|e| format!("write junk add: {e}"))?;
+                        $writer
+                            .flush()
+                            .map_err(|e| format!("flush junk add: {e}"))?;
+                        loop {
+                            let mut l = String::new();
+                            $reader
+                                .read_line(&mut l)
+                                .map_err(|e| format!("read junk add: {e}"))?;
+                            if l.starts_with("A009") {
+                                break;
+                            }
+                        }
+
+                        // Remove keyword
+                        let cmd = format!("A010 UID STORE {dest_uid} -FLAGS ({remove_kw})\r\n");
+                        $writer
+                            .write_all(cmd.as_bytes())
+                            .map_err(|e| format!("write junk remove: {e}"))?;
+                        $writer
+                            .flush()
+                            .map_err(|e| format!("flush junk remove: {e}"))?;
+                        loop {
+                            let mut l = String::new();
+                            $reader
+                                .read_line(&mut l)
+                                .map_err(|e| format!("read junk remove: {e}"))?;
+                            if l.starts_with("A010") {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Logout
+            let cmd = "A099 LOGOUT\r\n";
+            let _ = $writer.write_all(cmd.as_bytes());
+            let _ = $writer.flush();
+
+            Ok(new_uid)
+        }};
+    }
+
+    match params.encryption {
+        EncryptionMode::SslTls => {
+            let mut builder = TlsConnector::builder();
+            if params.insecure || params.accepted_fingerprint.is_some() {
+                builder.danger_accept_invalid_certs(true);
+                builder.danger_accept_invalid_hostnames(true);
+            }
+            let connector = builder
+                .build()
+                .map_err(|e| format!("TLS build error: {e}"))?;
+            let tls = connector
+                .connect(&params.host, tcp)
+                .map_err(|e| format!("TLS handshake failed: {e}"))?;
+            let mut reader = BufReader::new(tls);
+            run_move_session!(reader, reader.get_mut())
+        }
+        EncryptionMode::None => {
+            let tcp_clone = tcp.try_clone().map_err(|e| format!("clone tcp: {e}"))?;
+            let mut reader = BufReader::new(tcp);
+            let mut writer = tcp_clone;
+            run_move_session!(reader, writer)
+        }
+        EncryptionMode::StartTls => {
+            let tcp_clone = tcp.try_clone().map_err(|e| format!("clone tcp: {e}"))?;
+            let mut reader = BufReader::new(tcp);
+            let mut writer = tcp_clone;
+
+            let mut line = String::new();
+            reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read greeting: {e}"))?;
+            if !line.to_uppercase().starts_with("* OK")
+                && !line.to_uppercase().starts_with("* PREAUTH")
+            {
+                return Err(format!("unexpected greeting: {}", line.trim()));
+            }
+
+            writer
+                .write_all(b"A000 STARTTLS\r\n")
+                .map_err(|e| format!("write STARTTLS: {e}"))?;
+            writer.flush().map_err(|e| format!("flush STARTTLS: {e}"))?;
+
+            let mut resp = String::new();
+            loop {
+                let mut l = String::new();
+                reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read STARTTLS resp: {e}"))?;
+                resp.push_str(&l);
+                if l.starts_with("A000") {
+                    break;
+                }
+            }
+            if !resp.to_uppercase().contains("OK") {
+                return Err("STARTTLS rejected".to_string());
+            }
+
+            let tcp_inner = reader.into_inner();
+            let mut builder = TlsConnector::builder();
+            if params.insecure || params.accepted_fingerprint.is_some() {
+                builder.danger_accept_invalid_certs(true);
+                builder.danger_accept_invalid_hostnames(true);
+            }
+            let connector = builder.build().map_err(|e| format!("TLS build: {e}"))?;
+            let tls = connector
+                .connect(&params.host, tcp_inner)
+                .map_err(|e| format!("STARTTLS upgrade: {e}"))?;
+            let mut reader = BufReader::new(tls);
+            run_move_session!(reader, reader.get_mut())
+        }
+    }
+}
+
 /// Handle to the running sync engine. Dropping it signals shutdown.
 pub(crate) struct SyncEngineHandle {
     _shutdown_tx: tokio::sync::watch::Sender<bool>,
@@ -1048,6 +1516,7 @@ async fn process_account_ops(
         account_params_fn,
         Arc::new(RealSmtpSender),
         Arc::new(RealImapAppender),
+        Arc::new(RealImapMover),
         None,
         None,
         folder_ops,
@@ -1071,6 +1540,7 @@ async fn process_account_ops_full(
     account_params_fn: &(dyn Fn(&str) -> Option<ImapConnectParams> + Send + Sync),
     smtp_sender: Arc<dyn SmtpSender>,
     imap_appender: Arc<dyn ImapAppender>,
+    imap_mover: Arc<dyn ImapMover>,
     smtp_params_fn: Option<Arc<SmtpParamsFn>>,
     content_reader_fn: Option<Arc<ContentReaderFn>>,
     folder_ops: Arc<dyn ImapFolderOps>,
@@ -1199,7 +1669,104 @@ async fn process_account_ops_full(
                     }
                 }
             }
-            OperationKind::MoveMessage | OperationKind::DeleteMessage => {
+            OperationKind::MoveMessage => {
+                let move_payload: MoveMessagePayload = match serde_json::from_str(&op.payload) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let err_msg = format!("invalid move payload: {e}");
+                        let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                        let _ = event_sender.send(SyncEvent::OperationFailed {
+                            account_id: account_id.to_string(),
+                            operation_id: op.id,
+                            error: err_msg,
+                        });
+                        i += 1;
+                        continue;
+                    }
+                };
+
+                // Determine junk action based on folder roles.
+                let src_role = crate::services::folder_store::folder_role_by_name(
+                    &conn,
+                    account_id,
+                    &move_payload.source_folder,
+                )
+                .ok()
+                .flatten();
+                let dst_role = crate::services::folder_store::folder_role_by_name(
+                    &conn,
+                    account_id,
+                    &move_payload.destination_folder,
+                )
+                .ok()
+                .flatten();
+
+                let junk_action = if dst_role == Some(FolderRole::Junk) {
+                    JunkAction::MarkAsJunk
+                } else if src_role == Some(FolderRole::Junk) {
+                    JunkAction::MarkAsNotJunk
+                } else {
+                    JunkAction::None
+                };
+
+                let mover_clone = imap_mover.clone();
+                let params_clone = params.clone();
+                let src = move_payload.source_folder.clone();
+                let dst = move_payload.destination_folder.clone();
+                let uid = move_payload.uid;
+
+                let result = tokio::task::spawn_blocking(move || {
+                    mover_clone.move_message(&params_clone, &src, &dst, uid, junk_action)
+                })
+                .await;
+
+                match result {
+                    Ok(Ok(new_uid)) => {
+                        let _ = pending_ops_store::complete_op(&conn, op.id);
+                        // Update the local UID mapping if the server assigned a new UID.
+                        if let Some(nuid) = new_uid {
+                            let _ = crate::services::message_store::update_message_uid(
+                                &conn,
+                                move_payload.message_id,
+                                nuid,
+                            );
+                        }
+                        let _ = event_sender.send(SyncEvent::MessageMoved {
+                            account_id: account_id.to_string(),
+                            message_id: move_payload.message_id,
+                            source_folder: move_payload.source_folder,
+                            destination_folder: move_payload.destination_folder,
+                            new_uid,
+                        });
+                    }
+                    Ok(Err(err_msg)) => {
+                        let sync_err = SyncError::Imap(err_msg.clone());
+                        if is_transient_error(&sync_err) {
+                            match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
+                                Ok(retry_count) => {
+                                    let delay = backoff_duration(retry_count - 1);
+                                    tokio::time::sleep(delay).await;
+                                }
+                                Err(e) => {
+                                    eprintln!("sync engine: requeue failed: {e}");
+                                }
+                            }
+                        } else {
+                            let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                            let _ = event_sender.send(SyncEvent::OperationFailed {
+                                account_id: account_id.to_string(),
+                                operation_id: op.id,
+                                error: err_msg,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        let err_msg = format!("task join error: {e}");
+                        let _ = pending_ops_store::requeue_op(&conn, op.id, &err_msg);
+                    }
+                }
+            }
+            OperationKind::DeleteMessage => {
                 // Queue infrastructure is in place; execution will be implemented
                 // in a later story (two-way IMAP sync execution).
                 let err_msg = format!("{} execution not yet implemented", op.kind.as_str());
@@ -2402,6 +2969,10 @@ mod tests {
             account_params_fn.as_ref(),
             smtp_sender,
             imap_appender,
+            Arc::new(MockImapMover {
+                should_fail: None,
+                new_uid: None,
+            }),
             Some(smtp_params_fn),
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
@@ -2451,6 +3022,7 @@ mod tests {
                 account_params_fn.as_ref(),
                 smtp_sender,
                 imap_appender,
+                Arc::new(MockImapMover { should_fail: None, new_uid: None }),
                 Some(smtp_params_fn),
                 None,
                 Arc::new(MockImapFolderOps { should_fail: None }),
@@ -2494,6 +3066,10 @@ mod tests {
             account_params_fn.as_ref(),
             smtp_sender,
             imap_appender,
+            Arc::new(MockImapMover {
+                should_fail: None,
+                new_uid: None,
+            }),
             Some(smtp_params_fn),
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
@@ -2544,6 +3120,10 @@ mod tests {
             account_params_fn.as_ref(),
             smtp_sender,
             imap_appender,
+            Arc::new(MockImapMover {
+                should_fail: None,
+                new_uid: None,
+            }),
             Some(smtp_params_fn),
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),

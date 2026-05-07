@@ -171,6 +171,40 @@ pub fn mark_flags_confirmed(conn: &Connection, message_id: i64) -> Result<bool, 
     Ok(updated > 0)
 }
 
+/// Move a message from one folder to another locally.
+/// Removes the old message_folders link and creates a new one.
+/// Returns true if the move was performed.
+pub fn move_message_to_folder(
+    conn: &Connection,
+    message_id: i64,
+    old_folder_id: i64,
+    new_folder_id: i64,
+) -> Result<bool, DatabaseError> {
+    conn.execute(
+        "DELETE FROM message_folders WHERE message_id = ?1 AND folder_id = ?2",
+        rusqlite::params![message_id, old_folder_id],
+    )?;
+    conn.execute(
+        "INSERT OR IGNORE INTO message_folders (message_id, folder_id) VALUES (?1, ?2)",
+        rusqlite::params![message_id, new_folder_id],
+    )?;
+    Ok(true)
+}
+
+/// Update the UID on a message row (after a server-side move assigns a new UID).
+/// Returns true if the row was found and updated.
+pub fn update_message_uid(
+    conn: &Connection,
+    message_id: i64,
+    new_uid: u32,
+) -> Result<bool, DatabaseError> {
+    let updated = conn.execute(
+        "UPDATE messages SET uid = ?1 WHERE id = ?2",
+        rusqlite::params![new_uid, message_id],
+    )?;
+    Ok(updated > 0)
+}
+
 /// Count messages for an account.
 pub fn count_messages(conn: &Connection, account_id: &str) -> Result<i64, DatabaseError> {
     let count: i64 = conn.query_row(

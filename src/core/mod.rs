@@ -36,6 +36,7 @@ pub mod inbound_test_diagnostics;
 pub(crate) mod ispdb_discovery;
 pub mod mark_read;
 pub mod message;
+pub mod move_message;
 pub mod navigation;
 pub(crate) mod ntlm;
 #[allow(dead_code)]
@@ -160,6 +161,7 @@ pub use message::{
     derive_body_text, flags_from_imap, parse_raw_message, Message, NewMessage, FLAG_ANSWERED,
     FLAG_DELETED, FLAG_DRAFT, FLAG_FLAGGED, FLAG_SEEN,
 };
+pub use move_message::{move_message, MoveMessageError, MoveMessageResult};
 pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
 #[allow(unused_imports)]
 pub(crate) use oauth_browser_flow::{

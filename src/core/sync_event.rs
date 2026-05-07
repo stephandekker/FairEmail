@@ -32,6 +32,14 @@ pub enum SyncEvent {
         account_id: String,
         operation_id: i64,
     },
+    /// A message was successfully moved between folders on the server.
+    MessageMoved {
+        account_id: String,
+        message_id: i64,
+        source_folder: String,
+        destination_folder: String,
+        new_uid: Option<u32>,
+    },
     /// The folder list for an account has changed (create, rename, or delete).
     FolderListChanged { account_id: String },
 }

@@ -179,6 +179,25 @@ pub fn set_folder_read_only(
     Ok(updated > 0)
 }
 
+/// Look up the role of a folder by account and name.
+pub fn folder_role_by_name(
+    conn: &Connection,
+    account_id: &str,
+    folder_name: &str,
+) -> Result<Option<FolderRole>, DatabaseError> {
+    let result = conn.query_row(
+        "SELECT role FROM folders WHERE account_id = ?1 AND name = ?2",
+        rusqlite::params![account_id, folder_name],
+        |row| row.get::<_, Option<String>>(0),
+    );
+    match result {
+        Ok(Some(s)) => Ok(parse_folder_role(&s)),
+        Ok(None) => Ok(None),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
 fn parse_folder_role(s: &str) -> Option<FolderRole> {
     match s {
         "Drafts" => Some(FolderRole::Drafts),

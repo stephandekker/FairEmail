@@ -134,6 +134,29 @@ pub fn remove_pending_store_flags_for_message(
     Ok(count)
 }
 
+/// Remove all pending/in-flight MoveMessage operations for a specific message.
+///
+/// Used during conflict resolution: when a new move supersedes a stale pending
+/// move (e.g. move to Archive then move to Trash before the first executes),
+/// the old operations are deleted so only the latest intent is queued.
+///
+/// Returns the number of operations removed.
+pub fn remove_pending_move_for_message(
+    conn: &Connection,
+    account_id: &str,
+    message_id: i64,
+) -> Result<usize, DatabaseError> {
+    let count = conn.execute(
+        "DELETE FROM pending_operations
+         WHERE account_id = ?1
+           AND kind = 'move_message'
+           AND state IN ('pending', 'in_flight')
+           AND json_extract(payload, '$.message_id') = ?2",
+        rusqlite::params![account_id, message_id],
+    )?;
+    Ok(count)
+}
+
 /// Count pending operations for an account.
 pub fn count_pending_ops(conn: &Connection, account_id: &str) -> Result<i64, DatabaseError> {
     let count: i64 = conn.query_row(
