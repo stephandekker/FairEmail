@@ -17,7 +17,7 @@ use crate::core::oauth_signin::{
 };
 use crate::core::oauth_wizard::{build_oauth_connection_error, create_oauth_account};
 use crate::core::privacy;
-use crate::core::proprietary_provider::check_proprietary_provider;
+use crate::core::proprietary_provider::{check_proprietary_provider, rejection_message};
 use crate::core::provider::ProviderDatabase;
 use crate::core::provider_dropdown::{
     build_provider_list, full_prefill_for_provider, is_debug_mode, provider_guidance_detail,
@@ -851,6 +851,8 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
         guidance_doc_link,
         #[weak]
         guidance_registration_link,
+        #[weak]
+        email_error,
         move |row| {
             let email = row.text().to_string();
             let email = email.trim();
@@ -860,6 +862,18 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
             oauth_unavailable_box.set_visible(false);
             // Hide guidance until we know the provider.
             guidance_box.set_visible(false);
+            // Clear any previous proprietary rejection.
+            email_error.set_visible(false);
+
+            // FR-38: Immediate proprietary provider rejection before any connection attempt.
+            if let Some(proprietary) = check_proprietary_provider(email) {
+                email_error.set_label(&rejection_message(&proprietary.provider_name));
+                email_error.set_visible(true);
+                oauth_box.set_visible(false);
+                password_group.set_visible(false);
+                check_btn.set_visible(false);
+                return;
+            }
 
             // Extract domain and attempt provider detection.
             if let Some(at_pos) = email.rfind('@') {
@@ -1425,13 +1439,10 @@ pub(crate) fn show(parent: &adw::ApplicationWindow, on_done: impl Fn(WizardResul
                 return;
             }
 
-            // FR-13: proprietary provider rejection (US-9).
+            // FR-36, FR-37, FR-38: proprietary provider rejection (AC-12).
             // Check before any network request is made.
             if let Some(proprietary) = check_proprietary_provider(&email) {
-                let msg = gettextrs::gettext(
-                    "%s does not support standard email protocols and is not compatible with this application.",
-                ).replace("%s", &proprietary.provider_name);
-                email_error.set_label(&msg);
+                email_error.set_label(&rejection_message(&proprietary.provider_name));
                 email_error.set_visible(true);
                 return;
             }
