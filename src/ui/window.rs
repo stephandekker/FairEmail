@@ -58,6 +58,7 @@ pub(crate) fn build(
     settings_store: Rc<SqliteSettingsStore>,
     order_store: Rc<SqliteOrderStore>,
     credential_store: Rc<dyn crate::core::CredentialStore>,
+    db_path: std::path::PathBuf,
 ) {
     let window = adw::ApplicationWindow::builder()
         .application(app)
@@ -100,6 +101,14 @@ pub(crate) fn build(
         .accessible_role(gtk::AccessibleRole::Button)
         .build();
     sidebar_header.pack_start(&import_provider_btn);
+
+    // AC-16: pending operations queue view button.
+    let queue_btn = gtk::Button::builder()
+        .icon_name("mail-send-symbolic")
+        .tooltip_text(gettextrs::gettext("Operation queue"))
+        .accessible_role(gtk::AccessibleRole::Button)
+        .build();
+    sidebar_header.pack_start(&queue_btn);
 
     // FR-25 – FR-29: advanced settings button (global mechanism toggles).
     let advanced_settings_btn = gtk::Button::builder()
@@ -297,6 +306,18 @@ pub(crate) fn build(
             show_advanced_settings_dialog(&window, &settings_store, &settings);
         }
     ));
+
+    // AC-16: open pending operations queue view.
+    {
+        let db_path = db_path.clone();
+        queue_btn.connect_clicked(clone!(
+            #[weak]
+            window,
+            move |_| {
+                crate::ui::pending_ops_dialog::show(&window, db_path.clone());
+            }
+        ));
+    }
 
     // -- "Set as Primary" context menu on right-click (FR-24, FR-25) --
     let gesture = gtk::GestureClick::builder()

@@ -15,6 +15,8 @@ pub mod import_dialog;
 #[cfg(feature = "ui")]
 pub(crate) mod import_provider_dialog;
 #[cfg(feature = "ui")]
+pub(crate) mod pending_ops_dialog;
+#[cfg(feature = "ui")]
 pub mod setup_wizard;
 #[cfg(feature = "ui")]
 #[allow(dead_code)]

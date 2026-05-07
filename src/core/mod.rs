@@ -52,6 +52,7 @@ pub(crate) mod oauth_signin;
 pub(crate) mod oauth_wizard;
 pub mod password_propagation;
 pub mod pending_operation;
+pub mod pending_operation_view;
 pub mod permanent_delete;
 pub mod port_autofill;
 #[allow(dead_code)]
@@ -200,6 +201,9 @@ pub use password_propagation::{password_has_changed, propagate_password_to_ident
 pub use pending_operation::{
     CopyMessagePayload, DeleteMessagePayload, MoveMessagePayload, OperationKind, OperationState,
     PendingOperation, SendPayload, StoreFlagsPayload,
+};
+pub use pending_operation_view::{
+    message_ids_with_pending_ops, summarize_operation, PendingOperationSummary,
 };
 pub use permanent_delete::{permanent_delete, PermanentDeleteError, PermanentDeleteResult};
 pub use port_autofill::{default_port, should_autofill, smtp_default_port};

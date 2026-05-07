@@ -91,7 +91,8 @@ pub use oauth_service::{
 pub use order_store::OrderStore;
 pub use pending_ops_store::{
     complete_op, count_pending_ops, insert_pending_op, list_accounts_with_pending_ops,
-    load_pending_ops, mark_failed, mark_in_flight, requeue_op,
+    load_all_ops, load_all_ops_for_account, load_pending_ops, mark_failed, mark_in_flight,
+    requeue_op,
 };
 pub use real_connection_tester::RealConnectionTester;
 pub use real_imap_checker::RealImapChecker;

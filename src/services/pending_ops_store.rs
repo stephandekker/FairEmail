@@ -190,6 +190,75 @@ pub fn list_accounts_with_pending_ops(conn: &Connection) -> Result<Vec<String>, 
     Ok(accounts)
 }
 
+/// Load all operations for an account in all states (pending, in-flight, failed).
+///
+/// Used by the queue view UI (AC-16) to display the full operation queue
+/// including failed operations with their error messages.
+pub fn load_all_ops_for_account(
+    conn: &Connection,
+    account_id: &str,
+) -> Result<Vec<PendingOperation>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, account_id, kind, payload, state, retry_count, last_error, created_at
+         FROM pending_operations
+         WHERE account_id = ?1
+         ORDER BY id ASC",
+    )?;
+
+    let rows = stmt.query_map(rusqlite::params![account_id], |row| {
+        let kind_str: String = row.get(2)?;
+        let state_str: String = row.get(4)?;
+        Ok(PendingOperation {
+            id: row.get(0)?,
+            account_id: row.get(1)?,
+            kind: OperationKind::parse(&kind_str).unwrap_or(OperationKind::StoreFlags),
+            payload: row.get(3)?,
+            state: OperationState::parse(&state_str).unwrap_or(OperationState::Pending),
+            retry_count: row.get(5)?,
+            last_error: row.get(6)?,
+            created_at: row.get(7)?,
+        })
+    })?;
+
+    let mut ops = Vec::new();
+    for row in rows {
+        ops.push(row?);
+    }
+    Ok(ops)
+}
+
+/// Load all operations across all accounts in all states.
+///
+/// Used by the queue view UI (AC-16) when showing the global operation queue.
+pub fn load_all_ops(conn: &Connection) -> Result<Vec<PendingOperation>, DatabaseError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, account_id, kind, payload, state, retry_count, last_error, created_at
+         FROM pending_operations
+         ORDER BY id ASC",
+    )?;
+
+    let rows = stmt.query_map([], |row| {
+        let kind_str: String = row.get(2)?;
+        let state_str: String = row.get(4)?;
+        Ok(PendingOperation {
+            id: row.get(0)?,
+            account_id: row.get(1)?,
+            kind: OperationKind::parse(&kind_str).unwrap_or(OperationKind::StoreFlags),
+            payload: row.get(3)?,
+            state: OperationState::parse(&state_str).unwrap_or(OperationState::Pending),
+            retry_count: row.get(5)?,
+            last_error: row.get(6)?,
+            created_at: row.get(7)?,
+        })
+    })?;
+
+    let mut ops = Vec::new();
+    for row in rows {
+        ops.push(row?);
+    }
+    Ok(ops)
+}
+
 /// Count pending operations for an account.
 pub fn count_pending_ops(conn: &Connection, account_id: &str) -> Result<i64, DatabaseError> {
     let count: i64 = conn.query_row(
@@ -396,6 +465,40 @@ mod tests {
         let removed = remove_pending_store_flags_for_message(&conn, "acct-1", 42).unwrap();
         assert_eq!(removed, 1, "only StoreFlags op removed");
         assert_eq!(load_pending_ops(&conn, "acct-1").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn load_all_ops_for_account_includes_failed() {
+        let (_dir, conn) = setup_db();
+        let id1 = insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, "{}").unwrap();
+        let id2 = insert_pending_op(&conn, "acct-1", &OperationKind::MoveMessage, "{}").unwrap();
+        mark_failed(&conn, id2, "auth error").unwrap();
+
+        let ops = load_all_ops_for_account(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 2);
+        assert_eq!(ops[0].id, id1);
+        assert_eq!(ops[0].state, OperationState::Pending);
+        assert_eq!(ops[1].id, id2);
+        assert_eq!(ops[1].state, OperationState::Failed);
+        assert_eq!(ops[1].last_error.as_deref(), Some("auth error"));
+    }
+
+    #[test]
+    fn load_all_ops_returns_all_accounts() {
+        let (_dir, conn) = setup_db();
+        conn.execute(
+            "INSERT INTO accounts (id, display_name, protocol, host, port, encryption, auth_method, username, credential)
+             VALUES ('acct-2', 'Test2', 'Imap', 'imap.example.com', 993, 'SslTls', 'Plain', 'user2', '')",
+            [],
+        ).unwrap();
+
+        insert_pending_op(&conn, "acct-1", &OperationKind::StoreFlags, "{}").unwrap();
+        insert_pending_op(&conn, "acct-2", &OperationKind::MoveMessage, "{}").unwrap();
+
+        let ops = load_all_ops(&conn).unwrap();
+        assert_eq!(ops.len(), 2);
+        assert_eq!(ops[0].account_id, "acct-1");
+        assert_eq!(ops[1].account_id, "acct-2");
     }
 
     #[test]

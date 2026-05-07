@@ -228,9 +228,9 @@ fn main() {
         );
         migrate_json_settings(&dir, &settings_store);
         let order_store =
-            Rc::new(SqliteOrderStore::new(db_path).expect("could not open order database"));
+            Rc::new(SqliteOrderStore::new(db_path.clone()).expect("could not open order database"));
         migrate_json_order(&dir, &order_store);
-        ui::window::build(app, store, settings_store, order_store, cred_store);
+        ui::window::build(app, store, settings_store, order_store, cred_store, db_path);
     }));
 
     app.run();
