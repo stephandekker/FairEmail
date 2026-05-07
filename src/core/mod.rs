@@ -25,6 +25,8 @@ pub mod ehlo;
 pub mod export_accounts;
 pub mod field_validation;
 pub mod folder_setup;
+#[allow(dead_code)]
+pub(crate) mod graph_send;
 pub(crate) mod idle_manager;
 pub mod imap_check;
 pub mod import_accounts;
@@ -130,6 +132,11 @@ pub use folder_setup::{
     build_default_sync_configs, complete_system_folders, default_folder_name,
     find_missing_system_folders, FolderSetupError, FolderSetupResult, FolderSyncConfig, PushMode,
     SyncMode,
+};
+#[allow(unused_imports)]
+pub(crate) use graph_send::{
+    build_graph_send_request, parse_graph_error_response, resolve_graph_params,
+    should_use_graph_send, GraphSendError, GraphSendParams, GraphSendRequest,
 };
 pub use imap_check::{
     build_imap_success, detect_folder_role, resolve_username_candidates, ImapCheckError,
