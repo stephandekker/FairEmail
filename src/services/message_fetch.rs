@@ -9,18 +9,19 @@ use rusqlite::Connection;
 use crate::core::content_store::ContentStore;
 use crate::core::detect_new_messages::{find_new_uids, find_removed_uids};
 use crate::core::full_sync_fallback::{should_force_full_sync, RAPID_RESYNC_THRESHOLD_SECS};
-use crate::core::message::{flags_from_imap, parse_raw_message};
+use crate::core::message::{flags_from_imap, keywords_from_imap, parse_raw_message};
 use crate::core::server_flag_detection::{
-    detect_flag_change, make_flag_change_event, FlagChangeAction,
+    detect_flag_change, detect_keyword_change, make_flag_change_event, make_keyword_change_event,
+    FlagChangeAction, KeywordChangeAction,
 };
 use crate::core::sync_event::SyncEvent;
 use crate::services::imap_client::{fetch_folder_messages, ImapConnectParams};
 use crate::services::message_store::{
     delete_messages_beyond_keep_window, delete_messages_by_uids_in_folder,
-    delete_messages_for_folder, find_folder_id, find_message_by_uid_in_folder_with_pending,
-    insert_message, load_folder_last_sync_at, load_folder_sync_state, load_uids_for_folder,
+    delete_messages_for_folder, find_folder_id, find_message_by_uid_in_folder_full, insert_message,
+    load_folder_last_sync_at, load_folder_sync_state, load_uids_for_folder,
     load_uids_within_sync_window, update_folder_last_sync_at, update_folder_sync_state,
-    update_message_flags,
+    update_message_flags, update_message_keywords,
 };
 use crate::services::pending_ops_store::cancel_pending_ops_for_folder;
 use crate::services::sync_state_store::load_sync_state;
@@ -93,7 +94,7 @@ pub(crate) fn fetch_and_store_folder(
 
         // Parse headers and derive body_text.
         let flags = flags_from_imap(&raw_msg.flags);
-        let new_msg = parse_raw_message(
+        let mut new_msg = parse_raw_message(
             &params.account_id,
             raw_msg.uid,
             None, // modseq not available in first-pass full fetch
@@ -101,6 +102,7 @@ pub(crate) fn fetch_and_store_folder(
             &content_hash,
             &raw_msg.data,
         );
+        new_msg.keywords = keywords_from_imap(&raw_msg.flags);
 
         // Insert into database.
         insert_message(&tx, &new_msg, folder_id)?;
@@ -288,21 +290,18 @@ fn sync_condstore(
     let mut events = Vec::new();
 
     for changed in &result.changed {
-        let existing = find_message_by_uid_in_folder_with_pending(
-            &tx,
-            &params.account_id,
-            changed.uid,
-            folder_id,
-        )?;
+        let existing =
+            find_message_by_uid_in_folder_full(&tx, &params.account_id, changed.uid, folder_id)?;
 
         match (existing, &changed.body) {
-            // Existing message — check flags with pending-sync guard.
+            // Existing message — check flags and keywords with pending-sync guard.
             // Skip flag updates for messages outside the sync window (AC-24).
-            (Some((msg_id, old_flags, pending)), None | Some(_))
-                if windowed_uids.contains(&changed.uid) =>
-            {
+            (
+                Some((msg_id, old_flags, flags_pending, old_keywords, kw_pending)),
+                None | Some(_),
+            ) if windowed_uids.contains(&changed.uid) => {
                 let new_flags = flags_from_imap(&changed.flags);
-                match detect_flag_change(old_flags, new_flags, pending) {
+                match detect_flag_change(old_flags, new_flags, flags_pending) {
                     FlagChangeAction::Apply { new_flags } => {
                         update_message_flags(&tx, msg_id, new_flags)?;
                         events.push(make_flag_change_event(
@@ -314,11 +313,24 @@ fn sync_condstore(
                     }
                     FlagChangeAction::NoChange | FlagChangeAction::SkippedPendingSync => {}
                 }
+                // Keyword change detection (AC-21).
+                let server_kw = keywords_from_imap(&changed.flags);
+                match detect_keyword_change(&old_keywords, &server_kw, kw_pending) {
+                    KeywordChangeAction::Apply { new_keywords } => {
+                        update_message_keywords(&tx, msg_id, &new_keywords)?;
+                        events.push(make_keyword_change_event(
+                            &params.account_id,
+                            msg_id,
+                            &new_keywords,
+                        ));
+                    }
+                    KeywordChangeAction::NoChange | KeywordChangeAction::SkippedPendingSync => {}
+                }
             }
             // New message (not in local DB).
             (None, Some(body)) => {
                 let content_hash = content_store.put(body)?;
-                let new_msg = parse_raw_message(
+                let mut new_msg = parse_raw_message(
                     &params.account_id,
                     changed.uid,
                     changed.modseq,
@@ -326,6 +338,7 @@ fn sync_condstore(
                     &content_hash,
                     body,
                 );
+                new_msg.keywords = keywords_from_imap(&changed.flags);
                 insert_message(&tx, &new_msg, folder_id)?;
                 bodies_fetched += 1;
             }
@@ -460,14 +473,11 @@ fn sync_uid_diff(
             if !scoped_local_set.contains(&entry.uid) {
                 continue; // New message — handled below.
             }
-            if let Some((msg_id, old_flags, pending)) = find_message_by_uid_in_folder_with_pending(
-                &tx,
-                &params.account_id,
-                entry.uid,
-                folder_id,
-            )? {
+            if let Some((msg_id, old_flags, flags_pending, old_keywords, kw_pending)) =
+                find_message_by_uid_in_folder_full(&tx, &params.account_id, entry.uid, folder_id)?
+            {
                 let server_flags = flags_from_imap(&entry.flags);
-                match detect_flag_change(old_flags, server_flags, pending) {
+                match detect_flag_change(old_flags, server_flags, flags_pending) {
                     FlagChangeAction::Apply { new_flags } => {
                         update_message_flags(&tx, msg_id, new_flags)?;
                         events.push(make_flag_change_event(
@@ -478,6 +488,18 @@ fn sync_uid_diff(
                         flags_updated += 1;
                     }
                     FlagChangeAction::NoChange | FlagChangeAction::SkippedPendingSync => {}
+                }
+                let server_kw = keywords_from_imap(&entry.flags);
+                match detect_keyword_change(&old_keywords, &server_kw, kw_pending) {
+                    KeywordChangeAction::Apply { new_keywords } => {
+                        update_message_keywords(&tx, msg_id, &new_keywords)?;
+                        events.push(make_keyword_change_event(
+                            &params.account_id,
+                            msg_id,
+                            &new_keywords,
+                        ));
+                    }
+                    KeywordChangeAction::NoChange | KeywordChangeAction::SkippedPendingSync => {}
                 }
             }
         }
@@ -499,7 +521,7 @@ fn sync_uid_diff(
         let mut count = 0;
         for raw_msg in &fetch_result.new_messages {
             let content_hash = content_store.put(&raw_msg.data)?;
-            let new_msg = parse_raw_message(
+            let mut new_msg = parse_raw_message(
                 &params.account_id,
                 raw_msg.uid,
                 None,
@@ -507,6 +529,7 @@ fn sync_uid_diff(
                 &content_hash,
                 &raw_msg.data,
             );
+            new_msg.keywords = keywords_from_imap(&raw_msg.flags);
             insert_message(&tx, &new_msg, folder_id)?;
             count += 1;
         }
@@ -639,13 +662,12 @@ pub(crate) fn incremental_sync_condstore_with_data(
     let mut events = Vec::new();
 
     for changed in &changed_messages {
-        let existing =
-            find_message_by_uid_in_folder_with_pending(&tx, account_id, changed.uid, folder_id)?;
+        let existing = find_message_by_uid_in_folder_full(&tx, account_id, changed.uid, folder_id)?;
 
         match (existing, &changed.body) {
-            (Some((msg_id, old_flags, pending)), _) => {
+            (Some((msg_id, old_flags, flags_pending, old_keywords, kw_pending)), _) => {
                 let new_flags = flags_from_imap(&changed.flags);
-                match detect_flag_change(old_flags, new_flags, pending) {
+                match detect_flag_change(old_flags, new_flags, flags_pending) {
                     FlagChangeAction::Apply { new_flags } => {
                         update_message_flags(&tx, msg_id, new_flags)?;
                         events.push(make_flag_change_event(account_id, msg_id, new_flags));
@@ -653,10 +675,18 @@ pub(crate) fn incremental_sync_condstore_with_data(
                     }
                     FlagChangeAction::NoChange | FlagChangeAction::SkippedPendingSync => {}
                 }
+                let server_kw = keywords_from_imap(&changed.flags);
+                match detect_keyword_change(&old_keywords, &server_kw, kw_pending) {
+                    KeywordChangeAction::Apply { new_keywords } => {
+                        update_message_keywords(&tx, msg_id, &new_keywords)?;
+                        events.push(make_keyword_change_event(account_id, msg_id, &new_keywords));
+                    }
+                    KeywordChangeAction::NoChange | KeywordChangeAction::SkippedPendingSync => {}
+                }
             }
             (None, Some(body)) => {
                 let content_hash = content_store.put(body)?;
-                let new_msg = parse_raw_message(
+                let mut new_msg = parse_raw_message(
                     account_id,
                     changed.uid,
                     changed.modseq,
@@ -664,6 +694,7 @@ pub(crate) fn incremental_sync_condstore_with_data(
                     &content_hash,
                     body,
                 );
+                new_msg.keywords = keywords_from_imap(&changed.flags);
                 insert_message(&tx, &new_msg, folder_id)?;
                 bodies_fetched += 1;
             }
@@ -817,17 +848,25 @@ pub(crate) fn incremental_sync_uid_diff_with_window(
         if !scoped_local_set.contains(&entry.uid) {
             continue;
         }
-        if let Some((msg_id, old_flags, pending)) =
-            find_message_by_uid_in_folder_with_pending(&tx, account_id, entry.uid, folder_id)?
+        if let Some((msg_id, old_flags, flags_pending, old_keywords, kw_pending)) =
+            find_message_by_uid_in_folder_full(&tx, account_id, entry.uid, folder_id)?
         {
             let sf = flags_from_imap(&entry.flags);
-            match detect_flag_change(old_flags, sf, pending) {
+            match detect_flag_change(old_flags, sf, flags_pending) {
                 FlagChangeAction::Apply { new_flags } => {
                     update_message_flags(&tx, msg_id, new_flags)?;
                     events.push(make_flag_change_event(account_id, msg_id, new_flags));
                     flags_updated += 1;
                 }
                 FlagChangeAction::NoChange | FlagChangeAction::SkippedPendingSync => {}
+            }
+            let server_kw = keywords_from_imap(&entry.flags);
+            match detect_keyword_change(&old_keywords, &server_kw, kw_pending) {
+                KeywordChangeAction::Apply { new_keywords } => {
+                    update_message_keywords(&tx, msg_id, &new_keywords)?;
+                    events.push(make_keyword_change_event(account_id, msg_id, &new_keywords));
+                }
+                KeywordChangeAction::NoChange | KeywordChangeAction::SkippedPendingSync => {}
             }
         }
     }
@@ -842,7 +881,7 @@ pub(crate) fn incremental_sync_uid_diff_with_window(
             continue;
         }
         let content_hash = content_store.put(&raw_msg.data)?;
-        let new_msg = parse_raw_message(
+        let mut new_msg = parse_raw_message(
             account_id,
             raw_msg.uid,
             None,
@@ -850,6 +889,7 @@ pub(crate) fn incremental_sync_uid_diff_with_window(
             &content_hash,
             &raw_msg.data,
         );
+        new_msg.keywords = keywords_from_imap(&raw_msg.flags);
         insert_message(&tx, &new_msg, folder_id)?;
         bodies_fetched += 1;
     }
@@ -1014,6 +1054,7 @@ mod tests {
             body_text: Some("body1".to_string()),
             thread_id: None,
             server_thread_id: None,
+            keywords: String::new(),
         };
         insert_message(conn, &msg1, folder_id).unwrap();
 
@@ -2444,6 +2485,7 @@ mod tests {
             body_text: Some("archive body".to_string()),
             thread_id: None,
             server_thread_id: None,
+            keywords: String::new(),
         };
         insert_message(&conn, &archive_msg, archive_fid).unwrap();
         update_folder_sync_state(&conn, archive_fid, 200, Some(10)).unwrap();

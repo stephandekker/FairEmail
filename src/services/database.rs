@@ -12,7 +12,7 @@ pub enum DatabaseError {
 }
 
 /// The current schema version. Increment when adding new migrations.
-const CURRENT_VERSION: u32 = 18;
+const CURRENT_VERSION: u32 = 19;
 
 /// Open (or create) the SQLite database at `db_path`, configure pragmas,
 /// and run any pending migrations. Returns the open connection.
@@ -92,10 +92,24 @@ fn run_migrations(conn: &Connection) -> Result<(), DatabaseError> {
     if version < 18 {
         migrate_v18(conn)?;
     }
+    if version < 19 {
+        migrate_v19(conn)?;
+    }
 
     // Set the schema version to current after all migrations.
     conn.pragma_update(None, "user_version", CURRENT_VERSION)?;
 
+    Ok(())
+}
+
+/// Migration v19: Add `keywords` and `keywords_pending_sync` columns to the
+/// `messages` table. Keywords stores custom IMAP keywords as a comma-separated
+/// string (FR-34, US-7, US-12).
+fn migrate_v19(conn: &Connection) -> Result<(), DatabaseError> {
+    conn.execute_batch(
+        "ALTER TABLE messages ADD COLUMN keywords TEXT NOT NULL DEFAULT '';
+         ALTER TABLE messages ADD COLUMN keywords_pending_sync INTEGER NOT NULL DEFAULT 0;",
+    )?;
     Ok(())
 }
 

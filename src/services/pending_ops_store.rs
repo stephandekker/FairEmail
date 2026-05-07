@@ -160,6 +160,29 @@ pub fn remove_pending_store_flags_for_message(
     Ok(count)
 }
 
+/// Remove all pending/in-flight StoreKeywords operations for a specific message.
+///
+/// Used during conflict resolution: when a new local keyword change supersedes
+/// a stale pending operation, the old operations are deleted so only the latest
+/// intent is queued.
+///
+/// Returns the number of operations removed.
+pub fn remove_pending_store_keywords_for_message(
+    conn: &Connection,
+    account_id: &str,
+    message_id: i64,
+) -> Result<usize, DatabaseError> {
+    let count = conn.execute(
+        "DELETE FROM pending_operations
+         WHERE account_id = ?1
+           AND kind = 'store_keywords'
+           AND state IN ('pending', 'in_flight')
+           AND json_extract(payload, '$.message_id') = ?2",
+        rusqlite::params![account_id, message_id],
+    )?;
+    Ok(count)
+}
+
 /// Remove all pending/in-flight MoveMessage operations for a specific message.
 ///
 /// Used during conflict resolution: when a new move supersedes a stale pending
@@ -345,7 +368,7 @@ pub fn cancel_pending_ops_for_folder(
          WHERE account_id = ?3
            AND state IN ('pending', 'in_flight')
            AND (
-               (kind IN ('store_flags', 'delete_message') AND json_extract(payload, '$.folder_name') = ?4)
+               (kind IN ('store_flags', 'delete_message', 'store_keywords') AND json_extract(payload, '$.folder_name') = ?4)
             OR (kind IN ('move_message', 'copy_message') AND json_extract(payload, '$.source_folder') = ?4)
            )",
         rusqlite::params![

@@ -32,6 +32,11 @@ pub struct Message {
     pub server_thread_id: Option<String>,
     /// Whether local flag changes are pending server confirmation.
     pub flags_pending_sync: bool,
+    /// Custom IMAP keywords (e.g. "$Forwarded", "$Junk"), stored as a
+    /// comma-separated string in the database. Empty string means no keywords.
+    pub keywords: String,
+    /// Whether local keyword changes are pending server confirmation.
+    pub keywords_pending_sync: bool,
 }
 
 /// Parameters for inserting a new message (before the id is assigned).
@@ -56,6 +61,75 @@ pub struct NewMessage {
     pub body_text: Option<String>,
     pub thread_id: Option<String>,
     pub server_thread_id: Option<String>,
+    /// Custom IMAP keywords for a new message (comma-separated).
+    pub keywords: String,
+}
+
+/// Well-known IMAP system flag prefixes (backslash-prefixed).
+const SYSTEM_FLAG_PREFIXES: &[&str] = &[
+    "\\SEEN",
+    "\\ANSWERED",
+    "\\FLAGGED",
+    "\\DELETED",
+    "\\DRAFT",
+    "\\RECENT",
+];
+
+/// Parse custom keywords from an IMAP flag/keyword string.
+///
+/// IMAP keywords are tokens in the FLAGS response that are NOT system flags
+/// (i.e. not prefixed with `\`). Returns a sorted, deduplicated,
+/// comma-separated string.
+pub fn keywords_from_imap(flag_str: &str) -> String {
+    let mut kws: Vec<String> = flag_str
+        .split_whitespace()
+        .filter(|token| {
+            // System flags start with '\'; keywords do not.
+            !token.starts_with('\\')
+                // Also skip anything that matches system flags without backslash
+                // (shouldn't happen per spec, but be defensive).
+                && !SYSTEM_FLAG_PREFIXES
+                    .iter()
+                    .any(|sf| sf.eq_ignore_ascii_case(token))
+        })
+        .map(|s| s.to_string())
+        .collect();
+    kws.sort();
+    kws.dedup();
+    kws.join(",")
+}
+
+/// Parse a comma-separated keyword string into a sorted Vec.
+pub fn keywords_to_vec(keywords: &str) -> Vec<String> {
+    if keywords.is_empty() {
+        return Vec::new();
+    }
+    let mut v: Vec<String> = keywords.split(',').map(|s| s.to_string()).collect();
+    v.sort();
+    v.dedup();
+    v
+}
+
+/// Merge or remove keywords from an existing comma-separated keyword string.
+/// Returns the new comma-separated keyword string.
+pub fn keywords_add(existing: &str, keyword: &str) -> String {
+    let mut v = keywords_to_vec(existing);
+    let kw = keyword.to_string();
+    if !v.contains(&kw) {
+        v.push(kw);
+        v.sort();
+    }
+    v.join(",")
+}
+
+/// Remove a keyword from an existing comma-separated keyword string.
+/// Returns the new comma-separated keyword string.
+pub fn keywords_remove(existing: &str, keyword: &str) -> String {
+    let v: Vec<String> = keywords_to_vec(existing)
+        .into_iter()
+        .filter(|k| k != keyword)
+        .collect();
+    v.join(",")
 }
 
 /// Parse IMAP flag strings into a bitmask.
@@ -204,6 +278,7 @@ pub fn parse_raw_message(
         body_text,
         thread_id: None,
         server_thread_id: None,
+        keywords: String::new(),
     }
 }
 
@@ -230,6 +305,39 @@ pub fn derive_body_text(msg: &mail_parser::Message) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keywords_from_imap_extracts_custom_keywords() {
+        assert_eq!(keywords_from_imap("\\Seen $Forwarded"), "$Forwarded");
+        assert_eq!(
+            keywords_from_imap("\\Seen $Junk $NotJunk \\Flagged"),
+            "$Junk,$NotJunk"
+        );
+        assert_eq!(keywords_from_imap("\\Seen \\Flagged"), "");
+        assert_eq!(keywords_from_imap(""), "");
+        assert_eq!(keywords_from_imap("custom_label"), "custom_label");
+    }
+
+    #[test]
+    fn keywords_from_imap_deduplicates_and_sorts() {
+        assert_eq!(keywords_from_imap("beta alpha beta"), "alpha,beta");
+    }
+
+    #[test]
+    fn keywords_add_and_remove() {
+        assert_eq!(keywords_add("", "$Forwarded"), "$Forwarded");
+        assert_eq!(keywords_add("$Junk", "$Forwarded"), "$Forwarded,$Junk");
+        assert_eq!(keywords_add("$Junk", "$Junk"), "$Junk"); // no duplicate
+        assert_eq!(keywords_remove("$Forwarded,$Junk", "$Junk"), "$Forwarded");
+        assert_eq!(keywords_remove("$Junk", "$Junk"), "");
+        assert_eq!(keywords_remove("", "$Junk"), "");
+    }
+
+    #[test]
+    fn keywords_to_vec_handles_empty() {
+        assert!(keywords_to_vec("").is_empty());
+        assert_eq!(keywords_to_vec("a,b"), vec!["a", "b"]);
+    }
 
     #[test]
     fn flags_from_imap_parses_standard_flags() {

@@ -77,10 +77,11 @@ pub(crate) use message_fetch::{
 };
 pub use message_store::{
     count_messages, count_messages_in_folder, delete_message, delete_messages_beyond_keep_window,
-    delete_messages_for_folder, find_folder_id, find_message_by_uid_in_folder, insert_message,
-    load_folder_sync_state, load_message, load_uids_for_folder, load_uids_within_sync_window,
-    mark_flags_confirmed, update_folder_sync_state, update_message_flags,
-    update_message_flags_pending,
+    delete_messages_for_folder, find_folder_id, find_message_by_uid_in_folder,
+    find_message_by_uid_in_folder_full, insert_message, load_folder_sync_state, load_message,
+    load_uids_for_folder, load_uids_within_sync_window, mark_flags_confirmed,
+    mark_keywords_confirmed, update_folder_sync_state, update_message_flags,
+    update_message_flags_pending, update_message_keywords, update_message_keywords_pending,
 };
 pub use notification_channel::{
     FreedesktopNotificationChannelManager, MockNotificationChannelManager,

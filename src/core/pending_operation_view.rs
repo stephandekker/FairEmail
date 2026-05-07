@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use crate::core::pending_operation::{
     CopyMessagePayload, DeleteMessagePayload, FolderCreatePayload, FolderDeletePayload,
     FolderRenamePayload, MoveMessagePayload, OperationKind, OperationState, PendingOperation,
-    StoreFlagsPayload,
+    StoreFlagsPayload, StoreKeywordsPayload,
 };
 
 /// A display-ready summary of a single pending operation (AC-16).
@@ -64,6 +64,7 @@ fn friendly_kind_label(kind: &OperationKind) -> String {
         OperationKind::FolderCreate => "Create folder".to_string(),
         OperationKind::FolderRename => "Rename folder".to_string(),
         OperationKind::FolderDelete => "Delete folder".to_string(),
+        OperationKind::StoreKeywords => "Update keywords".to_string(),
     }
 }
 
@@ -117,6 +118,11 @@ fn extract_target(kind: &OperationKind, payload: &str) -> String {
                 return format!("Folder \"{}\"", p.folder_name);
             }
         }
+        OperationKind::StoreKeywords => {
+            if let Ok(p) = serde_json::from_str::<StoreKeywordsPayload>(payload) {
+                return format!("Message {} in {}", p.message_id, p.folder_name);
+            }
+        }
     }
     "Unknown target".to_string()
 }
@@ -134,6 +140,9 @@ fn extract_message_id(kind: &OperationKind, payload: &str) -> Option<i64> {
             .ok()
             .map(|p| p.message_id),
         OperationKind::DeleteMessage => serde_json::from_str::<DeleteMessagePayload>(payload)
+            .ok()
+            .map(|p| p.message_id),
+        OperationKind::StoreKeywords => serde_json::from_str::<StoreKeywordsPayload>(payload)
             .ok()
             .map(|p| p.message_id),
         OperationKind::Send

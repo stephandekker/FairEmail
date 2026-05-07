@@ -62,6 +62,18 @@ pub enum SyncEvent {
         folder_name: String,
         count: usize,
     },
+    /// A message's keywords changed on the server successfully.
+    MessageKeywordsChanged {
+        account_id: String,
+        message_id: i64,
+        new_keywords: String,
+    },
+    /// A server-side keyword change was detected during incremental sync.
+    ServerKeywordChange {
+        account_id: String,
+        message_id: i64,
+        new_keywords: String,
+    },
     /// An operation was cancelled because the target message no longer exists on the server.
     OperationVanished {
         account_id: String,

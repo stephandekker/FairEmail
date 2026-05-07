@@ -17,10 +17,10 @@ pub fn insert_message(
             account_id, uid, modseq, message_id, in_reply_to, references_header,
             from_addresses, to_addresses, cc_addresses, bcc_addresses,
             subject, date_received, date_sent, flags, size,
-            content_hash, body_text, thread_id, server_thread_id
+            content_hash, body_text, thread_id, server_thread_id, keywords
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-            ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
+            ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20
         )",
         rusqlite::params![
             msg.account_id,
@@ -42,6 +42,7 @@ pub fn insert_message(
             msg.body_text,
             msg.thread_id,
             msg.server_thread_id,
+            msg.keywords,
         ],
     )?;
 
@@ -62,7 +63,7 @@ pub fn load_message(conn: &Connection, id: i64) -> Result<Option<Message>, Datab
                 from_addresses, to_addresses, cc_addresses, bcc_addresses,
                 subject, date_received, date_sent, flags, size,
                 content_hash, body_text, thread_id, server_thread_id,
-                flags_pending_sync
+                flags_pending_sync, keywords, keywords_pending_sync
          FROM messages WHERE id = ?1",
     )?;
 
@@ -89,6 +90,8 @@ pub fn load_message(conn: &Connection, id: i64) -> Result<Option<Message>, Datab
             thread_id: row.get(18)?,
             server_thread_id: row.get(19)?,
             flags_pending_sync: row.get::<_, i32>(20)? != 0,
+            keywords: row.get::<_, String>(21)?,
+            keywords_pending_sync: row.get::<_, i32>(22)? != 0,
         })
     });
 
@@ -157,6 +160,44 @@ pub fn update_message_flags_pending(
     let updated = conn.execute(
         "UPDATE messages SET flags = ?1, flags_pending_sync = 1 WHERE id = ?2",
         rusqlite::params![new_flags, message_id],
+    )?;
+    Ok(updated > 0)
+}
+
+/// Update the keywords on a message and mark the change as pending server sync.
+/// Returns true if the row was found and updated.
+pub fn update_message_keywords_pending(
+    conn: &Connection,
+    message_id: i64,
+    new_keywords: &str,
+) -> Result<bool, DatabaseError> {
+    let updated = conn.execute(
+        "UPDATE messages SET keywords = ?1, keywords_pending_sync = 1 WHERE id = ?2",
+        rusqlite::params![new_keywords, message_id],
+    )?;
+    Ok(updated > 0)
+}
+
+/// Update the keywords on a message row (server-side change, no pending flag).
+/// Returns true if the row was found and updated.
+pub fn update_message_keywords(
+    conn: &Connection,
+    message_id: i64,
+    new_keywords: &str,
+) -> Result<bool, DatabaseError> {
+    let updated = conn.execute(
+        "UPDATE messages SET keywords = ?1 WHERE id = ?2",
+        rusqlite::params![new_keywords, message_id],
+    )?;
+    Ok(updated > 0)
+}
+
+/// Mark a message's keywords as confirmed by the server (no longer pending sync).
+/// Returns true if the row was found and updated.
+pub fn mark_keywords_confirmed(conn: &Connection, message_id: i64) -> Result<bool, DatabaseError> {
+    let updated = conn.execute(
+        "UPDATE messages SET keywords_pending_sync = 0 WHERE id = ?1",
+        rusqlite::params![message_id],
     )?;
     Ok(updated > 0)
 }
@@ -526,6 +567,38 @@ pub fn find_message_by_uid_in_folder_with_pending(
     }
 }
 
+/// Find a message by UID and folder, returning
+/// (message_id, current_flags, flags_pending_sync, keywords, keywords_pending_sync).
+#[allow(clippy::type_complexity)]
+pub fn find_message_by_uid_in_folder_full(
+    conn: &Connection,
+    account_id: &str,
+    uid: u32,
+    folder_id: i64,
+) -> Result<Option<(i64, u32, bool, String, bool)>, DatabaseError> {
+    let result = conn.query_row(
+        "SELECT m.id, m.flags, m.flags_pending_sync, m.keywords, m.keywords_pending_sync
+         FROM messages m
+         JOIN message_folders mf ON mf.message_id = m.id
+         WHERE m.account_id = ?1 AND m.uid = ?2 AND mf.folder_id = ?3",
+        rusqlite::params![account_id, uid, folder_id],
+        |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get::<_, i32>(2)? != 0,
+                row.get::<_, String>(3)?,
+                row.get::<_, i32>(4)? != 0,
+            ))
+        },
+    );
+    match result {
+        Ok(tuple) => Ok(Some(tuple)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(DatabaseError::Sqlite(e)),
+    }
+}
+
 /// Find a message by UID and folder, returning (message_id, current_flags).
 pub fn find_message_by_uid_in_folder(
     conn: &Connection,
@@ -614,6 +687,7 @@ mod tests {
             body_text: Some("Hello".to_string()),
             thread_id: None,
             server_thread_id: None,
+            keywords: String::new(),
         }
     }
 

@@ -21,6 +21,8 @@ pub enum OperationKind {
     FolderRename,
     /// Delete a folder on the IMAP server.
     FolderDelete,
+    /// STORE custom keywords (set/remove keywords like $Forwarded, $Junk, etc.).
+    StoreKeywords,
 }
 
 impl OperationKind {
@@ -34,6 +36,7 @@ impl OperationKind {
             OperationKind::FolderCreate => "folder-create",
             OperationKind::FolderRename => "folder-rename",
             OperationKind::FolderDelete => "folder-delete",
+            OperationKind::StoreKeywords => "store_keywords",
         }
     }
 
@@ -47,6 +50,7 @@ impl OperationKind {
             "folder-create" => Some(OperationKind::FolderCreate),
             "folder-rename" => Some(OperationKind::FolderRename),
             "folder-delete" => Some(OperationKind::FolderDelete),
+            "store_keywords" => Some(OperationKind::StoreKeywords),
             _ => None,
         }
     }
@@ -146,6 +150,16 @@ pub struct FolderRenamePayload {
 pub struct FolderDeletePayload {
     pub folder_id: i64,
     pub folder_name: String,
+}
+
+/// Payload for a STORE keywords operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreKeywordsPayload {
+    pub message_id: i64,
+    pub uid: u32,
+    pub folder_name: String,
+    /// The full set of keywords to store (comma-separated).
+    pub new_keywords: String,
 }
 
 /// Maximum number of automatic retry attempts for transient errors before
@@ -251,6 +265,21 @@ mod tests {
     }
 
     #[test]
+    fn store_keywords_payload_serializes() {
+        let payload = StoreKeywordsPayload {
+            message_id: 7,
+            uid: 300,
+            folder_name: "INBOX".to_string(),
+            new_keywords: "$Forwarded,$Junk".to_string(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        let parsed: StoreKeywordsPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.message_id, 7);
+        assert_eq!(parsed.uid, 300);
+        assert_eq!(parsed.new_keywords, "$Forwarded,$Junk");
+    }
+
+    #[test]
     fn all_operation_kinds_roundtrip() {
         let kinds = [
             OperationKind::StoreFlags,
@@ -261,6 +290,7 @@ mod tests {
             OperationKind::FolderCreate,
             OperationKind::FolderRename,
             OperationKind::FolderDelete,
+            OperationKind::StoreKeywords,
         ];
         for kind in kinds {
             assert_eq!(

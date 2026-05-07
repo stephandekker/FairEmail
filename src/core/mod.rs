@@ -74,6 +74,7 @@ pub mod server_flag_detection;
 #[allow(dead_code)]
 pub(crate) mod server_prefill;
 pub mod set_flags;
+pub mod set_keywords;
 pub mod smtp_check;
 pub mod smtp_identity;
 pub mod smtp_test_diagnostics;
@@ -171,8 +172,9 @@ pub use inbound_test_diagnostics::{diagnose_error, ConnectionDiagnostic};
 pub use ispdb_discovery::AutoconfigError;
 pub use mark_read::{mark_message_read, MarkReadError, MarkReadResult};
 pub use message::{
-    derive_body_text, flags_from_imap, parse_raw_message, Message, NewMessage, FLAG_ANSWERED,
-    FLAG_DELETED, FLAG_DRAFT, FLAG_FLAGGED, FLAG_SEEN,
+    derive_body_text, flags_from_imap, keywords_add, keywords_from_imap, keywords_remove,
+    keywords_to_vec, parse_raw_message, Message, NewMessage, FLAG_ANSWERED, FLAG_DELETED,
+    FLAG_DRAFT, FLAG_FLAGGED, FLAG_SEEN,
 };
 pub use move_message::{move_message, MoveMessageError, MoveMessageResult};
 pub use navigation::{group_by_category, sort_accounts_flat, CategoryGroup};
@@ -202,7 +204,7 @@ pub use oauth_wizard::{
 pub use password_propagation::{password_has_changed, propagate_password_to_identities};
 pub use pending_operation::{
     CopyMessagePayload, DeleteMessagePayload, MoveMessagePayload, OperationKind, OperationState,
-    PendingOperation, SendPayload, StoreFlagsPayload,
+    PendingOperation, SendPayload, StoreFlagsPayload, StoreKeywordsPayload,
 };
 pub use pending_operation_view::{
     message_ids_with_pending_ops, summarize_operation, PendingOperationSummary,
@@ -242,6 +244,7 @@ pub(crate) use server_prefill::{
     prefill_from_domain, prefill_from_email, prefill_from_provider, ServerSettingsPrefill,
 };
 pub use set_flags::{set_message_flag, FlagAction, SetFlagsError, SetFlagsResult};
+pub use set_keywords::{set_message_keyword, SetKeywordsError, SetKeywordsResult};
 pub use smtp_check::{
     combine_connectivity_results, ConnectivityCheckError, ConnectivityCheckResult, SmtpCheckError,
     SmtpCheckResult, SmtpCheckSuccess, SmtpConnectionParams,

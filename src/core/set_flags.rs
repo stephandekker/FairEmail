@@ -152,6 +152,7 @@ mod tests {
             body_text: None,
             thread_id: None,
             server_thread_id: None,
+            keywords: String::new(),
         }
     }
 

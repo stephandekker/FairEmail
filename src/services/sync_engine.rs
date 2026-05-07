@@ -27,7 +27,7 @@ use crate::core::message::FLAG_SEEN;
 use crate::core::pending_operation::{
     CopyMessagePayload, DeleteMessagePayload, FolderCreatePayload, FolderDeletePayload,
     FolderRenamePayload, MoveMessagePayload, OperationKind, OperationState, SendPayload,
-    StoreFlagsPayload, MAX_RETRY_ATTEMPTS,
+    StoreFlagsPayload, StoreKeywordsPayload, MAX_RETRY_ATTEMPTS,
 };
 use crate::core::sync_event::SyncEvent;
 use crate::services::database::{open_and_migrate, DatabaseError};
@@ -128,6 +128,35 @@ impl ImapFlagStore for RealImapFlagStore {
         flags: u32,
     ) -> Result<(), String> {
         store_flags_on_server(params, folder_name, uid, flags)
+    }
+}
+
+/// Trait abstracting IMAP keyword-store operations for testability.
+pub(crate) trait ImapKeywordStore: Send + Sync {
+    /// Set the full keyword set on a message by UID in the given folder.
+    /// `keywords` is a comma-separated string of keywords.
+    /// Returns Ok(()) on success, or an error string.
+    fn store_keywords(
+        &self,
+        params: &ImapConnectParams,
+        folder_name: &str,
+        uid: u32,
+        keywords: &str,
+    ) -> Result<(), String>;
+}
+
+/// Real IMAP keyword store that connects to the server.
+pub(crate) struct RealImapKeywordStore;
+
+impl ImapKeywordStore for RealImapKeywordStore {
+    fn store_keywords(
+        &self,
+        params: &ImapConnectParams,
+        folder_name: &str,
+        uid: u32,
+        keywords: &str,
+    ) -> Result<(), String> {
+        store_keywords_on_server(params, folder_name, uid, keywords)
     }
 }
 
@@ -268,6 +297,26 @@ impl ImapFlagStore for MockImapFlagStore {
         _folder_name: &str,
         _uid: u32,
         _flags: u32,
+    ) -> Result<(), String> {
+        match &self.should_fail {
+            Some(err) => Err(err.clone()),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Mock IMAP keyword store for testing.
+pub(crate) struct MockImapKeywordStore {
+    pub should_fail: Option<String>,
+}
+
+impl ImapKeywordStore for MockImapKeywordStore {
+    fn store_keywords(
+        &self,
+        _params: &ImapConnectParams,
+        _folder_name: &str,
+        _uid: u32,
+        _keywords: &str,
     ) -> Result<(), String> {
         match &self.should_fail {
             Some(err) => Err(err.clone()),
@@ -660,6 +709,289 @@ fn store_flags_on_server(
                 .map_err(|e| format!("STARTTLS upgrade: {e}"))?;
             let mut reader = BufReader::new(tls);
             run_session!(reader, reader.get_mut())
+        }
+    }
+}
+
+/// Perform the actual IMAP STORE command for custom keywords on the server.
+///
+/// Uses `UID STORE <uid> FLAGS.SILENT (<system_flags> <keywords>)` to replace
+/// all flags including keywords in a single command. However, since we only
+/// want to change keywords without disturbing system flags, we use separate
+/// `+FLAGS` and `-FLAGS` commands for the keyword diff.
+///
+/// For simplicity and correctness, we use `UID STORE +FLAGS` to add keywords
+/// and `UID STORE -FLAGS` to remove keywords that are no longer present.
+fn store_keywords_on_server(
+    params: &ImapConnectParams,
+    folder_name: &str,
+    uid: u32,
+    keywords_csv: &str,
+) -> Result<(), String> {
+    use crate::core::account::EncryptionMode;
+    use native_tls::TlsConnector;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let keywords: Vec<&str> = if keywords_csv.is_empty() {
+        Vec::new()
+    } else {
+        keywords_csv.split(',').collect()
+    };
+
+    let addr_str = format!("{}:{}", params.host, params.port);
+    let addr: std::net::SocketAddr = addr_str
+        .parse()
+        .or_else(|_| {
+            use std::net::ToSocketAddrs;
+            addr_str
+                .to_socket_addrs()
+                .map_err(|e| e.to_string())?
+                .next()
+                .ok_or_else(|| "DNS resolution failed".to_string())
+        })
+        .map_err(|e| format!("DNS resolution failed: {e}"))?;
+
+    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(30))
+        .map_err(|e| format!("connection failed: {e}"))?;
+    tcp.set_read_timeout(Some(Duration::from_secs(30))).ok();
+    tcp.set_write_timeout(Some(Duration::from_secs(30))).ok();
+
+    macro_rules! run_keyword_session {
+        ($reader:expr, $writer:expr) => {{
+            // Read greeting
+            let mut line = String::new();
+            $reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read greeting: {e}"))?;
+            if !line.to_uppercase().starts_with("* OK")
+                && !line.to_uppercase().starts_with("* PREAUTH")
+            {
+                return Err(format!("unexpected greeting: {}", line.trim()));
+            }
+
+            // Login
+            let username = imap_quote(&params.username);
+            let password = imap_quote(&params.password);
+            let cmd = format!("A001 LOGIN {username} {password}\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write login: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush login: {e}"))?;
+
+            let mut resp = String::new();
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read login response: {e}"))?;
+                resp.push_str(&l);
+                if l.starts_with("A001") {
+                    break;
+                }
+            }
+            if !resp.contains("A001 OK") {
+                return Err("authentication failed".to_string());
+            }
+
+            // Select folder
+            let quoted_folder = imap_quote(folder_name);
+            let cmd = format!("A002 SELECT {quoted_folder}\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write select: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush select: {e}"))?;
+
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read select: {e}"))?;
+                if l.starts_with("A002") {
+                    if !l.contains("OK") {
+                        return Err(format!("SELECT failed: {}", l.trim()));
+                    }
+                    break;
+                }
+            }
+
+            // First: remove all existing keywords by sending -FLAGS with a
+            // broad set, then add the desired keywords. For robustness, we
+            // fetch current keywords first, but that adds complexity. Instead,
+            // we use the simpler approach: replace keywords atomically.
+            //
+            // Unfortunately IMAP doesn't have a "replace only keywords" command,
+            // so we first remove keywords that shouldn't be there, then add the ones that should.
+            // The simplest safe approach: use -FLAGS to clear any keywords, then +FLAGS to set them.
+
+            // Step 1: Remove all keywords by storing empty keyword set.
+            // We use a FETCH first to learn current keywords, but that's complex.
+            // Simpler: just +FLAGS the desired keywords. If there are stale ones,
+            // they remain. For a full replacement, we'd need STORE FLAGS (all flags + keywords),
+            // but that would require knowing the current system flags too.
+            //
+            // Best approach: just set the desired keywords with +FLAGS and remove
+            // unwanted ones with -FLAGS. Since we're syncing the full keyword set,
+            // we'll store the keywords atomically by fetching current state on server,
+            // computing diff, and applying. But that's complex for a small story.
+            //
+            // Pragmatic approach: just use +FLAGS for the full keyword set.
+            // This means keywords only accumulate, which isn't ideal.
+            // Actually, the correct approach for keyword sync is:
+            // We already know the intended keyword set. We send STORE with +FLAGS
+            // for keywords to add, and -FLAGS for keywords to remove.
+            // But we don't know what's currently on the server.
+            //
+            // The simplest correct approach: send UID STORE with all keywords as
+            // FLAGS replacement. But that also replaces system flags.
+            // We'll combine: fetch current flags, compute new flags + keywords,
+            // and do a single STORE FLAGS.
+
+            // Actually, the simplest and correct approach for keyword replacement:
+            // FETCH current flags, keep system flags, replace keywords.
+
+            // FETCH current flags
+            let cmd = format!("A003 UID FETCH {uid} (FLAGS)\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write FETCH: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush FETCH: {e}"))?;
+
+            let mut current_flags_str = String::new();
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read FETCH response: {e}"))?;
+                // Parse FLAGS from untagged response like: * 1 FETCH (FLAGS (\Seen $Junk))
+                if l.contains("FLAGS") && !l.starts_with("A003") {
+                    if let Some(start) = l.find("FLAGS (") {
+                        let after = &l[start + 7..];
+                        if let Some(end) = after.find(')') {
+                            current_flags_str = after[..end].to_string();
+                        }
+                    }
+                }
+                if l.starts_with("A003") {
+                    if !l.contains("OK") {
+                        return Err(format!("FETCH failed: {}", l.trim()));
+                    }
+                    break;
+                }
+            }
+
+            // Extract system flags from current flags (those starting with \)
+            let system_flags: Vec<&str> = current_flags_str
+                .split_whitespace()
+                .filter(|f| f.starts_with('\\'))
+                .collect();
+
+            // Build new FLAGS = system_flags + desired keywords
+            let mut all_flags: Vec<String> = system_flags.iter().map(|s| s.to_string()).collect();
+            for kw in &keywords {
+                all_flags.push(kw.to_string());
+            }
+            let all_flags_str = all_flags.join(" ");
+
+            // UID STORE FLAGS (replace all)
+            let cmd = format!("A004 UID STORE {uid} FLAGS ({all_flags_str})\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write STORE: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush STORE: {e}"))?;
+
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read STORE response: {e}"))?;
+                if l.starts_with("A004") {
+                    if !l.contains("OK") {
+                        return Err(format!("STORE failed: {}", l.trim()));
+                    }
+                    break;
+                }
+            }
+
+            // Logout
+            let cmd = "A099 LOGOUT\r\n";
+            let _ = $writer.write_all(cmd.as_bytes());
+            let _ = $writer.flush();
+
+            Ok(())
+        }};
+    }
+
+    match params.encryption {
+        EncryptionMode::SslTls => {
+            let mut builder = TlsConnector::builder();
+            if params.insecure || params.accepted_fingerprint.is_some() {
+                builder.danger_accept_invalid_certs(true);
+                builder.danger_accept_invalid_hostnames(true);
+            }
+            let connector = builder
+                .build()
+                .map_err(|e| format!("TLS build error: {e}"))?;
+            let tls = connector
+                .connect(&params.host, tcp)
+                .map_err(|e| format!("TLS handshake failed: {e}"))?;
+            let mut reader = BufReader::new(tls);
+            run_keyword_session!(reader, reader.get_mut())
+        }
+        EncryptionMode::None => {
+            let tcp_clone = tcp.try_clone().map_err(|e| format!("clone tcp: {e}"))?;
+            let mut reader = BufReader::new(tcp);
+            let mut writer = tcp_clone;
+            run_keyword_session!(reader, writer)
+        }
+        EncryptionMode::StartTls => {
+            let tcp_clone = tcp.try_clone().map_err(|e| format!("clone tcp: {e}"))?;
+            let mut reader = BufReader::new(tcp);
+            let mut writer = tcp_clone;
+
+            let mut line = String::new();
+            reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read greeting: {e}"))?;
+            if !line.to_uppercase().starts_with("* OK")
+                && !line.to_uppercase().starts_with("* PREAUTH")
+            {
+                return Err(format!("unexpected greeting: {}", line.trim()));
+            }
+
+            writer
+                .write_all(b"A000 STARTTLS\r\n")
+                .map_err(|e| format!("write STARTTLS: {e}"))?;
+            writer.flush().map_err(|e| format!("flush STARTTLS: {e}"))?;
+
+            let mut resp = String::new();
+            loop {
+                let mut l = String::new();
+                reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read STARTTLS resp: {e}"))?;
+                resp.push_str(&l);
+                if l.starts_with("A000") {
+                    break;
+                }
+            }
+            if !resp.to_uppercase().contains("OK") {
+                return Err("STARTTLS rejected".to_string());
+            }
+
+            let tcp_inner = reader.into_inner();
+            let mut builder = TlsConnector::builder();
+            if params.insecure || params.accepted_fingerprint.is_some() {
+                builder.danger_accept_invalid_certs(true);
+                builder.danger_accept_invalid_hostnames(true);
+            }
+            let connector = builder.build().map_err(|e| format!("TLS build: {e}"))?;
+            let tls = connector
+                .connect(&params.host, tcp_inner)
+                .map_err(|e| format!("STARTTLS upgrade: {e}"))?;
+            let mut reader = BufReader::new(tls);
+            run_keyword_session!(reader, reader.get_mut())
         }
     }
 }
@@ -2231,6 +2563,81 @@ async fn process_account_ops_full(
                             account_id: account_id.to_string(),
                             message_id: payload.message_id,
                             new_flags: payload.new_flags,
+                        });
+                    }
+                    Ok(Err(err_msg)) => {
+                        if !handle_vanished_message(
+                            &conn,
+                            op.id,
+                            payload.message_id,
+                            account_id,
+                            &err_msg,
+                            event_sender,
+                        ) {
+                            let sync_err = SyncError::Imap(err_msg.clone());
+                            if is_transient_error(&sync_err) {
+                                handle_transient_retry(
+                                    &conn,
+                                    op,
+                                    account_id,
+                                    &err_msg,
+                                    event_sender,
+                                );
+                            } else {
+                                let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                                let _ = event_sender.send(SyncEvent::OperationFailed {
+                                    account_id: account_id.to_string(),
+                                    operation_id: op.id,
+                                    error: err_msg,
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let err_msg = format!("task join error: {e}");
+                        let delay = backoff_duration(op.retry_count);
+                        let _ =
+                            pending_ops_store::requeue_op(&conn, op.id, &err_msg, delay.as_secs());
+                    }
+                }
+            }
+            OperationKind::StoreKeywords => {
+                let payload: StoreKeywordsPayload = match serde_json::from_str(&op.payload) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let err_msg = format!("invalid payload: {e}");
+                        let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                        let _ = event_sender.send(SyncEvent::OperationFailed {
+                            account_id: account_id.to_string(),
+                            operation_id: op.id,
+                            error: err_msg,
+                        });
+                        i += 1;
+                        continue;
+                    }
+                };
+
+                let params_clone = params.clone();
+                let folder = payload.folder_name.clone();
+                let uid = payload.uid;
+                let keywords = payload.new_keywords.clone();
+
+                let result = tokio::task::spawn_blocking(move || {
+                    store_keywords_on_server(&params_clone, &folder, uid, &keywords)
+                })
+                .await;
+
+                match result {
+                    Ok(Ok(())) => {
+                        let _ = pending_ops_store::complete_op(&conn, op.id);
+                        let _ = crate::services::message_store::mark_keywords_confirmed(
+                            &conn,
+                            payload.message_id,
+                        );
+                        let _ = event_sender.send(SyncEvent::MessageKeywordsChanged {
+                            account_id: account_id.to_string(),
+                            message_id: payload.message_id,
+                            new_keywords: payload.new_keywords,
                         });
                     }
                     Ok(Err(err_msg)) => {

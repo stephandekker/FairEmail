@@ -49,6 +49,47 @@ pub fn make_flag_change_event(account_id: &str, message_id: i64, new_flags: u32)
     }
 }
 
+/// Outcome of comparing server keywords against local state for one message.
+#[derive(Debug, PartialEq, Eq)]
+pub enum KeywordChangeAction {
+    /// Server keywords differ and should be applied locally.
+    Apply { new_keywords: String },
+    /// No change needed (keywords already match).
+    NoChange,
+    /// Skipped because a local keyword operation is pending for this message.
+    SkippedPendingSync,
+}
+
+/// Decide whether a server-side keyword change should be applied to local state.
+pub fn detect_keyword_change(
+    local_keywords: &str,
+    server_keywords: &str,
+    keywords_pending_sync: bool,
+) -> KeywordChangeAction {
+    if server_keywords == local_keywords {
+        return KeywordChangeAction::NoChange;
+    }
+    if keywords_pending_sync {
+        return KeywordChangeAction::SkippedPendingSync;
+    }
+    KeywordChangeAction::Apply {
+        new_keywords: server_keywords.to_string(),
+    }
+}
+
+/// Build a `ServerKeywordChange` event for a detected keyword change.
+pub fn make_keyword_change_event(
+    account_id: &str,
+    message_id: i64,
+    new_keywords: &str,
+) -> SyncEvent {
+    SyncEvent::ServerKeywordChange {
+        account_id: account_id.to_string(),
+        message_id,
+        new_keywords: new_keywords.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +225,54 @@ mod tests {
                 assert_eq!(new_flags, FLAG_SEEN);
             }
             _ => panic!("expected ServerFlagChange"),
+        }
+    }
+
+    // --- Keyword change detection tests ---
+
+    #[test]
+    fn keyword_no_change_when_match() {
+        let action = detect_keyword_change("$Junk", "$Junk", false);
+        assert_eq!(action, KeywordChangeAction::NoChange);
+    }
+
+    #[test]
+    fn keyword_apply_when_differ_no_pending() {
+        let action = detect_keyword_change("", "$Forwarded", false);
+        assert_eq!(
+            action,
+            KeywordChangeAction::Apply {
+                new_keywords: "$Forwarded".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn keyword_skip_when_pending() {
+        let action = detect_keyword_change("", "$Forwarded", true);
+        assert_eq!(action, KeywordChangeAction::SkippedPendingSync);
+    }
+
+    #[test]
+    fn keyword_no_change_empty_both() {
+        let action = detect_keyword_change("", "", false);
+        assert_eq!(action, KeywordChangeAction::NoChange);
+    }
+
+    #[test]
+    fn make_keyword_event_produces_correct_variant() {
+        let event = make_keyword_change_event("acct-1", 42, "$Forwarded");
+        match event {
+            SyncEvent::ServerKeywordChange {
+                account_id,
+                message_id,
+                new_keywords,
+            } => {
+                assert_eq!(account_id, "acct-1");
+                assert_eq!(message_id, 42);
+                assert_eq!(new_keywords, "$Forwarded");
+            }
+            _ => panic!("expected ServerKeywordChange"),
         }
     }
 }
