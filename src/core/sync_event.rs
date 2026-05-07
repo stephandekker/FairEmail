@@ -42,4 +42,10 @@ pub enum SyncEvent {
     },
     /// The folder list for an account has changed (create, rename, or delete).
     FolderListChanged { account_id: String },
+    /// A message was permanently deleted (expunged) from the server.
+    MessageExpunged {
+        account_id: String,
+        message_id: i64,
+        folder_name: String,
+    },
 }

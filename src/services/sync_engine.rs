@@ -25,8 +25,8 @@ use crate::core::account::FolderRole;
 use crate::core::content_store::ContentStore;
 use crate::core::message::FLAG_SEEN;
 use crate::core::pending_operation::{
-    FolderCreatePayload, FolderDeletePayload, FolderRenamePayload, MoveMessagePayload,
-    OperationKind, OperationState, SendPayload, StoreFlagsPayload,
+    DeleteMessagePayload, FolderCreatePayload, FolderDeletePayload, FolderRenamePayload,
+    MoveMessagePayload, OperationKind, OperationState, SendPayload, StoreFlagsPayload,
 };
 use crate::core::sync_event::SyncEvent;
 use crate::services::database::{open_and_migrate, DatabaseError};
@@ -321,6 +321,59 @@ impl ImapMover for MockImapMover {
         match &self.should_fail {
             Some(err) => Err(err.clone()),
             None => Ok(self.new_uid),
+        }
+    }
+}
+
+/// Trait abstracting IMAP expunge operations for testability.
+///
+/// Handles STORE \Deleted + EXPUNGE on the server.
+/// When `uid_expunge` is true the implementation should use UID EXPUNGE
+/// (per-UID, safe); otherwise it falls back to folder-wide EXPUNGE.
+pub(crate) trait ImapExpunger: Send + Sync {
+    /// Store \Deleted flag and expunge a single message by UID.
+    ///
+    /// `uid_expunge`: whether the server supports per-UID EXPUNGE (UIDPLUS).
+    fn expunge_message(
+        &self,
+        params: &ImapConnectParams,
+        folder_name: &str,
+        uid: u32,
+        uid_expunge: bool,
+    ) -> Result<(), String>;
+}
+
+/// Real IMAP expunger that connects to the server.
+pub(crate) struct RealImapExpunger;
+
+impl ImapExpunger for RealImapExpunger {
+    fn expunge_message(
+        &self,
+        params: &ImapConnectParams,
+        folder_name: &str,
+        uid: u32,
+        uid_expunge: bool,
+    ) -> Result<(), String> {
+        imap_expunge_message(params, folder_name, uid, uid_expunge)
+    }
+}
+
+/// Mock IMAP expunger for testing.
+pub(crate) struct MockImapExpunger {
+    pub should_fail: Option<String>,
+}
+
+impl ImapExpunger for MockImapExpunger {
+    fn expunge_message(
+        &self,
+        _params: &ImapConnectParams,
+        _folder_name: &str,
+        _uid: u32,
+        _uid_expunge: bool,
+    ) -> Result<(), String> {
+        match &self.should_fail {
+            Some(err) => Err(err.clone()),
+            None => Ok(()),
         }
     }
 }
@@ -915,6 +968,259 @@ fn imap_folder_command(params: &ImapConnectParams, command: &str) -> Result<(), 
                 .map_err(|e| format!("STARTTLS upgrade: {e}"))?;
             let mut reader = BufReader::new(tls);
             run_folder_session!(reader, reader.get_mut())
+        }
+    }
+}
+
+/// STORE \Deleted and EXPUNGE a message on the IMAP server.
+///
+/// When `uid_expunge` is true, uses `UID EXPUNGE <uid>` (RFC 4315) to
+/// expunge only the targeted message.  When false, falls back to a
+/// folder-wide `EXPUNGE` command.
+fn imap_expunge_message(
+    params: &ImapConnectParams,
+    folder_name: &str,
+    uid: u32,
+    uid_expunge: bool,
+) -> Result<(), String> {
+    use crate::core::account::EncryptionMode;
+    use native_tls::TlsConnector;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let addr_str = format!("{}:{}", params.host, params.port);
+    let addr: std::net::SocketAddr = addr_str
+        .parse()
+        .or_else(|_| {
+            use std::net::ToSocketAddrs;
+            addr_str
+                .to_socket_addrs()
+                .map_err(|e| e.to_string())?
+                .next()
+                .ok_or_else(|| "DNS resolution failed".to_string())
+        })
+        .map_err(|e| format!("DNS resolution failed: {e}"))?;
+
+    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(30))
+        .map_err(|e| format!("connection failed: {e}"))?;
+    tcp.set_read_timeout(Some(Duration::from_secs(30))).ok();
+    tcp.set_write_timeout(Some(Duration::from_secs(30))).ok();
+
+    macro_rules! run_expunge_session {
+        ($reader:expr, $writer:expr) => {{
+            // Read greeting
+            let mut line = String::new();
+            $reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read greeting: {e}"))?;
+            if !line.to_uppercase().starts_with("* OK")
+                && !line.to_uppercase().starts_with("* PREAUTH")
+            {
+                return Err(format!("unexpected greeting: {}", line.trim()));
+            }
+
+            // Login
+            let username = imap_quote(&params.username);
+            let password = imap_quote(&params.password);
+            let cmd = format!("A001 LOGIN {username} {password}\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write login: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush login: {e}"))?;
+
+            let mut resp = String::new();
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read login response: {e}"))?;
+                resp.push_str(&l);
+                if l.starts_with("A001") {
+                    break;
+                }
+            }
+            if !resp.contains("A001 OK") {
+                return Err("authentication failed".to_string());
+            }
+
+            // Select folder
+            let quoted_folder = imap_quote(folder_name);
+            let cmd = format!("A002 SELECT {quoted_folder}\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write select: {e}"))?;
+            $writer.flush().map_err(|e| format!("flush select: {e}"))?;
+
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read select: {e}"))?;
+                if l.starts_with("A002") {
+                    if !l.contains("OK") {
+                        return Err(format!("SELECT failed: {}", l.trim()));
+                    }
+                    break;
+                }
+            }
+
+            // STORE \Deleted
+            let cmd = format!("A003 UID STORE {uid} +FLAGS (\\Deleted)\r\n");
+            $writer
+                .write_all(cmd.as_bytes())
+                .map_err(|e| format!("write STORE deleted: {e}"))?;
+            $writer
+                .flush()
+                .map_err(|e| format!("flush STORE deleted: {e}"))?;
+
+            loop {
+                let mut l = String::new();
+                $reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read STORE response: {e}"))?;
+                if l.starts_with("A003") {
+                    if !l.contains("OK") {
+                        return Err(format!("STORE \\Deleted failed: {}", l.trim()));
+                    }
+                    break;
+                }
+            }
+
+            // EXPUNGE
+            if uid_expunge {
+                let cmd = format!("A004 UID EXPUNGE {uid}\r\n");
+                $writer
+                    .write_all(cmd.as_bytes())
+                    .map_err(|e| format!("write UID EXPUNGE: {e}"))?;
+                $writer
+                    .flush()
+                    .map_err(|e| format!("flush UID EXPUNGE: {e}"))?;
+
+                loop {
+                    let mut l = String::new();
+                    $reader
+                        .read_line(&mut l)
+                        .map_err(|e| format!("read UID EXPUNGE response: {e}"))?;
+                    if l.starts_with("A004") {
+                        if l.contains("OK") {
+                            break;
+                        }
+                        // UID EXPUNGE not supported; fall back to regular EXPUNGE
+                        let cmd = "A005 EXPUNGE\r\n";
+                        $writer
+                            .write_all(cmd.as_bytes())
+                            .map_err(|e| format!("write EXPUNGE fallback: {e}"))?;
+                        $writer
+                            .flush()
+                            .map_err(|e| format!("flush EXPUNGE fallback: {e}"))?;
+                        loop {
+                            let mut l2 = String::new();
+                            $reader
+                                .read_line(&mut l2)
+                                .map_err(|e| format!("read EXPUNGE fallback: {e}"))?;
+                            if l2.starts_with("A005") {
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            } else {
+                let cmd = "A004 EXPUNGE\r\n";
+                $writer
+                    .write_all(cmd.as_bytes())
+                    .map_err(|e| format!("write EXPUNGE: {e}"))?;
+                $writer.flush().map_err(|e| format!("flush EXPUNGE: {e}"))?;
+                loop {
+                    let mut l = String::new();
+                    $reader
+                        .read_line(&mut l)
+                        .map_err(|e| format!("read EXPUNGE response: {e}"))?;
+                    if l.starts_with("A004") {
+                        break;
+                    }
+                }
+            }
+
+            // Logout
+            let cmd = "A099 LOGOUT\r\n";
+            let _ = $writer.write_all(cmd.as_bytes());
+            let _ = $writer.flush();
+
+            Ok(())
+        }};
+    }
+
+    match params.encryption {
+        EncryptionMode::SslTls => {
+            let mut builder = TlsConnector::builder();
+            if params.insecure || params.accepted_fingerprint.is_some() {
+                builder.danger_accept_invalid_certs(true);
+                builder.danger_accept_invalid_hostnames(true);
+            }
+            let connector = builder
+                .build()
+                .map_err(|e| format!("TLS build error: {e}"))?;
+            let tls = connector
+                .connect(&params.host, tcp)
+                .map_err(|e| format!("TLS handshake failed: {e}"))?;
+            let mut reader = BufReader::new(tls);
+            run_expunge_session!(reader, reader.get_mut())
+        }
+        EncryptionMode::None => {
+            let tcp_clone = tcp.try_clone().map_err(|e| format!("clone tcp: {e}"))?;
+            let mut reader = BufReader::new(tcp);
+            let mut writer = tcp_clone;
+            run_expunge_session!(reader, writer)
+        }
+        EncryptionMode::StartTls => {
+            let tcp_clone = tcp.try_clone().map_err(|e| format!("clone tcp: {e}"))?;
+            let mut reader = BufReader::new(tcp);
+            let mut writer = tcp_clone;
+
+            let mut line = String::new();
+            reader
+                .read_line(&mut line)
+                .map_err(|e| format!("read greeting: {e}"))?;
+            if !line.to_uppercase().starts_with("* OK")
+                && !line.to_uppercase().starts_with("* PREAUTH")
+            {
+                return Err(format!("unexpected greeting: {}", line.trim()));
+            }
+
+            writer
+                .write_all(b"A000 STARTTLS\r\n")
+                .map_err(|e| format!("write STARTTLS: {e}"))?;
+            writer.flush().map_err(|e| format!("flush STARTTLS: {e}"))?;
+
+            let mut resp = String::new();
+            loop {
+                let mut l = String::new();
+                reader
+                    .read_line(&mut l)
+                    .map_err(|e| format!("read STARTTLS resp: {e}"))?;
+                resp.push_str(&l);
+                if l.starts_with("A000") {
+                    break;
+                }
+            }
+            if !resp.to_uppercase().contains("OK") {
+                return Err("STARTTLS rejected".to_string());
+            }
+
+            let tcp_inner = reader.into_inner();
+            let mut builder = TlsConnector::builder();
+            if params.insecure || params.accepted_fingerprint.is_some() {
+                builder.danger_accept_invalid_certs(true);
+                builder.danger_accept_invalid_hostnames(true);
+            }
+            let connector = builder.build().map_err(|e| format!("TLS build: {e}"))?;
+            let tls = connector
+                .connect(&params.host, tcp_inner)
+                .map_err(|e| format!("STARTTLS upgrade: {e}"))?;
+            let mut reader = BufReader::new(tls);
+            run_expunge_session!(reader, reader.get_mut())
         }
     }
 }
@@ -1517,6 +1823,7 @@ async fn process_account_ops(
         Arc::new(RealSmtpSender),
         Arc::new(RealImapAppender),
         Arc::new(RealImapMover),
+        Arc::new(RealImapExpunger),
         None,
         None,
         folder_ops,
@@ -1541,6 +1848,7 @@ async fn process_account_ops_full(
     smtp_sender: Arc<dyn SmtpSender>,
     imap_appender: Arc<dyn ImapAppender>,
     imap_mover: Arc<dyn ImapMover>,
+    imap_expunger: Arc<dyn ImapExpunger>,
     smtp_params_fn: Option<Arc<SmtpParamsFn>>,
     content_reader_fn: Option<Arc<ContentReaderFn>>,
     folder_ops: Arc<dyn ImapFolderOps>,
@@ -1767,17 +2075,68 @@ async fn process_account_ops_full(
                 }
             }
             OperationKind::DeleteMessage => {
-                // Queue infrastructure is in place; execution will be implemented
-                // in a later story (two-way IMAP sync execution).
-                let err_msg = format!("{} execution not yet implemented", op.kind.as_str());
-                let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
-                let _ = event_sender.send(SyncEvent::OperationFailed {
-                    account_id: account_id.to_string(),
-                    operation_id: op.id,
-                    error: err_msg,
-                });
-                i += 1;
-                continue;
+                let delete_payload: DeleteMessagePayload = match serde_json::from_str(&op.payload) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let err_msg = format!("invalid delete payload: {e}");
+                        let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                        let _ = event_sender.send(SyncEvent::OperationFailed {
+                            account_id: account_id.to_string(),
+                            operation_id: op.id,
+                            error: err_msg,
+                        });
+                        i += 1;
+                        continue;
+                    }
+                };
+
+                let expunger_clone = imap_expunger.clone();
+                let params_clone = params.clone();
+                let folder = delete_payload.folder_name.clone();
+                let uid = delete_payload.uid;
+
+                let result = tokio::task::spawn_blocking(move || {
+                    // Always attempt UID EXPUNGE first; the implementation
+                    // falls back to folder-wide EXPUNGE if not supported.
+                    expunger_clone.expunge_message(&params_clone, &folder, uid, true)
+                })
+                .await;
+
+                match result {
+                    Ok(Ok(())) => {
+                        let _ = pending_ops_store::complete_op(&conn, op.id);
+                        let _ = event_sender.send(SyncEvent::MessageExpunged {
+                            account_id: account_id.to_string(),
+                            message_id: delete_payload.message_id,
+                            folder_name: delete_payload.folder_name,
+                        });
+                    }
+                    Ok(Err(err_msg)) => {
+                        let sync_err = SyncError::Imap(err_msg.clone());
+                        if is_transient_error(&sync_err) {
+                            match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
+                                Ok(retry_count) => {
+                                    let delay = backoff_duration(retry_count - 1);
+                                    tokio::time::sleep(delay).await;
+                                }
+                                Err(e) => {
+                                    eprintln!("sync engine: requeue failed: {e}");
+                                }
+                            }
+                        } else {
+                            let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                            let _ = event_sender.send(SyncEvent::OperationFailed {
+                                account_id: account_id.to_string(),
+                                operation_id: op.id,
+                                error: err_msg,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        let err_msg = format!("task join error: {e}");
+                        let _ = pending_ops_store::requeue_op(&conn, op.id, &err_msg);
+                    }
+                }
             }
             OperationKind::Send => {
                 let send_payload: SendPayload = match serde_json::from_str(&op.payload) {
@@ -2973,6 +3332,7 @@ mod tests {
                 should_fail: None,
                 new_uid: None,
             }),
+            Arc::new(MockImapExpunger { should_fail: None }),
             Some(smtp_params_fn),
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
@@ -3022,7 +3382,11 @@ mod tests {
                 account_params_fn.as_ref(),
                 smtp_sender,
                 imap_appender,
-                Arc::new(MockImapMover { should_fail: None, new_uid: None }),
+                Arc::new(MockImapMover {
+                    should_fail: None,
+                    new_uid: None,
+                }),
+                Arc::new(MockImapExpunger { should_fail: None }),
                 Some(smtp_params_fn),
                 None,
                 Arc::new(MockImapFolderOps { should_fail: None }),
@@ -3070,6 +3434,7 @@ mod tests {
                 should_fail: None,
                 new_uid: None,
             }),
+            Arc::new(MockImapExpunger { should_fail: None }),
             Some(smtp_params_fn),
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
@@ -3124,6 +3489,7 @@ mod tests {
                 should_fail: None,
                 new_uid: None,
             }),
+            Arc::new(MockImapExpunger { should_fail: None }),
             Some(smtp_params_fn),
             None,
             Arc::new(MockImapFolderOps { should_fail: None }),
@@ -3304,5 +3670,194 @@ mod tests {
             !refresh_called.load(Ordering::SeqCst),
             "token refresh should NOT be called for plain auth accounts"
         );
+    }
+
+    // ---------- Delete/Expunge tests ----------
+
+    #[tokio::test]
+    async fn engine_processes_delete_op_with_mock() {
+        let (_dir, db_path) = setup_db();
+
+        // Insert a DeleteMessage pending operation.
+        let conn = open_and_migrate(&db_path).unwrap();
+        let payload = DeleteMessagePayload {
+            message_id: 1,
+            uid: 100,
+            folder_name: "INBOX".to_string(),
+        };
+        let payload_json = serde_json::to_string(&payload).unwrap();
+        pending_ops_store::insert_pending_op(
+            &conn,
+            "acct-1",
+            &OperationKind::DeleteMessage,
+            &payload_json,
+        )
+        .unwrap();
+        drop(conn);
+
+        let (event_tx, mut event_rx) = broadcast::channel::<SyncEvent>(16);
+        let flag_store: Arc<dyn ImapFlagStore> = Arc::new(MockImapFlagStore { should_fail: None });
+        let params = make_test_params();
+        let account_params_fn: Arc<AccountParamsFn> = Arc::new(move |_| Some(params.clone()));
+
+        process_account_ops_full(
+            &db_path,
+            "acct-1",
+            &event_tx,
+            flag_store,
+            account_params_fn.as_ref(),
+            Arc::new(MockSmtpSender { should_fail: None }),
+            Arc::new(MockImapAppender { should_fail: None }),
+            Arc::new(MockImapMover {
+                should_fail: None,
+                new_uid: None,
+            }),
+            Arc::new(MockImapExpunger { should_fail: None }),
+            None,
+            None,
+            Arc::new(MockImapFolderOps { should_fail: None }),
+            None,
+        )
+        .await;
+
+        // Operation should be completed.
+        let conn = open_and_migrate(&db_path).unwrap();
+        let ops = pending_ops_store::load_pending_ops(&conn, "acct-1").unwrap();
+        assert!(ops.is_empty());
+
+        // Should have received a MessageExpunged event.
+        let event = event_rx.try_recv().unwrap();
+        match event {
+            SyncEvent::MessageExpunged {
+                message_id,
+                folder_name,
+                ..
+            } => {
+                assert_eq!(message_id, 1);
+                assert_eq!(folder_name, "INBOX");
+            }
+            _ => panic!("expected MessageExpunged event, got: {event:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_op_permanent_failure_marks_failed() {
+        let (_dir, db_path) = setup_db();
+
+        let conn = open_and_migrate(&db_path).unwrap();
+        let payload = DeleteMessagePayload {
+            message_id: 1,
+            uid: 100,
+            folder_name: "INBOX".to_string(),
+        };
+        let payload_json = serde_json::to_string(&payload).unwrap();
+        pending_ops_store::insert_pending_op(
+            &conn,
+            "acct-1",
+            &OperationKind::DeleteMessage,
+            &payload_json,
+        )
+        .unwrap();
+        drop(conn);
+
+        let (event_tx, mut event_rx) = broadcast::channel::<SyncEvent>(16);
+        let flag_store: Arc<dyn ImapFlagStore> = Arc::new(MockImapFlagStore { should_fail: None });
+        let params = make_test_params();
+        let account_params_fn: Arc<AccountParamsFn> = Arc::new(move |_| Some(params.clone()));
+
+        process_account_ops_full(
+            &db_path,
+            "acct-1",
+            &event_tx,
+            flag_store,
+            account_params_fn.as_ref(),
+            Arc::new(MockSmtpSender { should_fail: None }),
+            Arc::new(MockImapAppender { should_fail: None }),
+            Arc::new(MockImapMover {
+                should_fail: None,
+                new_uid: None,
+            }),
+            Arc::new(MockImapExpunger {
+                should_fail: Some("authentication failed".to_string()),
+            }),
+            None,
+            None,
+            Arc::new(MockImapFolderOps { should_fail: None }),
+            None,
+        )
+        .await;
+
+        // Op should be marked failed (not in pending ops).
+        let conn = open_and_migrate(&db_path).unwrap();
+        let ops = pending_ops_store::load_pending_ops(&conn, "acct-1").unwrap();
+        assert!(ops.is_empty());
+
+        // Should get OperationFailed event.
+        let event = event_rx.try_recv().unwrap();
+        match event {
+            SyncEvent::OperationFailed { error, .. } => {
+                assert!(error.contains("authentication"));
+            }
+            _ => panic!("expected OperationFailed event"),
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_op_transient_failure_requeues() {
+        let (_dir, db_path) = setup_db();
+
+        let conn = open_and_migrate(&db_path).unwrap();
+        let payload = DeleteMessagePayload {
+            message_id: 1,
+            uid: 100,
+            folder_name: "INBOX".to_string(),
+        };
+        let payload_json = serde_json::to_string(&payload).unwrap();
+        pending_ops_store::insert_pending_op(
+            &conn,
+            "acct-1",
+            &OperationKind::DeleteMessage,
+            &payload_json,
+        )
+        .unwrap();
+        drop(conn);
+
+        let (event_tx, _event_rx) = broadcast::channel::<SyncEvent>(16);
+        let flag_store: Arc<dyn ImapFlagStore> = Arc::new(MockImapFlagStore { should_fail: None });
+        let params = make_test_params();
+        let account_params_fn: Arc<AccountParamsFn> = Arc::new(move |_| Some(params.clone()));
+
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            process_account_ops_full(
+                &db_path,
+                "acct-1",
+                &event_tx,
+                flag_store,
+                account_params_fn.as_ref(),
+                Arc::new(MockSmtpSender { should_fail: None }),
+                Arc::new(MockImapAppender { should_fail: None }),
+                Arc::new(MockImapMover {
+                    should_fail: None,
+                    new_uid: None,
+                }),
+                Arc::new(MockImapExpunger {
+                    should_fail: Some("connection timed out".to_string()),
+                }),
+                None,
+                None,
+                Arc::new(MockImapFolderOps { should_fail: None }),
+                None,
+            ),
+        )
+        .await;
+
+        // Op should be requeued.
+        let conn = open_and_migrate(&db_path).unwrap();
+        let ops = pending_ops_store::load_pending_ops(&conn, "acct-1").unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].state, OperationState::Pending);
+        assert!(ops[0].retry_count > 0);
+        assert!(ops[0].last_error.as_ref().unwrap().contains("timed out"));
     }
 }

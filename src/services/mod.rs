@@ -95,7 +95,7 @@ pub use real_connection_tester::RealConnectionTester;
 pub use real_imap_checker::RealImapChecker;
 pub use real_inbound_tester::RealInboundTester;
 pub use real_smtp_checker::RealSmtpChecker;
-pub use settings_store::{AppSettings, SettingsStore};
+pub use settings_store::{AppSettings, ExpungeMode, SettingsStore};
 pub use smtp_checker::{MockSmtpChecker, SmtpChecker, MOCK_SMTP_CERT_FINGERPRINT};
 pub use sqlite_account_store::SqliteAccountStore as AccountStore;
 pub use sqlite_order_store::SqliteOrderStore;

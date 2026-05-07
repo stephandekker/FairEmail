@@ -60,10 +60,20 @@ impl SqliteSettingsStore {
             .and_then(|v| serde_json::from_str(&v).ok())
             .unwrap_or_default();
 
+        let expunge_mode: crate::services::settings_store::ExpungeMode = stmt
+            .query_row(["expunge_mode"], |row| {
+                let val: String = row.get(0)?;
+                Ok(val)
+            })
+            .ok()
+            .and_then(|v| serde_json::from_str(&v).ok())
+            .unwrap_or_default();
+
         Ok(AppSettings {
             category_display_enabled,
             oauth_browser,
             mechanism_toggles,
+            expunge_mode,
         })
     }
 
@@ -88,6 +98,13 @@ impl SqliteSettingsStore {
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
             rusqlite::params!["mechanism_toggles", toggles_value],
+        )
+        .map_err(|e| SettingsError::Io(std::io::Error::other(e.to_string())))?;
+
+        let expunge_value = serde_json::to_string(&settings.expunge_mode)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            rusqlite::params!["expunge_mode", expunge_value],
         )
         .map_err(|e| SettingsError::Io(std::io::Error::other(e.to_string())))?;
         Ok(())
@@ -170,6 +187,7 @@ mod tests {
             category_display_enabled: false,
             oauth_browser: None,
             mechanism_toggles: toggles,
+            ..Default::default()
         };
         store.save(&settings).unwrap();
         let loaded = store.load().unwrap();

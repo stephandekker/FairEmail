@@ -5,6 +5,16 @@ use std::path::{Path, PathBuf};
 
 use crate::core::auth_mechanism::MechanismToggles;
 
+/// Controls when EXPUNGE is issued after setting the \Deleted flag.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExpungeMode {
+    /// Expunge immediately after flagging (default).
+    #[default]
+    Immediate,
+    /// Defer expunge to a manual or scheduled batch operation.
+    Deferred,
+}
+
 /// Application settings that can be toggled by the user.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppSettings {
@@ -23,6 +33,12 @@ pub struct AppSettings {
     /// Global toggles for password-based authentication mechanisms (FR-25 – FR-29).
     #[serde(default)]
     pub mechanism_toggles: MechanismToggles,
+
+    /// Controls when EXPUNGE is issued after permanent deletion.
+    /// `Immediate` (default) expunges right away; `Deferred` waits for a
+    /// manual or scheduled batch operation.
+    #[serde(default)]
+    pub expunge_mode: ExpungeMode,
 }
 
 /// Errors from the settings persistence layer.
