@@ -78,6 +78,22 @@ pub(crate) fn is_transient_error(error: &SyncError) -> bool {
     }
 }
 
+/// Whether a sync error indicates the target message has been deleted/expunged
+/// from the server by another client.
+pub(crate) fn is_message_vanished_error(error: &SyncError) -> bool {
+    match error {
+        SyncError::Imap(msg) => {
+            let lower = msg.to_lowercase();
+            lower.contains("no such message")
+                || lower.contains("message not found")
+                || lower.contains("nonexistent")
+                || lower.contains("expunged")
+                || (lower.contains("uid") && lower.contains("not found"))
+        }
+        _ => false,
+    }
+}
+
 /// Backoff durations for transient failure retries (capped at 1 hour).
 const BACKOFF_SECS: &[u64] = &[5, 30, 120, 600, 3600];
 
@@ -2218,24 +2234,33 @@ async fn process_account_ops_full(
                         });
                     }
                     Ok(Err(err_msg)) => {
-                        let sync_err = SyncError::Imap(err_msg.clone());
-                        if is_transient_error(&sync_err) {
-                            match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
-                                Ok(retry_count) => {
-                                    let delay = backoff_duration(retry_count - 1);
-                                    tokio::time::sleep(delay).await;
+                        if !handle_vanished_message(
+                            &conn,
+                            op.id,
+                            payload.message_id,
+                            account_id,
+                            &err_msg,
+                            event_sender,
+                        ) {
+                            let sync_err = SyncError::Imap(err_msg.clone());
+                            if is_transient_error(&sync_err) {
+                                match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
+                                    Ok(retry_count) => {
+                                        let delay = backoff_duration(retry_count - 1);
+                                        tokio::time::sleep(delay).await;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("sync engine: requeue failed: {e}");
+                                    }
                                 }
-                                Err(e) => {
-                                    eprintln!("sync engine: requeue failed: {e}");
-                                }
+                            } else {
+                                let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                                let _ = event_sender.send(SyncEvent::OperationFailed {
+                                    account_id: account_id.to_string(),
+                                    operation_id: op.id,
+                                    error: err_msg,
+                                });
                             }
-                        } else {
-                            let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
-                            let _ = event_sender.send(SyncEvent::OperationFailed {
-                                account_id: account_id.to_string(),
-                                operation_id: op.id,
-                                error: err_msg,
-                            });
                         }
                     }
                     Err(e) => {
@@ -2315,24 +2340,33 @@ async fn process_account_ops_full(
                         });
                     }
                     Ok(Err(err_msg)) => {
-                        let sync_err = SyncError::Imap(err_msg.clone());
-                        if is_transient_error(&sync_err) {
-                            match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
-                                Ok(retry_count) => {
-                                    let delay = backoff_duration(retry_count - 1);
-                                    tokio::time::sleep(delay).await;
+                        if !handle_vanished_message(
+                            &conn,
+                            op.id,
+                            move_payload.message_id,
+                            account_id,
+                            &err_msg,
+                            event_sender,
+                        ) {
+                            let sync_err = SyncError::Imap(err_msg.clone());
+                            if is_transient_error(&sync_err) {
+                                match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
+                                    Ok(retry_count) => {
+                                        let delay = backoff_duration(retry_count - 1);
+                                        tokio::time::sleep(delay).await;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("sync engine: requeue failed: {e}");
+                                    }
                                 }
-                                Err(e) => {
-                                    eprintln!("sync engine: requeue failed: {e}");
-                                }
+                            } else {
+                                let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                                let _ = event_sender.send(SyncEvent::OperationFailed {
+                                    account_id: account_id.to_string(),
+                                    operation_id: op.id,
+                                    error: err_msg,
+                                });
                             }
-                        } else {
-                            let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
-                            let _ = event_sender.send(SyncEvent::OperationFailed {
-                                account_id: account_id.to_string(),
-                                operation_id: op.id,
-                                error: err_msg,
-                            });
                         }
                     }
                     Err(e) => {
@@ -2388,24 +2422,33 @@ async fn process_account_ops_full(
                         });
                     }
                     Ok(Err(err_msg)) => {
-                        let sync_err = SyncError::Imap(err_msg.clone());
-                        if is_transient_error(&sync_err) {
-                            match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
-                                Ok(retry_count) => {
-                                    let delay = backoff_duration(retry_count - 1);
-                                    tokio::time::sleep(delay).await;
+                        if !handle_vanished_message(
+                            &conn,
+                            op.id,
+                            copy_payload.message_id,
+                            account_id,
+                            &err_msg,
+                            event_sender,
+                        ) {
+                            let sync_err = SyncError::Imap(err_msg.clone());
+                            if is_transient_error(&sync_err) {
+                                match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
+                                    Ok(retry_count) => {
+                                        let delay = backoff_duration(retry_count - 1);
+                                        tokio::time::sleep(delay).await;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("sync engine: requeue failed: {e}");
+                                    }
                                 }
-                                Err(e) => {
-                                    eprintln!("sync engine: requeue failed: {e}");
-                                }
+                            } else {
+                                let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                                let _ = event_sender.send(SyncEvent::OperationFailed {
+                                    account_id: account_id.to_string(),
+                                    operation_id: op.id,
+                                    error: err_msg,
+                                });
                             }
-                        } else {
-                            let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
-                            let _ = event_sender.send(SyncEvent::OperationFailed {
-                                account_id: account_id.to_string(),
-                                operation_id: op.id,
-                                error: err_msg,
-                            });
                         }
                     }
                     Err(e) => {
@@ -2452,24 +2495,33 @@ async fn process_account_ops_full(
                         });
                     }
                     Ok(Err(err_msg)) => {
-                        let sync_err = SyncError::Imap(err_msg.clone());
-                        if is_transient_error(&sync_err) {
-                            match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
-                                Ok(retry_count) => {
-                                    let delay = backoff_duration(retry_count - 1);
-                                    tokio::time::sleep(delay).await;
+                        if !handle_vanished_message(
+                            &conn,
+                            op.id,
+                            delete_payload.message_id,
+                            account_id,
+                            &err_msg,
+                            event_sender,
+                        ) {
+                            let sync_err = SyncError::Imap(err_msg.clone());
+                            if is_transient_error(&sync_err) {
+                                match pending_ops_store::requeue_op(&conn, op.id, &err_msg) {
+                                    Ok(retry_count) => {
+                                        let delay = backoff_duration(retry_count - 1);
+                                        tokio::time::sleep(delay).await;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("sync engine: requeue failed: {e}");
+                                    }
                                 }
-                                Err(e) => {
-                                    eprintln!("sync engine: requeue failed: {e}");
-                                }
+                            } else {
+                                let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
+                                let _ = event_sender.send(SyncEvent::OperationFailed {
+                                    account_id: account_id.to_string(),
+                                    operation_id: op.id,
+                                    error: err_msg,
+                                });
                             }
-                        } else {
-                            let _ = pending_ops_store::mark_failed(&conn, op.id, &err_msg);
-                            let _ = event_sender.send(SyncEvent::OperationFailed {
-                                account_id: account_id.to_string(),
-                                operation_id: op.id,
-                                error: err_msg,
-                            });
                         }
                     }
                     Err(e) => {
@@ -2829,6 +2881,41 @@ fn handle_folder_op_result(
             None
         }
     }
+}
+
+/// Handle an IMAP error that indicates the target message has vanished from
+/// the server: cancel the operation, remove the local message, and emit an
+/// `OperationVanished` event so the UI can inform the user.
+///
+/// Returns `true` if the error was a vanished-message error (and was handled),
+/// `false` otherwise.
+fn handle_vanished_message(
+    conn: &rusqlite::Connection,
+    op_id: i64,
+    message_id: i64,
+    account_id: &str,
+    err_msg: &str,
+    event_sender: &broadcast::Sender<SyncEvent>,
+) -> bool {
+    let sync_err = SyncError::Imap(err_msg.to_string());
+    if !is_message_vanished_error(&sync_err) {
+        return false;
+    }
+
+    // Cancel the operation.
+    let _ = pending_ops_store::complete_op(conn, op_id);
+
+    // Remove the local message entry — it no longer exists on the server.
+    let _ = crate::services::message_store::delete_message(conn, message_id);
+
+    let _ = event_sender.send(SyncEvent::OperationVanished {
+        account_id: account_id.to_string(),
+        operation_id: op_id,
+        message_id,
+        error: err_msg.to_string(),
+    });
+
+    true
 }
 
 /// Resolve the SMTP connection parameters and message bytes for a send operation.
@@ -4227,5 +4314,278 @@ mod tests {
         assert_eq!(ops[0].state, OperationState::Pending);
         assert!(ops[0].retry_count > 0);
         assert!(ops[0].last_error.as_ref().unwrap().contains("timed out"));
+    }
+
+    #[test]
+    fn is_message_vanished_error_detects_vanished_messages() {
+        let vanished_messages = [
+            "NO [CANNOT] No such message",
+            "message not found",
+            "UID 123 not found in folder",
+            "message has been expunged",
+            "nonexistent message",
+        ];
+        for msg in &vanished_messages {
+            let err = SyncError::Imap(msg.to_string());
+            assert!(
+                is_message_vanished_error(&err),
+                "expected vanished for: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn is_message_vanished_error_rejects_non_vanished() {
+        let non_vanished = [
+            "authentication failed",
+            "connection timed out",
+            "no such mailbox",
+            "network error",
+        ];
+        for msg in &non_vanished {
+            let err = SyncError::Imap(msg.to_string());
+            assert!(
+                !is_message_vanished_error(&err),
+                "expected not vanished for: {msg}"
+            );
+        }
+
+        // Non-IMAP errors should never be vanished.
+        assert!(!is_message_vanished_error(&SyncError::PayloadParse(
+            "no such message".to_string()
+        )));
+    }
+
+    #[tokio::test]
+    async fn store_flags_vanished_message_cancels_op_and_removes_message() {
+        let (_dir, db_path) = setup_db();
+
+        let conn = open_and_migrate(&db_path).unwrap();
+        let payload = StoreFlagsPayload {
+            message_id: 1,
+            uid: 100,
+            folder_name: "INBOX".to_string(),
+            new_flags: FLAG_SEEN,
+        };
+        let payload_json = serde_json::to_string(&payload).unwrap();
+        pending_ops_store::insert_pending_op(
+            &conn,
+            "acct-1",
+            &OperationKind::StoreFlags,
+            &payload_json,
+        )
+        .unwrap();
+        drop(conn);
+
+        let (event_tx, mut event_rx) = broadcast::channel::<SyncEvent>(16);
+        let flag_store: Arc<dyn ImapFlagStore> = Arc::new(MockImapFlagStore {
+            should_fail: Some("NO [CANNOT] No such message".to_string()),
+        });
+        let params = make_test_params();
+        let account_params_fn: Arc<AccountParamsFn> = Arc::new(move |_| Some(params.clone()));
+
+        process_account_ops(
+            &db_path,
+            "acct-1",
+            &event_tx,
+            flag_store.clone(),
+            account_params_fn.as_ref(),
+            Arc::new(MockImapFolderOps { should_fail: None }),
+            None,
+        )
+        .await;
+
+        // Operation should be cancelled (removed from pending ops).
+        let conn = open_and_migrate(&db_path).unwrap();
+        let ops = pending_ops_store::load_pending_ops(&conn, "acct-1").unwrap();
+        assert!(ops.is_empty(), "operation should be cancelled");
+
+        // Local message should be removed.
+        let msg = crate::services::message_store::load_message(&conn, 1).unwrap();
+        assert!(msg.is_none(), "local message should be deleted");
+
+        // Should have received an OperationVanished event.
+        let event = event_rx.try_recv().unwrap();
+        match event {
+            SyncEvent::OperationVanished {
+                message_id, error, ..
+            } => {
+                assert_eq!(message_id, 1);
+                assert!(error.contains("No such message"));
+            }
+            _ => panic!("expected OperationVanished event, got: {event:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn move_vanished_message_cancels_op_and_removes_message() {
+        let (_dir, db_path) = setup_db();
+
+        let conn = open_and_migrate(&db_path).unwrap();
+        let payload = MoveMessagePayload {
+            message_id: 1,
+            uid: 100,
+            source_folder: "INBOX".to_string(),
+            destination_folder: "Archive".to_string(),
+        };
+        let payload_json = serde_json::to_string(&payload).unwrap();
+        pending_ops_store::insert_pending_op(
+            &conn,
+            "acct-1",
+            &OperationKind::MoveMessage,
+            &payload_json,
+        )
+        .unwrap();
+        drop(conn);
+
+        let (event_tx, mut event_rx) = broadcast::channel::<SyncEvent>(16);
+        let params = make_test_params();
+        let account_params_fn: Arc<AccountParamsFn> = Arc::new(move |_| Some(params.clone()));
+
+        process_account_ops_full(
+            &db_path,
+            "acct-1",
+            &event_tx,
+            Arc::new(MockImapFlagStore { should_fail: None }),
+            account_params_fn.as_ref(),
+            Arc::new(RealSmtpSender),
+            Arc::new(RealImapAppender),
+            Arc::new(MockImapMover {
+                should_fail: Some("message has been expunged".to_string()),
+                new_uid: None,
+            }),
+            Arc::new(RealImapExpunger),
+            Arc::new(RealImapCopier),
+            None,
+            None,
+            Arc::new(MockImapFolderOps { should_fail: None }),
+            None,
+        )
+        .await;
+
+        let conn = open_and_migrate(&db_path).unwrap();
+        let ops = pending_ops_store::load_pending_ops(&conn, "acct-1").unwrap();
+        assert!(ops.is_empty(), "operation should be cancelled");
+
+        let msg = crate::services::message_store::load_message(&conn, 1).unwrap();
+        assert!(msg.is_none(), "local message should be deleted");
+
+        let event = event_rx.try_recv().unwrap();
+        match event {
+            SyncEvent::OperationVanished { message_id, .. } => {
+                assert_eq!(message_id, 1);
+            }
+            _ => panic!("expected OperationVanished event, got: {event:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn batch_vanished_only_affects_vanished_message() {
+        let (_dir, db_path) = setup_db();
+
+        // Insert a second message that will succeed.
+        let conn = open_and_migrate(&db_path).unwrap();
+        conn.execute(
+            "INSERT INTO messages (id, account_id, uid, flags, size, content_hash) VALUES (2, 'acct-1', 200, 0, 512, 'hash2')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO message_folders (message_id, folder_id) VALUES (2, 1)",
+            [],
+        )
+        .unwrap();
+
+        // First op targets message 1 (will get vanished error).
+        let payload1 = StoreFlagsPayload {
+            message_id: 1,
+            uid: 100,
+            folder_name: "INBOX".to_string(),
+            new_flags: FLAG_SEEN,
+        };
+        pending_ops_store::insert_pending_op(
+            &conn,
+            "acct-1",
+            &OperationKind::StoreFlags,
+            &serde_json::to_string(&payload1).unwrap(),
+        )
+        .unwrap();
+
+        // Second op targets message 2 (will succeed).
+        let payload2 = StoreFlagsPayload {
+            message_id: 2,
+            uid: 200,
+            folder_name: "INBOX".to_string(),
+            new_flags: FLAG_ANSWERED,
+        };
+        pending_ops_store::insert_pending_op(
+            &conn,
+            "acct-1",
+            &OperationKind::StoreFlags,
+            &serde_json::to_string(&payload2).unwrap(),
+        )
+        .unwrap();
+        drop(conn);
+
+        // Mock flag store that fails for UID 100, succeeds for UID 200.
+        struct SelectiveFlagStore;
+        impl ImapFlagStore for SelectiveFlagStore {
+            fn store_flags(
+                &self,
+                _params: &ImapConnectParams,
+                _folder_name: &str,
+                uid: u32,
+                _flags: u32,
+            ) -> Result<(), String> {
+                if uid == 100 {
+                    Err("NO [CANNOT] No such message".to_string())
+                } else {
+                    Ok(())
+                }
+            }
+        }
+
+        let (event_tx, mut event_rx) = broadcast::channel::<SyncEvent>(16);
+        let params = make_test_params();
+        let account_params_fn: Arc<AccountParamsFn> = Arc::new(move |_| Some(params.clone()));
+
+        process_account_ops(
+            &db_path,
+            "acct-1",
+            &event_tx,
+            Arc::new(SelectiveFlagStore),
+            account_params_fn.as_ref(),
+            Arc::new(MockImapFolderOps { should_fail: None }),
+            None,
+        )
+        .await;
+
+        let conn = open_and_migrate(&db_path).unwrap();
+
+        // Both operations should be completed (none pending).
+        let ops = pending_ops_store::load_pending_ops(&conn, "acct-1").unwrap();
+        assert!(ops.is_empty(), "both ops should be done");
+
+        // Message 1 should be deleted (vanished).
+        let msg1 = crate::services::message_store::load_message(&conn, 1).unwrap();
+        assert!(msg1.is_none(), "vanished message should be deleted");
+
+        // Message 2 should still exist.
+        let msg2 = crate::services::message_store::load_message(&conn, 2).unwrap();
+        assert!(msg2.is_some(), "non-vanished message should survive");
+
+        // First event: OperationVanished for message 1.
+        let evt1 = event_rx.try_recv().unwrap();
+        assert!(
+            matches!(evt1, SyncEvent::OperationVanished { message_id: 1, .. }),
+            "first event should be OperationVanished for msg 1, got: {evt1:?}"
+        );
+
+        // Second event: MessageFlagsChanged for message 2.
+        let evt2 = event_rx.try_recv().unwrap();
+        assert!(
+            matches!(evt2, SyncEvent::MessageFlagsChanged { message_id: 2, .. }),
+            "second event should be MessageFlagsChanged for msg 2, got: {evt2:?}"
+        );
     }
 }

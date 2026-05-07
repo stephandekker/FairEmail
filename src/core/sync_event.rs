@@ -62,4 +62,11 @@ pub enum SyncEvent {
         folder_name: String,
         count: usize,
     },
+    /// An operation was cancelled because the target message no longer exists on the server.
+    OperationVanished {
+        account_id: String,
+        operation_id: i64,
+        message_id: i64,
+        error: String,
+    },
 }
