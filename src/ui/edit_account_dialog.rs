@@ -2054,6 +2054,7 @@ pub(crate) fn show(
                             ignore_size_limits: ignore_size,
                             date_header_preference: date_pref,
                             utf8_support: utf8,
+                            ..Default::default()
                         })
                     } else {
                         None

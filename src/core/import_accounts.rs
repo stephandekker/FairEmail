@@ -583,6 +583,7 @@ mod tests {
                 ignore_size_limits: false,
                 date_header_preference: Default::default(),
                 utf8_support: true,
+                ..Default::default()
             }),
             keep_alive_settings: Some(KeepAliveSettings {
                 use_noop_instead_of_idle: true,

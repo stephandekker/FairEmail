@@ -17,6 +17,7 @@ pub mod credential_log;
 pub mod credential_store;
 pub mod delete_account;
 pub mod delete_message;
+pub mod detect_new_messages;
 pub(crate) mod detection_failure;
 pub(crate) mod detection_progress;
 #[allow(dead_code)]
@@ -86,9 +87,9 @@ pub(crate) mod xoauth2;
 pub use account::{
     collect_categories, detect_system_folders, encode_shared_mailbox_username,
     notification_channel_id, resolve_color, Account, AccountColor, AccountValidationError,
-    AuthMethod, DateHeaderPreference, EncryptionMode, FetchSettings, Folder, FolderRole,
-    KeepAliveSettings, NewAccountParams, Pop3Settings, Protocol, QuotaInfo, SecuritySettings,
-    SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders, UpdateAccountParams,
+    AuthMethod, DateHeaderPreference, DownloadPolicy, EncryptionMode, FetchSettings, Folder,
+    FolderRole, KeepAliveSettings, NewAccountParams, Pop3Settings, Protocol, QuotaInfo,
+    SecuritySettings, SmtpConfig, SwipeAction, SwipeDefaults, SystemFolders, UpdateAccountParams,
     QUOTA_HIGH_THRESHOLD_PERCENT,
 };
 pub use account_creation::{
@@ -128,6 +129,9 @@ pub use credential_store::{
 };
 pub use delete_account::{clear_primary_if_deleted, remove_from_order};
 pub use delete_message::{delete_message, DeleteMessageError, DeleteMessageResult};
+pub use detect_new_messages::{
+    find_new_uids, process_new_messages, DetectNewMessagesResult, DetectedNewMessage, RawNewMessage,
+};
 #[allow(unused_imports)]
 pub(crate) use discovery_pipeline::{discover_all, DiscoveryResult};
 pub use dns_discovery::{discover_by_dns, DnsDiscoveryResult, DnsError, DnsResolver, SrvRecord};

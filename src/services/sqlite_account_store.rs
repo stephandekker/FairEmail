@@ -924,6 +924,7 @@ mod tests {
                 ignore_size_limits: true,
                 date_header_preference: crate::core::DateHeaderPreference::DateHeader,
                 utf8_support: true,
+                ..Default::default()
             }),
             keep_alive_settings: Some(KeepAliveSettings {
                 use_noop_instead_of_idle: true,

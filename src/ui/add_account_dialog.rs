@@ -1627,6 +1627,7 @@ fn show_inner(
                             ignore_size_limits: false,
                             date_header_preference: Default::default(),
                             utf8_support: true,
+                            ..Default::default()
                         })
                     } else {
                         None

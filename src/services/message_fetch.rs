@@ -7,6 +7,7 @@
 use rusqlite::Connection;
 
 use crate::core::content_store::ContentStore;
+use crate::core::detect_new_messages::find_new_uids;
 use crate::core::message::{flags_from_imap, parse_raw_message};
 use crate::core::server_flag_detection::{
     detect_flag_change, make_flag_change_event, FlagChangeAction,
@@ -270,6 +271,15 @@ fn sync_condstore(
     tx.commit()
         .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
 
+    // Emit NewMailReceived event if new messages were fetched.
+    if bodies_fetched > 0 {
+        events.push(SyncEvent::NewMailReceived {
+            account_id: params.account_id.clone(),
+            folder_name: folder_name.to_string(),
+            bodies_fetched,
+        });
+    }
+
     Ok(IncrementalSyncResult {
         bodies_fetched,
         flags_updated,
@@ -292,12 +302,9 @@ fn sync_uid_diff(
     cached_uidvalidity: u32,
 ) -> Result<IncrementalSyncResult, FetchError> {
     use crate::services::imap_client::fetch_uid_diff;
-    use std::collections::HashSet;
 
     // Get local UIDs.
-    let local_uids: HashSet<u32> = load_uids_for_folder(conn, &params.account_id, folder_id)?
-        .into_iter()
-        .collect();
+    let local_uids = load_uids_for_folder(conn, &params.account_id, folder_id)?;
 
     // First pass: get server UIDs + flags (UID FETCH 1:* (UID FLAGS)).
     // We pass an empty slice for new_uids first — we'll compute them from the diff.
@@ -309,10 +316,9 @@ fn sync_uid_diff(
         return handle_uidvalidity_change(conn, content_store, params, folder_name, folder_id);
     }
 
-    let server_uids: HashSet<u32> = diff_result.server_uids.iter().copied().collect();
-
-    // New UIDs = on server but not locally.
-    let new_uids: Vec<u32> = server_uids.difference(&local_uids).copied().collect();
+    // Use core detection logic to find new UIDs.
+    let new_uids = find_new_uids(&diff_result.server_uids, &local_uids);
+    let local_uid_set: std::collections::HashSet<u32> = local_uids.into_iter().collect();
 
     // Detect flag changes for existing messages (UIDs in both local and server sets).
     let mut flags_updated = 0;
@@ -323,7 +329,7 @@ fn sync_uid_diff(
         })?;
 
         for entry in &diff_result.server_flags {
-            if !local_uids.contains(&entry.uid) {
+            if !local_uid_set.contains(&entry.uid) {
                 continue; // New message — handled below.
             }
             if let Some((msg_id, old_flags, pending)) = find_message_by_uid_in_folder_with_pending(
@@ -399,6 +405,15 @@ fn sync_uid_diff(
         )?;
         0
     };
+
+    // Emit NewMailReceived event if new messages were fetched.
+    if bodies_fetched > 0 {
+        events.push(SyncEvent::NewMailReceived {
+            account_id: params.account_id.clone(),
+            folder_name: folder_name.to_string(),
+            bodies_fetched,
+        });
+    }
 
     Ok(IncrementalSyncResult {
         bodies_fetched,
@@ -500,6 +515,15 @@ pub(crate) fn incremental_sync_condstore_with_data(
 
     tx.commit()
         .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
+
+    // Emit NewMailReceived event if new messages were fetched.
+    if bodies_fetched > 0 {
+        events.push(SyncEvent::NewMailReceived {
+            account_id: account_id.to_string(),
+            folder_name: folder_name.to_string(),
+            bodies_fetched,
+        });
+    }
 
     Ok(IncrementalSyncResult {
         bodies_fetched,
@@ -613,6 +637,15 @@ pub(crate) fn incremental_sync_uid_diff_with_data(
     tx.commit()
         .map_err(|e| FetchError::Database(crate::services::database::DatabaseError::Sqlite(e)))?;
 
+    // Emit NewMailReceived event if new messages were fetched.
+    if bodies_fetched > 0 {
+        events.push(SyncEvent::NewMailReceived {
+            account_id: account_id.to_string(),
+            folder_name: folder_name.to_string(),
+            bodies_fetched,
+        });
+    }
+
     Ok(IncrementalSyncResult {
         bodies_fetched,
         flags_updated,
@@ -674,7 +707,7 @@ mod tests {
     use crate::services::folder_store::replace_folders;
     use crate::services::imap_client::{ChangedMessage, RawFetchedMessage};
     use crate::services::memory_content_store::MemoryContentStore;
-    use crate::services::message_store::find_message_by_uid_in_folder;
+    use crate::services::message_store::{count_messages, find_message_by_uid_in_folder};
     use tempfile::TempDir;
 
     fn setup_db() -> (TempDir, Connection) {
@@ -1431,6 +1464,346 @@ mod tests {
 
         assert_eq!(result.bodies_fetched, 1);
         assert_eq!(result.flags_updated, 1);
-        assert_eq!(result.events.len(), 1);
+        // 1 flag-change event + 1 NewMailReceived event.
+        assert_eq!(result.events.len(), 2);
+    }
+
+    // --- New message detection tests (story 10) ---
+
+    #[test]
+    fn condstore_new_message_emits_new_mail_received_event() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        let new_body = make_raw_email("Detected");
+        let changed = vec![ChangedMessage {
+            uid: 4,
+            flags: "\\Seen".to_string(),
+            modseq: Some(60),
+            body: Some(new_body),
+        }];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(60),
+            changed,
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 1);
+        // Should contain a NewMailReceived event.
+        let new_mail_events: Vec<_> = result
+            .events
+            .iter()
+            .filter(|e| matches!(e, SyncEvent::NewMailReceived { .. }))
+            .collect();
+        assert_eq!(new_mail_events.len(), 1);
+        match &new_mail_events[0] {
+            SyncEvent::NewMailReceived {
+                account_id,
+                folder_name,
+                bodies_fetched,
+            } => {
+                assert_eq!(account_id, "acct-1");
+                assert_eq!(folder_name, "INBOX");
+                assert_eq!(*bodies_fetched, 1);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn uid_diff_new_message_emits_new_mail_received_event() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        let new_body = make_raw_email("UidDiffDetected");
+        let new_messages = vec![RawFetchedMessage {
+            uid: 5,
+            flags: String::new(),
+            data: new_body,
+        }];
+
+        let result = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3, 5],
+            &[],
+            new_messages,
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 1);
+        let new_mail_events: Vec<_> = result
+            .events
+            .iter()
+            .filter(|e| matches!(e, SyncEvent::NewMailReceived { .. }))
+            .collect();
+        assert_eq!(new_mail_events.len(), 1);
+        match &new_mail_events[0] {
+            SyncEvent::NewMailReceived {
+                account_id,
+                folder_name,
+                bodies_fetched,
+            } => {
+                assert_eq!(account_id, "acct-1");
+                assert_eq!(folder_name, "INBOX");
+                assert_eq!(*bodies_fetched, 1);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn no_new_mail_event_when_no_new_messages() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // CONDSTORE: no changed messages.
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(50),
+            Vec::new(),
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 0);
+        let new_mail_events: Vec<_> = result
+            .events
+            .iter()
+            .filter(|e| matches!(e, SyncEvent::NewMailReceived { .. }))
+            .collect();
+        assert!(new_mail_events.is_empty());
+    }
+
+    #[test]
+    fn no_duplicates_on_repeated_sync_condstore() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // First sync: new message uid=4.
+        let new_body = make_raw_email("NoDup");
+        let changed = vec![ChangedMessage {
+            uid: 4,
+            flags: String::new(),
+            modseq: Some(60),
+            body: Some(new_body.clone()),
+        }];
+
+        let result1 = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(60),
+            changed,
+        )
+        .unwrap();
+        assert_eq!(result1.bodies_fetched, 1);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 4);
+
+        // Second sync: same message uid=4 reported again (e.g. flag change).
+        let changed2 = vec![ChangedMessage {
+            uid: 4,
+            flags: String::new(),
+            modseq: Some(60),
+            body: Some(new_body),
+        }];
+
+        let result2 = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(60),
+            changed2,
+        )
+        .unwrap();
+        // Should NOT create a duplicate — uid=4 already exists.
+        assert_eq!(result2.bodies_fetched, 0);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 4);
+    }
+
+    #[test]
+    fn no_duplicates_on_repeated_sync_uid_diff() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        // First sync: new message uid=4.
+        let new_body = make_raw_email("NoDupUid");
+        let new_messages = vec![RawFetchedMessage {
+            uid: 4,
+            flags: String::new(),
+            data: new_body.clone(),
+        }];
+
+        let result1 = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3, 4],
+            &[],
+            new_messages,
+        )
+        .unwrap();
+        assert_eq!(result1.bodies_fetched, 1);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 4);
+
+        // Second sync: uid=4 still on server.
+        let new_messages2 = vec![RawFetchedMessage {
+            uid: 4,
+            flags: String::new(),
+            data: new_body,
+        }];
+
+        let result2 = incremental_sync_uid_diff_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            None,
+            &[1, 2, 3, 4],
+            &[],
+            new_messages2,
+        )
+        .unwrap();
+        // uid=4 already in local store — should not be inserted again.
+        assert_eq!(result2.bodies_fetched, 0);
+        assert_eq!(count_messages(&conn, "acct-1").unwrap(), 4);
+    }
+
+    #[test]
+    fn new_message_has_correct_envelope_and_flags() {
+        let (_dir, conn) = setup_db();
+        let fid = folder_id(&conn);
+        let store = MemoryContentStore::new();
+
+        seed_initial_messages(&conn, fid);
+
+        let new_body = make_raw_email("EnvelopeCheck");
+        let changed = vec![ChangedMessage {
+            uid: 10,
+            flags: "\\Seen \\Flagged".to_string(),
+            modseq: Some(70),
+            body: Some(new_body),
+        }];
+
+        incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "INBOX",
+            100,
+            Some(70),
+            changed,
+        )
+        .unwrap();
+
+        // Verify the message was inserted with correct envelope and flags.
+        let (msg_id, flags) = find_message_by_uid_in_folder(&conn, "acct-1", 10, fid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(flags, FLAG_SEEN | FLAG_FLAGGED);
+
+        let msg = crate::services::message_store::load_message(&conn, msg_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(msg.subject.as_deref(), Some("EnvelopeCheck"));
+        assert_eq!(msg.uid, 10);
+        assert_eq!(msg.account_id, "acct-1");
+    }
+
+    #[test]
+    fn new_message_appears_in_correct_folder() {
+        let (_dir, conn) = setup_db();
+        let store = MemoryContentStore::new();
+
+        // Create a second folder.
+        let folders = vec![
+            ImapFolder {
+                name: "INBOX".to_string(),
+                attributes: "".to_string(),
+                role: None,
+            },
+            ImapFolder {
+                name: "Sent".to_string(),
+                attributes: "".to_string(),
+                role: None,
+            },
+        ];
+        replace_folders(&conn, "acct-1", &folders).unwrap();
+        let sent_fid = find_folder_id(&conn, "acct-1", "Sent").unwrap().unwrap();
+        update_folder_sync_state(&conn, sent_fid, 200, Some(10)).unwrap();
+
+        // New message in Sent folder.
+        let new_body = make_raw_email("SentMsg");
+        let changed = vec![ChangedMessage {
+            uid: 1,
+            flags: "\\Seen".to_string(),
+            modseq: Some(20),
+            body: Some(new_body),
+        }];
+
+        let result = incremental_sync_condstore_with_data(
+            &conn,
+            &store,
+            "acct-1",
+            "Sent",
+            200,
+            Some(20),
+            changed,
+        )
+        .unwrap();
+
+        assert_eq!(result.bodies_fetched, 1);
+
+        // Verify message is in Sent folder, not INBOX.
+        let found_in_sent = find_message_by_uid_in_folder(&conn, "acct-1", 1, sent_fid).unwrap();
+        assert!(found_in_sent.is_some());
+
+        let inbox_fid = find_folder_id(&conn, "acct-1", "INBOX").unwrap().unwrap();
+        let found_in_inbox = find_message_by_uid_in_folder(&conn, "acct-1", 1, inbox_fid).unwrap();
+        assert!(found_in_inbox.is_none());
+
+        // NewMailReceived event should reference "Sent".
+        match &result.events.last().unwrap() {
+            SyncEvent::NewMailReceived { folder_name, .. } => {
+                assert_eq!(folder_name, "Sent");
+            }
+            _ => panic!("expected NewMailReceived event"),
+        }
     }
 }

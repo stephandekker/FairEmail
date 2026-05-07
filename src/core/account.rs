@@ -310,6 +310,18 @@ impl std::fmt::Display for DateHeaderPreference {
     }
 }
 
+/// Policy that governs how message bodies are downloaded during sync (US-10, FR-6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum DownloadPolicy {
+    /// Download the full message (envelope + body + attachments).
+    #[default]
+    Full,
+    /// Download only the envelope / headers; body fetched on user request.
+    HeadersOnly,
+    /// No automatic download at all; everything fetched on explicit user action.
+    OnDemand,
+}
+
 /// Advanced fetch settings per account (FR-51, FR-53).
 /// All fields default to their "off" / unset state so that
 /// accounts created before this feature was added deserialize cleanly.
@@ -330,6 +342,9 @@ pub struct FetchSettings {
     /// Enable UTF-8 (IMAP UTF8=ACCEPT) support for this account (FR-51).
     #[serde(default)]
     pub utf8_support: bool,
+    /// Body download policy for new messages during sync (US-10, FR-6).
+    #[serde(default)]
+    pub download_policy: DownloadPolicy,
 }
 
 /// Advanced keep-alive settings per account (FR-52, FR-53).
@@ -3184,6 +3199,7 @@ mod tests {
             ignore_size_limits: true,
             date_header_preference: DateHeaderPreference::ReceivedHeader,
             utf8_support: true,
+            ..Default::default()
         });
         let acct = Account::new(p).unwrap();
         let fs = acct.fetch_settings().unwrap();
@@ -3248,6 +3264,7 @@ mod tests {
             ignore_size_limits: true,
             date_header_preference: DateHeaderPreference::ReceivedHeader,
             utf8_support: true,
+            ..Default::default()
         });
         let acct = Account::new(p).unwrap();
         let json = serde_json::to_string(&acct).unwrap();

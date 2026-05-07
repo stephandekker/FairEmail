@@ -150,6 +150,7 @@ pub fn create_account_and_identity(
         ignore_size_limits: false,
         date_header_preference: Default::default(),
         utf8_support: false,
+        ..Default::default()
     });
 
     // Apply provider security overrides (FR-28, FR-29) and certificate fingerprint.
