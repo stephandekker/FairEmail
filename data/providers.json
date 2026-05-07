@@ -1,0 +1,6521 @@
+[
+  {
+    "id": "gmail",
+    "display_name": "Gmail (Google)",
+    "domain_patterns": [
+      "gmail.com",
+      "googlemail.com",
+      "google.com"
+    ],
+    "mx_patterns": [
+      "*.google.com",
+      "*.googlemail.com"
+    ],
+    "incoming": {
+      "hostname": "imap.gmail.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.gmail.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": true,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": true,
+    "documentation_url": "https://support.google.com/mail/answer/7126229",
+    "localized_docs": [
+      {
+        "locale": "en",
+        "text": "Enable IMAP in Gmail settings. Use an App Password if 2FA is enabled."
+      }
+    ],
+    "oauth": {
+      "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_url": "https://oauth2.googleapis.com/token",
+      "redirect_uri": "http://127.0.0.1/callback",
+      "scopes": [
+        "https://mail.google.com/"
+      ],
+      "client_id": null,
+      "client_secret": null,
+      "pkce_required": true,
+      "extra_params": [
+        [
+          "prompt",
+          "consent"
+        ],
+        [
+          "access_type",
+          "offline"
+        ]
+      ],
+      "userinfo_url": null,
+      "privacy_policy_url": "https://policies.google.com/privacy",
+      "status": "Enabled"
+    },
+    "display_order": 1,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": "https://accounts.google.com/signup",
+    "app_password_url": "https://myaccount.google.com/apppasswords",
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "outlook",
+    "display_name": "Outlook.com (Microsoft)",
+    "domain_patterns": [
+      "outlook.com",
+      "hotmail.com",
+      "live.com",
+      "msn.com",
+      "hotmail.co.uk",
+      "hotmail.fr",
+      "hotmail.de",
+      "hotmail.it",
+      "hotmail.es",
+      "live.co.uk",
+      "live.fr",
+      "outlook.de",
+      "outlook.fr",
+      "outlook.co.uk"
+    ],
+    "mx_patterns": [
+      "*.outlook.com"
+    ],
+    "incoming": {
+      "hostname": "outlook.office365.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.office365.com",
+      "port": 587,
+      "encryption": "StartTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": "https://support.microsoft.com/en-us/office/pop-imap-and-smtp-settings-8361e398-8af4-4e97-b147-6c6c4ac95353",
+    "localized_docs": [
+      {
+        "locale": "en",
+        "text": "Microsoft requires OAuth2 for Outlook.com accounts."
+      }
+    ],
+    "oauth": {
+      "auth_url": "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+      "redirect_uri": "http://127.0.0.1/callback",
+      "scopes": [
+        "https://outlook.office365.com/IMAP.AccessAsUser.All",
+        "https://outlook.office365.com/SMTP.Send",
+        "https://graph.microsoft.com/Mail.Send",
+        "offline_access"
+      ],
+      "client_id": null,
+      "client_secret": null,
+      "pkce_required": true,
+      "extra_params": [
+        [
+          "prompt",
+          "consent"
+        ]
+      ],
+      "userinfo_url": null,
+      "privacy_policy_url": "https://privacy.microsoft.com/en-us/privacystatement",
+      "status": "Enabled"
+    },
+    "display_order": 2,
+    "enabled": true,
+    "supports_shared_mailbox": true,
+    "subtitle": null,
+    "registration_url": "https://signup.live.com/",
+    "app_password_url": null,
+    "graph": {
+      "auth_url": "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+      "redirect_uri": "http://127.0.0.1/callback",
+      "scopes": [
+        "https://graph.microsoft.com/Mail.Send",
+        "offline_access"
+      ],
+      "client_id": null,
+      "client_secret": null,
+      "pkce_required": true,
+      "extra_params": [
+        [
+          "prompt",
+          "consent"
+        ]
+      ],
+      "userinfo_url": null,
+      "privacy_policy_url": "https://privacy.microsoft.com/en-us/privacystatement",
+      "status": "Enabled"
+    },
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "yahoo",
+    "display_name": "Yahoo Mail",
+    "domain_patterns": [
+      "yahoo.com",
+      "yahoo.co.uk",
+      "yahoo.co.jp",
+      "yahoo.fr",
+      "yahoo.de",
+      "yahoo.it",
+      "yahoo.es",
+      "yahoo.com.br",
+      "yahoo.com.au",
+      "ymail.com",
+      "rocketmail.com"
+    ],
+    "mx_patterns": [
+      "*.yahoodns.net"
+    ],
+    "incoming": {
+      "hostname": "imap.mail.yahoo.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.mail.yahoo.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": true,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": "https://help.yahoo.com/kb/imap-server-settings-sln4075.html",
+    "localized_docs": [
+      {
+        "locale": "en",
+        "text": "Use an App Password for third-party mail apps. Generate one in your Yahoo account security settings."
+      }
+    ],
+    "oauth": {
+      "auth_url": "https://api.login.yahoo.com/oauth2/request_auth",
+      "token_url": "https://api.login.yahoo.com/oauth2/get_token",
+      "redirect_uri": "http://127.0.0.1/callback",
+      "scopes": [
+        "mail-w"
+      ],
+      "client_id": null,
+      "client_secret": null,
+      "pkce_required": true,
+      "extra_params": [],
+      "userinfo_url": null,
+      "privacy_policy_url": "https://legal.yahoo.com/us/en/yahoo/privacy/index.html",
+      "status": "Enabled"
+    },
+    "display_order": 3,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": "https://login.yahoo.com/account/create",
+    "app_password_url": "https://login.yahoo.com/myaccount/security/app-password",
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "icloud",
+    "display_name": "iCloud Mail (Apple)",
+    "domain_patterns": [
+      "icloud.com",
+      "me.com",
+      "mac.com"
+    ],
+    "mx_patterns": [
+      "*.icloud.com"
+    ],
+    "incoming": {
+      "hostname": "imap.mail.me.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.mail.me.com",
+      "port": 587,
+      "encryption": "StartTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": true,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": "https://support.apple.com/en-us/102525",
+    "localized_docs": [
+      {
+        "locale": "en",
+        "text": "Generate an app-specific password at appleid.apple.com to use iCloud Mail with third-party apps."
+      }
+    ],
+    "oauth": null,
+    "display_order": 4,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": "https://appleid.apple.com/account/manage/section/security",
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "aol",
+    "display_name": "AOL Mail",
+    "domain_patterns": [
+      "aol.com",
+      "aim.com",
+      "netscape.net"
+    ],
+    "mx_patterns": [
+      "*.yahoodns.net"
+    ],
+    "incoming": {
+      "hostname": "imap.aol.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.aol.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": true,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": {
+      "auth_url": "https://api.login.aol.com/oauth2/request_auth",
+      "token_url": "https://api.login.aol.com/oauth2/get_token",
+      "redirect_uri": "http://127.0.0.1/callback",
+      "scopes": [
+        "mail-w"
+      ],
+      "client_id": null,
+      "client_secret": null,
+      "pkce_required": true,
+      "extra_params": [],
+      "userinfo_url": null,
+      "privacy_policy_url": "https://legal.yahoo.com/us/en/yahoo/privacy/index.html",
+      "status": "Enabled"
+    },
+    "display_order": 5,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "mailru",
+    "display_name": "Mail.ru",
+    "domain_patterns": [
+      "mail.ru",
+      "inbox.ru",
+      "list.ru",
+      "bk.ru",
+      "internet.ru"
+    ],
+    "mx_patterns": [
+      "*.mail.ru"
+    ],
+    "incoming": {
+      "hostname": "imap.mail.ru",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.mail.ru",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": true,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": true,
+    "documentation_url": null,
+    "localized_docs": [
+      {
+        "locale": "en",
+        "text": "Enable IMAP access in Mail.ru settings and generate an app password."
+      }
+    ],
+    "oauth": {
+      "auth_url": "https://oauth.mail.ru/login",
+      "token_url": "https://oauth.mail.ru/token",
+      "redirect_uri": "http://127.0.0.1/callback",
+      "scopes": [
+        "mail.imap"
+      ],
+      "client_id": null,
+      "client_secret": null,
+      "pkce_required": true,
+      "extra_params": [],
+      "userinfo_url": "https://oauth.mail.ru/userinfo",
+      "privacy_policy_url": "https://help.mail.ru/legal/terms/privacy",
+      "status": "Enabled"
+    },
+    "display_order": 6,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": "https://account.mail.ru/user/2-step-auth/passwords/",
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "yandex",
+    "display_name": "Yandex Mail",
+    "domain_patterns": [
+      "yandex.ru",
+      "yandex.com",
+      "yandex.ua",
+      "yandex.by",
+      "yandex.kz",
+      "ya.ru",
+      "narod.ru"
+    ],
+    "mx_patterns": [
+      "*.yandex.ru"
+    ],
+    "incoming": {
+      "hostname": "imap.yandex.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.yandex.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": true,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": {
+      "auth_url": "https://oauth.yandex.com/authorize",
+      "token_url": "https://oauth.yandex.com/token",
+      "redirect_uri": "http://127.0.0.1/callback",
+      "scopes": [
+        "mail:imap_full"
+      ],
+      "client_id": null,
+      "client_secret": null,
+      "pkce_required": true,
+      "extra_params": [
+        [
+          "force_confirm",
+          "true"
+        ]
+      ],
+      "userinfo_url": null,
+      "privacy_policy_url": "https://yandex.com/legal/confidential/",
+      "status": "Enabled"
+    },
+    "display_order": 7,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "protonmail",
+    "display_name": "Proton Mail",
+    "domain_patterns": [
+      "protonmail.com",
+      "proton.me",
+      "pm.me",
+      "protonmail.ch"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "127.0.0.1",
+      "port": 1143,
+      "encryption": "StartTls"
+    },
+    "outgoing": {
+      "hostname": "127.0.0.1",
+      "port": 1025,
+      "encryption": "StartTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": false,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": "https://proton.me/support/protonmail-bridge-configure-client",
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 8,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "zoho",
+    "display_name": "Zoho Mail",
+    "domain_patterns": [
+      "zoho.com",
+      "zohomail.com",
+      "zoho.eu",
+      "zoho.in"
+    ],
+    "mx_patterns": [
+      "*.zoho.com"
+    ],
+    "incoming": {
+      "hostname": "imap.zoho.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.zoho.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": "https://www.zoho.com/mail/help/imap-access.html",
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 9,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "gmx",
+    "display_name": "GMX Mail",
+    "domain_patterns": [
+      "gmx.de",
+      "gmx.net",
+      "gmx.at",
+      "gmx.ch",
+      "gmx.com",
+      "gmx.fr"
+    ],
+    "mx_patterns": [
+      "*.gmx.net"
+    ],
+    "incoming": {
+      "hostname": "imap.gmx.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.gmx.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 10,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "webde",
+    "display_name": "Web.de",
+    "domain_patterns": [
+      "web.de"
+    ],
+    "mx_patterns": [
+      "*.web.de"
+    ],
+    "incoming": {
+      "hostname": "imap.web.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.web.de",
+      "port": 587,
+      "encryption": "StartTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 11,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "tonline",
+    "display_name": "T-Online",
+    "domain_patterns": [
+      "t-online.de",
+      "magenta.de"
+    ],
+    "mx_patterns": [
+      "*.t-online.de"
+    ],
+    "incoming": {
+      "hostname": "secureimap.t-online.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "securesmtp.t-online.de",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 12,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "office365",
+    "display_name": "Microsoft 365",
+    "domain_patterns": [
+      "office365.com"
+    ],
+    "mx_patterns": [
+      "*.outlook.com",
+      "*.protection.outlook.com"
+    ],
+    "incoming": {
+      "hostname": "outlook.office365.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.office365.com",
+      "port": 587,
+      "encryption": "StartTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": {
+      "auth_url": "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+      "redirect_uri": "http://127.0.0.1/callback",
+      "scopes": [
+        "https://outlook.office365.com/IMAP.AccessAsUser.All",
+        "https://outlook.office365.com/SMTP.Send",
+        "https://graph.microsoft.com/Mail.Send",
+        "offline_access"
+      ],
+      "client_id": null,
+      "client_secret": null,
+      "pkce_required": true,
+      "extra_params": [
+        [
+          "prompt",
+          "consent"
+        ]
+      ],
+      "userinfo_url": null,
+      "privacy_policy_url": "https://privacy.microsoft.com/en-us/privacystatement",
+      "status": "Enabled"
+    },
+    "display_order": 13,
+    "enabled": true,
+    "supports_shared_mailbox": true,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": {
+      "auth_url": "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+      "redirect_uri": "http://127.0.0.1/callback",
+      "scopes": [
+        "https://graph.microsoft.com/Mail.Send",
+        "offline_access"
+      ],
+      "client_id": null,
+      "client_secret": null,
+      "pkce_required": true,
+      "extra_params": [
+        [
+          "prompt",
+          "consent"
+        ]
+      ],
+      "userinfo_url": null,
+      "privacy_policy_url": "https://privacy.microsoft.com/en-us/privacystatement",
+      "status": "Enabled"
+    },
+    "debug_only": false,
+    "variant_of": "outlook"
+  },
+  {
+    "id": "comcast",
+    "display_name": "Comcast (Xfinity)",
+    "domain_patterns": [
+      "comcast.net",
+      "xfinity.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.comcast.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.comcast.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 14,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "cox",
+    "display_name": "Cox Communications",
+    "domain_patterns": [
+      "cox.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.cox.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.cox.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 15,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "att",
+    "display_name": "AT&T Mail",
+    "domain_patterns": [
+      "att.net",
+      "sbcglobal.net",
+      "bellsouth.net",
+      "pacbell.net",
+      "ameritech.net",
+      "flash.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.mail.att.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.mail.att.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 16,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "verizon",
+    "display_name": "Verizon",
+    "domain_patterns": [
+      "verizon.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "incoming.verizon.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.verizon.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 17,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "qq",
+    "display_name": "QQ Mail",
+    "domain_patterns": [
+      "qq.com",
+      "foxmail.com"
+    ],
+    "mx_patterns": [
+      "*.qq.com"
+    ],
+    "incoming": {
+      "hostname": "imap.qq.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.qq.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": true,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 18,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "163",
+    "display_name": "163 Mail (NetEase)",
+    "domain_patterns": [
+      "163.com",
+      "126.com",
+      "yeah.net"
+    ],
+    "mx_patterns": [
+      "*.163.com"
+    ],
+    "incoming": {
+      "hostname": "imap.163.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.163.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": true,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": {
+      "auth_url": "https://mail.163.com/oauth2/authorize",
+      "token_url": "https://mail.163.com/oauth2/token",
+      "redirect_uri": "http://127.0.0.1/callback",
+      "scopes": [
+        "mail.imap"
+      ],
+      "client_id": null,
+      "client_secret": null,
+      "pkce_required": true,
+      "extra_params": [],
+      "userinfo_url": null,
+      "privacy_policy_url": null,
+      "status": "Enabled"
+    },
+    "display_order": 19,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "sina",
+    "display_name": "Sina Mail",
+    "domain_patterns": [
+      "sina.com",
+      "sina.cn"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.sina.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.sina.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_2",
+    "app_password_required": true,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 20,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "freenet",
+    "display_name": "Freenet",
+    "domain_patterns": [
+      "freenet.de"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mx.freenet.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mx.freenet.de",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 21,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "posteo",
+    "display_name": "Posteo",
+    "domain_patterns": [
+      "posteo.de",
+      "posteo.net",
+      "posteo.eu"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "posteo.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "posteo.de",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 22,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "mailbox_org",
+    "display_name": "Mailbox.org",
+    "domain_patterns": [
+      "mailbox.org"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.mailbox.org",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.mailbox.org",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 23,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "ionos",
+    "display_name": "IONOS (1&1)",
+    "domain_patterns": [
+      "ionos.de",
+      "online.de",
+      "onlinehome.de"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.ionos.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.ionos.de",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 24,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "arcor",
+    "display_name": "Arcor",
+    "domain_patterns": [
+      "arcor.de"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.arcor.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.arcor.de",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 25,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "orange_fr",
+    "display_name": "Orange (France)",
+    "domain_patterns": [
+      "orange.fr",
+      "wanadoo.fr",
+      "voila.fr"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.orange.fr",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.orange.fr",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 26,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "sfr",
+    "display_name": "SFR",
+    "domain_patterns": [
+      "sfr.fr",
+      "neuf.fr",
+      "club-internet.fr"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.sfr.fr",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.sfr.fr",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 27,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "free_fr",
+    "display_name": "Free (France)",
+    "domain_patterns": [
+      "free.fr",
+      "aliceadsl.fr"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.free.fr",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.free.fr",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 28,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "laposte",
+    "display_name": "La Poste",
+    "domain_patterns": [
+      "laposte.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.laposte.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.laposte.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 29,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "libero",
+    "display_name": "Libero Mail",
+    "domain_patterns": [
+      "libero.it",
+      "inwind.it",
+      "iol.it",
+      "blu.it"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imapmail.libero.it",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.libero.it",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 30,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "tiscali_it",
+    "display_name": "Tiscali (Italy)",
+    "domain_patterns": [
+      "tiscali.it"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.tiscali.it",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.tiscali.it",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 31,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "virgilio",
+    "display_name": "Virgilio",
+    "domain_patterns": [
+      "virgilio.it"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.virgilio.it",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.virgilio.it",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 32,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "aruba_it",
+    "display_name": "Aruba (Italy)",
+    "domain_patterns": [
+      "aruba.it"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imaps.aruba.it",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtps.aruba.it",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 33,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "tim_it",
+    "display_name": "TIM Mail (Italy)",
+    "domain_patterns": [
+      "tim.it",
+      "alice.it"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.tim.it",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.tim.it",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 34,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "telefonica",
+    "display_name": "Telefonica",
+    "domain_patterns": [
+      "telefonica.net",
+      "movistar.es"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.telefonica.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.telefonica.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 35,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "ziggo",
+    "display_name": "Ziggo",
+    "domain_patterns": [
+      "ziggo.nl"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.ziggo.nl",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.ziggo.nl",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 36,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "kpn",
+    "display_name": "KPN Mail",
+    "domain_patterns": [
+      "kpnmail.nl",
+      "planet.nl",
+      "hetnet.nl"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.kpnmail.nl",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.kpnmail.nl",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 37,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "btinternet",
+    "display_name": "BT Internet",
+    "domain_patterns": [
+      "btinternet.com",
+      "btopenworld.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mail.btinternet.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.btinternet.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 38,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "sky_uk",
+    "display_name": "Sky (UK)",
+    "domain_patterns": [
+      "sky.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.tools.sky.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.tools.sky.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 39,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "talktalk",
+    "display_name": "TalkTalk",
+    "domain_patterns": [
+      "talktalk.net",
+      "tiscali.co.uk"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.talktalk.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.talktalk.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 40,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "virginmedia",
+    "display_name": "Virgin Media",
+    "domain_patterns": [
+      "virginmedia.com",
+      "ntlworld.com",
+      "blueyonder.co.uk"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.virginmedia.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.virginmedia.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 41,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "telia_se",
+    "display_name": "Telia (Sweden)",
+    "domain_patterns": [
+      "telia.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mail.telia.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.telia.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 42,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "bredband",
+    "display_name": "Bredbandsbolaget",
+    "domain_patterns": [
+      "bredband.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.bredband.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.bredband.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 43,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "telenor_no",
+    "display_name": "Telenor (Norway)",
+    "domain_patterns": [
+      "telenor.no",
+      "online.no"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.telenor.no",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.telenor.no",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 44,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "tele2",
+    "display_name": "Tele2",
+    "domain_patterns": [
+      "tele2.se",
+      "tele2.nl"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.tele2.se",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.tele2.se",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 45,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "rambler",
+    "display_name": "Rambler",
+    "domain_patterns": [
+      "rambler.ru",
+      "lenta.ru",
+      "autorambler.ru",
+      "myrambler.ru",
+      "ro.ru"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.rambler.ru",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.rambler.ru",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 46,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "ukr_net",
+    "display_name": "UKR.NET",
+    "domain_patterns": [
+      "ukr.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.ukr.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.ukr.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 47,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "i_ua",
+    "display_name": "I.UA",
+    "domain_patterns": [
+      "i.ua"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.i.ua",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.i.ua",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 48,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "meta_ua",
+    "display_name": "Meta.ua",
+    "domain_patterns": [
+      "meta.ua"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.meta.ua",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.meta.ua",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 49,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "nifty",
+    "display_name": "Nifty",
+    "domain_patterns": [
+      "nifty.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.nifty.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.nifty.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_2",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 50,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "biglobe",
+    "display_name": "BIGLOBE",
+    "domain_patterns": [
+      "biglobe.ne.jp"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mail.biglobe.ne.jp",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.biglobe.ne.jp",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_2",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 51,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "ocn",
+    "display_name": "OCN",
+    "domain_patterns": [
+      "ocn.ne.jp"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.ocn.ne.jp",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.ocn.ne.jp",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_2",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 52,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "so_net",
+    "display_name": "So-net",
+    "domain_patterns": [
+      "so-net.ne.jp"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.so-net.ne.jp",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.so-net.ne.jp",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_2",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 53,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "naver",
+    "display_name": "Naver Mail",
+    "domain_patterns": [
+      "naver.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.naver.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.naver.com",
+      "port": 587,
+      "encryption": "StartTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 54,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "daum",
+    "display_name": "Daum / Kakao Mail",
+    "domain_patterns": [
+      "daum.net",
+      "hanmail.net",
+      "kakao.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.daum.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.daum.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 55,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "rediffmail",
+    "display_name": "Rediffmail",
+    "domain_patterns": [
+      "rediffmail.com",
+      "rediff.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.rediffmail.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.rediffmail.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_2",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 56,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "uol",
+    "display_name": "UOL Mail",
+    "domain_patterns": [
+      "uol.com.br",
+      "bol.com.br"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.uol.com.br",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtps.uol.com.br",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 57,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "terra_br",
+    "display_name": "Terra (Brazil)",
+    "domain_patterns": [
+      "terra.com.br"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.terra.com.br",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.terra.com.br",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 58,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "ig",
+    "display_name": "iG Mail",
+    "domain_patterns": [
+      "ig.com.br"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.ig.com.br",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.ig.com.br",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_2",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 59,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "optus",
+    "display_name": "Optus",
+    "domain_patterns": [
+      "optusnet.com.au"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mail.optusnet.com.au",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.optusnet.com.au",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 60,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "bigpond",
+    "display_name": "Bigpond (Telstra)",
+    "domain_patterns": [
+      "bigpond.com",
+      "bigpond.net.au",
+      "telstra.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.telstra.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.telstra.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 61,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "iinet",
+    "display_name": "iiNet",
+    "domain_patterns": [
+      "iinet.net.au"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mail.iinet.net.au",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.iinet.net.au",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 62,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "shaw",
+    "display_name": "Shaw",
+    "domain_patterns": [
+      "shaw.ca"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.shaw.ca",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.shaw.ca",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 63,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "rogers",
+    "display_name": "Rogers",
+    "domain_patterns": [
+      "rogers.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.rogers.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.rogers.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 64,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "bell_ca",
+    "display_name": "Bell Canada",
+    "domain_patterns": [
+      "bell.net",
+      "sympatico.ca"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.bell.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.bell.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 65,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "tutanota",
+    "display_name": "Tutanota",
+    "domain_patterns": [
+      "tutanota.com",
+      "tutanota.de",
+      "tuta.io",
+      "tutamail.com",
+      "keemail.me"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.tutanota.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.tutanota.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 66,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "fastmail",
+    "display_name": "Fastmail",
+    "domain_patterns": [
+      "fastmail.com",
+      "fastmail.fm",
+      "messagingengine.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.fastmail.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.fastmail.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": {
+      "auth_url": "https://api.fastmail.com/oauth/authorize",
+      "token_url": "https://api.fastmail.com/oauth/refresh",
+      "redirect_uri": "http://127.0.0.1/callback",
+      "scopes": [
+        "urn:ietf:params:jmap:mail",
+        "urn:ietf:params:jmap:submission"
+      ],
+      "client_id": null,
+      "client_secret": null,
+      "pkce_required": true,
+      "extra_params": [],
+      "userinfo_url": null,
+      "privacy_policy_url": "https://www.fastmail.com/about/privacy/",
+      "status": "Enabled"
+    },
+    "display_order": 67,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "runbox",
+    "display_name": "Runbox",
+    "domain_patterns": [
+      "runbox.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mail.runbox.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.runbox.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 68,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "mailfence",
+    "display_name": "Mailfence",
+    "domain_patterns": [
+      "mailfence.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.mailfence.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.mailfence.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 69,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "disroot",
+    "display_name": "Disroot",
+    "domain_patterns": [
+      "disroot.org"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "disroot.org",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "disroot.org",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 70,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "riseup",
+    "display_name": "Riseup",
+    "domain_patterns": [
+      "riseup.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mail.riseup.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.riseup.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 71,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "kolab",
+    "display_name": "Kolab Now",
+    "domain_patterns": [
+      "kolabnow.com",
+      "mykolab.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.kolabnow.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.kolabnow.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 72,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "autistici",
+    "display_name": "Autistici",
+    "domain_patterns": [
+      "autistici.org",
+      "inventati.org"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mail.autistici.org",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.autistici.org",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 73,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "namecheap",
+    "display_name": "Namecheap Email",
+    "domain_patterns": [
+      "privateemail.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mail.privateemail.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.privateemail.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 74,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "gandi",
+    "display_name": "Gandi Mail",
+    "domain_patterns": [
+      "gandi.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mail.gandi.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.gandi.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 75,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "hover",
+    "display_name": "Hover",
+    "domain_patterns": [
+      "hover.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mail.hover.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.hover.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 76,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "migadu",
+    "display_name": "Migadu",
+    "domain_patterns": [
+      "migadu.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.migadu.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.migadu.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 77,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "mxroute",
+    "display_name": "MXroute",
+    "domain_patterns": [
+      "mxroute.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.mxroute.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.mxroute.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 78,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "wp_pl",
+    "display_name": "WP.pl (Wirtualna Polska)",
+    "domain_patterns": [
+      "wp.pl"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.wp.pl",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.wp.pl",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 79,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "onet_pl",
+    "display_name": "Onet.pl",
+    "domain_patterns": [
+      "onet.pl",
+      "onet.eu",
+      "op.pl",
+      "vp.pl",
+      "poczta.onet.pl"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.poczta.onet.pl",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.poczta.onet.pl",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 80,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "interia_pl",
+    "display_name": "Interia.pl",
+    "domain_patterns": [
+      "interia.pl",
+      "interia.eu",
+      "poczta.fm"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.interia.pl",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.interia.pl",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 81,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "o2_pl",
+    "display_name": "O2.pl",
+    "domain_patterns": [
+      "o2.pl",
+      "tlen.pl"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "poczta.o2.pl",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "poczta.o2.pl",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 82,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "seznam",
+    "display_name": "Seznam.cz",
+    "domain_patterns": [
+      "seznam.cz",
+      "email.cz",
+      "post.cz",
+      "spoluzaci.cz"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.seznam.cz",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.seznam.cz",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 83,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "centrum_cz",
+    "display_name": "Centrum.cz",
+    "domain_patterns": [
+      "centrum.cz",
+      "centrum.sk"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.centrum.cz",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.centrum.cz",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 84,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "yandex_tr",
+    "display_name": "Yandex (Turkey)",
+    "domain_patterns": [
+      "yandex.com.tr"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.yandex.com.tr",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.yandex.com.tr",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 85,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "sapo",
+    "display_name": "SAPO Mail",
+    "domain_patterns": [
+      "sapo.pt"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.sapo.pt",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.sapo.pt",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 86,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "bluewin",
+    "display_name": "Bluewin (Swisscom)",
+    "domain_patterns": [
+      "bluewin.ch"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imaps.bluewin.ch",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtps.bluewin.ch",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 87,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "gmx_ch",
+    "display_name": "GMX.ch",
+    "domain_patterns": [
+      "gmx.ch"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.gmx.ch",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mail.gmx.ch",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 88,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "a1_at",
+    "display_name": "A1 (Austria)",
+    "domain_patterns": [
+      "a1.net",
+      "aon.at"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.a1.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.a1.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 89,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "chello_at",
+    "display_name": "Chello (Austria)",
+    "domain_patterns": [
+      "chello.at"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.chello.at",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.chello.at",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 90,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "telenet_be",
+    "display_name": "Telenet (Belgium)",
+    "domain_patterns": [
+      "telenet.be"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.telenet.be",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.telenet.be",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 91,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "skynet_be",
+    "display_name": "Skynet (Proximus)",
+    "domain_patterns": [
+      "skynet.be",
+      "proximus.be"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.skynet.be",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.skynet.be",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 92,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "sohu",
+    "display_name": "Sohu Mail",
+    "domain_patterns": [
+      "sohu.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.sohu.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.sohu.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_2",
+    "app_password_required": true,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 93,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "aliyun",
+    "display_name": "Aliyun Mail",
+    "domain_patterns": [
+      "aliyun.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.aliyun.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.aliyun.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 94,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "tom",
+    "display_name": "Tom.com",
+    "domain_patterns": [
+      "tom.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.tom.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.tom.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_2",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 95,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "_21cn",
+    "display_name": "21CN",
+    "domain_patterns": [
+      "21cn.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.21cn.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.21cn.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_2",
+    "app_password_required": true,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 96,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "hinet",
+    "display_name": "HiNet",
+    "domain_patterns": [
+      "hinet.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "msa.hinet.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "msa.hinet.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_2",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 97,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "singnet",
+    "display_name": "SingNet",
+    "domain_patterns": [
+      "singnet.com.sg"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.singnet.com.sg",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.singnet.com.sg",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 98,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "tm_net",
+    "display_name": "TM Net (Malaysia)",
+    "domain_patterns": [
+      "tm.net.my",
+      "streamyx.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.tm.net.my",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.tm.net.my",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 99,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "prodigy",
+    "display_name": "Prodigy (Telmex)",
+    "domain_patterns": [
+      "prodigy.net.mx"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.prodigy.net.mx",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.prodigy.net.mx",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 100,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "fibertel",
+    "display_name": "Fibertel",
+    "domain_patterns": [
+      "fibertel.com.ar"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.fibertel.com.ar",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.fibertel.com.ar",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 101,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "arnet",
+    "display_name": "Arnet",
+    "domain_patterns": [
+      "arnet.com.ar"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.arnet.com.ar",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.arnet.com.ar",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 102,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "mweb",
+    "display_name": "MWEB",
+    "domain_patterns": [
+      "mweb.co.za"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.mweb.co.za",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.mweb.co.za",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 103,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "webmail_co_za",
+    "display_name": "Web Mail (ZA)",
+    "domain_patterns": [
+      "webmail.co.za"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.webmail.co.za",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.webmail.co.za",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 104,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "emirates",
+    "display_name": "Emirates (UAE)",
+    "domain_patterns": [
+      "emirates.net.ae"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.emirates.net.ae",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.emirates.net.ae",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 105,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "otenet",
+    "display_name": "OTEnet (Greece)",
+    "domain_patterns": [
+      "otenet.gr"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.otenet.gr",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.otenet.gr",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 106,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "forthnet",
+    "display_name": "Forthnet (Greece)",
+    "domain_patterns": [
+      "forthnet.gr"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.forthnet.gr",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.forthnet.gr",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 107,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "freemail_hu",
+    "display_name": "Freemail.hu",
+    "domain_patterns": [
+      "freemail.hu",
+      "citromail.hu"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.freemail.hu",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.freemail.hu",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 108,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "t_online_hu",
+    "display_name": "T-Online Hungary",
+    "domain_patterns": [
+      "t-online.hu"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.t-online.hu",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.t-online.hu",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 109,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "rdslink",
+    "display_name": "RDS (Romania)",
+    "domain_patterns": [
+      "rdslink.ro",
+      "rds.ro"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.rdslink.ro",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.rdslink.ro",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 110,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "elisa_fi",
+    "display_name": "Elisa (Finland)",
+    "domain_patterns": [
+      "elisa.fi",
+      "kolumbus.fi",
+      "saunalahti.fi"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.elisa.fi",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.elisa.fi",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 111,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "pp_fi",
+    "display_name": "PP (Finland)",
+    "domain_patterns": [
+      "pp.inet.fi",
+      "luukku.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.pp.inet.fi",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.pp.inet.fi",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 112,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "jubii",
+    "display_name": "Jubii",
+    "domain_patterns": [
+      "jubii.dk"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.jubii.dk",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.jubii.dk",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 113,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "tdcadsl",
+    "display_name": "TDC",
+    "domain_patterns": [
+      "tdcadsl.dk",
+      "tdc.dk"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.mail.dk",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.mail.dk",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 114,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "start_no",
+    "display_name": "Start.no",
+    "domain_patterns": [
+      "start.no"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.start.no",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.start.no",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 115,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "xtra",
+    "display_name": "Xtra (NZ)",
+    "domain_patterns": [
+      "xtra.co.nz"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.xtra.co.nz",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.xtra.co.nz",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 116,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "vodafone_nz",
+    "display_name": "Vodafone NZ",
+    "domain_patterns": [
+      "vodafone.co.nz"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.vodafone.co.nz",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.vodafone.co.nz",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 117,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "soverin",
+    "display_name": "Soverin",
+    "domain_patterns": [
+      "soverin.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.soverin.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.soverin.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 118,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "countermail",
+    "display_name": "CounterMail",
+    "domain_patterns": [
+      "countermail.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.countermail.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.countermail.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 119,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "ctemplar",
+    "display_name": "CTemplar",
+    "domain_patterns": [
+      "ctemplar.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.ctemplar.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.ctemplar.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 120,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "edu_google",
+    "display_name": "Google Workspace (Education)",
+    "domain_patterns": [
+      "*.edu"
+    ],
+    "mx_patterns": [
+      "*.google.com",
+      "*.googlemail.com"
+    ],
+    "incoming": {
+      "hostname": "imap.gmail.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.gmail.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 121,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "charter",
+    "display_name": "Charter / Spectrum",
+    "domain_patterns": [
+      "charter.net",
+      "roadrunner.com",
+      "rr.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "mobile.charter.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "mobile.charter.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 122,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "centurylink",
+    "display_name": "CenturyLink",
+    "domain_patterns": [
+      "centurylink.net",
+      "centurytel.net",
+      "embarqmail.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.centurylink.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.centurylink.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 123,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "earthlink",
+    "display_name": "EarthLink",
+    "domain_patterns": [
+      "earthlink.net",
+      "mindspring.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.earthlink.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.earthlink.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 124,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "windstream",
+    "display_name": "Windstream",
+    "domain_patterns": [
+      "windstream.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.windstream.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.windstream.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 125,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "frontier",
+    "display_name": "Frontier",
+    "domain_patterns": [
+      "frontier.com",
+      "frontiernet.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.frontier.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.frontier.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 126,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "mail_com",
+    "display_name": "Mail.com",
+    "domain_patterns": [
+      "mail.com",
+      "email.com",
+      "usa.com",
+      "consultant.com",
+      "europe.com",
+      "asia.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.mail.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.mail.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 127,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "inbox_lv",
+    "display_name": "Inbox.lv",
+    "domain_patterns": [
+      "inbox.lv"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.inbox.lv",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.inbox.lv",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 128,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "one_com",
+    "display_name": "One.com",
+    "domain_patterns": [
+      "one.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.one.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "send.one.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 129,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "strato",
+    "display_name": "Strato",
+    "domain_patterns": [
+      "strato.de"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.strato.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.strato.de",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 130,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "mailbox_hu",
+    "display_name": "Mailbox.hu",
+    "domain_patterns": [
+      "mailbox.hu"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.mailbox.hu",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.mailbox.hu",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 131,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "azet_sk",
+    "display_name": "Azet.sk",
+    "domain_patterns": [
+      "azet.sk",
+      "centrum.sk"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.azet.sk",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.azet.sk",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 132,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "abv_bg",
+    "display_name": "ABV.bg",
+    "domain_patterns": [
+      "abv.bg",
+      "gyuvetch.bg"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.abv.bg",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.abv.bg",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 133,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "dir_bg",
+    "display_name": "Dir.bg",
+    "domain_patterns": [
+      "dir.bg"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.dir.bg",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.dir.bg",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 134,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "walla",
+    "display_name": "Walla (Israel)",
+    "domain_patterns": [
+      "walla.co.il",
+      "walla.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.walla.co.il",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.walla.co.il",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 135,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "bezeqint",
+    "display_name": "Bezeq (Israel)",
+    "domain_patterns": [
+      "bezeqint.net",
+      "013.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.bezeqint.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.bezeqint.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 136,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "africa_online",
+    "display_name": "Africa Online",
+    "domain_patterns": [
+      "africaonline.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.africaonline.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.africaonline.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 137,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "webmail_ng",
+    "display_name": "Webmail.ng (Nigeria)",
+    "domain_patterns": [
+      "webmail.ng"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.webmail.ng",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.webmail.ng",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 138,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "139mail",
+    "display_name": "139 Mail (China Mobile)",
+    "domain_patterns": [
+      "139.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.139.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.139.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_2",
+    "app_password_required": true,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 139,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "nate",
+    "display_name": "Nate (South Korea)",
+    "domain_patterns": [
+      "nate.com",
+      "empal.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.nate.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.nate.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 140,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "plala",
+    "display_name": "Plala (Japan)",
+    "domain_patterns": [
+      "plala.or.jp"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.plala.or.jp",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.plala.or.jp",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 141,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "excite_jp",
+    "display_name": "Excite Japan",
+    "domain_patterns": [
+      "excite.co.jp"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.excite.co.jp",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.excite.co.jp",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 142,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "tin_it",
+    "display_name": "TIN.it",
+    "domain_patterns": [
+      "tin.it"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.tin.it",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.tin.it",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 143,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "email_it",
+    "display_name": "Email.it",
+    "domain_patterns": [
+      "email.it"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.email.it",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.email.it",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 144,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "lycos",
+    "display_name": "Lycos Mail",
+    "domain_patterns": [
+      "lycos.com",
+      "lycos.de",
+      "lycos.co.uk"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.lycos.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.lycos.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 145,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "netcologne",
+    "display_name": "NetCologne",
+    "domain_patterns": [
+      "netcologne.de"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.netcologne.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.netcologne.de",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 146,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "versatel",
+    "display_name": "Versatel",
+    "domain_patterns": [
+      "versatel.de"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.versatel.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.versatel.de",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 147,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "vodafone_de",
+    "display_name": "Vodafone Germany",
+    "domain_patterns": [
+      "vodafone.de",
+      "arcor.de",
+      "kabelmail.de"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.vodafone.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.vodafone.de",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 148,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "hispeed_ch",
+    "display_name": "Hispeed.ch",
+    "domain_patterns": [
+      "hispeed.ch"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.hispeed.ch",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.hispeed.ch",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 149,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "sunrise_ch",
+    "display_name": "Sunrise (Switzerland)",
+    "domain_patterns": [
+      "sunrise.ch"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.sunrise.ch",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.sunrise.ch",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 150,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "aim_mail",
+    "display_name": "AIM Mail",
+    "domain_patterns": [
+      "aim.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.aim.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.aim.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 151,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "safe_mail",
+    "display_name": "Safe-mail",
+    "domain_patterns": [
+      "safe-mail.net"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.safe-mail.net",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.safe-mail.net",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 152,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "hushmail",
+    "display_name": "Hushmail",
+    "domain_patterns": [
+      "hushmail.com",
+      "hush.com",
+      "hush.ai"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.hushmail.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.hushmail.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 153,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "startmail",
+    "display_name": "StartMail",
+    "domain_patterns": [
+      "startmail.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.startmail.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.startmail.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 154,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "eclipso",
+    "display_name": "Eclipso",
+    "domain_patterns": [
+      "eclipso.de",
+      "eclipso.eu",
+      "eclipso.at"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.eclipso.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.eclipso.de",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 155,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "mail_de",
+    "display_name": "Mail.de",
+    "domain_patterns": [
+      "mail.de"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.mail.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.mail.de",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 156,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "emailn_de",
+    "display_name": "Emailn.de",
+    "domain_patterns": [
+      "emailn.de"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.emailn.de",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.emailn.de",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 157,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "inbox_com",
+    "display_name": "Inbox.com",
+    "domain_patterns": [
+      "inbox.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.inbox.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.inbox.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 158,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "lavabit",
+    "display_name": "Lavabit",
+    "domain_patterns": [
+      "lavabit.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.lavabit.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.lavabit.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 159,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "tuta_com",
+    "display_name": "Tuta.com",
+    "domain_patterns": [
+      "tuta.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.tuta.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.tuta.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 160,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": false,
+    "variant_of": null
+  },
+  {
+    "id": "debug_test_provider",
+    "display_name": "Debug Test Provider",
+    "domain_patterns": [
+      "debug-test.example.com"
+    ],
+    "mx_patterns": [],
+    "incoming": {
+      "hostname": "imap.debug-test.example.com",
+      "port": 993,
+      "encryption": "SslTls"
+    },
+    "outgoing": {
+      "hostname": "smtp.debug-test.example.com",
+      "port": 465,
+      "encryption": "SslTls"
+    },
+    "username_type": "EmailAddress",
+    "keep_alive_interval": 15,
+    "noop_keep_alive": false,
+    "partial_fetch": true,
+    "max_tls_version": "Tls1_3",
+    "app_password_required": false,
+    "disable_ip_connections": false,
+    "requires_manual_enablement": false,
+    "documentation_url": null,
+    "localized_docs": [],
+    "oauth": null,
+    "display_order": 9999,
+    "enabled": true,
+    "supports_shared_mailbox": false,
+    "subtitle": null,
+    "registration_url": null,
+    "app_password_url": null,
+    "graph": null,
+    "debug_only": true,
+    "variant_of": null
+  }
+]

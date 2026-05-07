@@ -11,9 +11,7 @@ use crate::core::field_validation::{trim_hostname, trim_username, validate_manua
 use crate::core::inbound_test::InboundTestParams;
 use crate::core::inbound_test_diagnostics::diagnose_error;
 use crate::core::port_autofill::{default_port, should_autofill};
-use crate::core::provider::{
-    MaxTlsVersion, ProviderEncryption, ServerConfig, UsernameType,
-};
+use crate::core::provider::{MaxTlsVersion, ProviderEncryption, ServerConfig, UsernameType};
 use crate::core::provider_dropdown;
 use crate::core::save_auto_test;
 use crate::core::{

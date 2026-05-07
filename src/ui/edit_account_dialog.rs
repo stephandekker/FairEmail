@@ -10,9 +10,7 @@ use libadwaita::prelude::*;
 use crate::core::auth_conversion::{can_convert_to_password, find_oauth_config_for_conversion};
 use crate::core::inbound_test::{InboundTestError, InboundTestParams};
 use crate::core::oauth_flow::OAuthSession;
-use crate::core::provider::{
-    MaxTlsVersion, ProviderEncryption, ServerConfig, UsernameType,
-};
+use crate::core::provider::{MaxTlsVersion, ProviderEncryption, ServerConfig, UsernameType};
 use crate::core::provider_dropdown;
 use crate::core::reauth::find_oauth_config_for_reauth;
 use crate::core::save_auto_test;
